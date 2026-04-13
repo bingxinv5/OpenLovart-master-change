@@ -23,6 +23,7 @@
 
 # misc
 .DS_Store
+Thumbs.db
 *.pem
 *.log
 .tmp-video/
@@ -44,6 +45,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# local stamps
+/.openlovart-deps-installed.stamp
+
 # vercel
 .vercel
 
@@ -61,3 +65,8 @@ next-env.d.ts
 /.runtime/
 /.venv/
 /.vscode/
+/.idea/
+
+# python cache
+__pycache__/
+*.pyc
