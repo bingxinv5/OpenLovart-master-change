@@ -1,0 +1,63 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/upscayl-api/node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+*.log
+.tmp-video/
+/artifacts/
+/graphify-out/
+/upscayl-api/bin/
+/upscayl-api/models/
+/upscayl-api/outputs/
+/upscayl-api/uploads/
+/upscayl-api/.openlovart-upscayl-deps-installed.stamp
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# clerk configuration (can include secrets)
+/.clerk/
+
+# CDN local cache
+/.cdn-cache/
+
+# local runtime artifacts
+/.runtime/
+/.venv/
+/.vscode/

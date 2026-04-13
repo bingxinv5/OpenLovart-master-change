@@ -1,0 +1,5 @@
+{
+  "addFrameEvent": "lovart:test-canvas-add-frame",
+  "moveElementToFrameEvent": "lovart:test-canvas-move-element-to-frame",
+  "setFrameAutoLayoutEvent": "lovart:test-canvas-set-frame-autolayout"
+}

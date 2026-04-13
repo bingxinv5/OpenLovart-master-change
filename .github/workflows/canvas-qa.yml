@@ -1,0 +1,103 @@
+name: Canvas QA
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/canvas-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canvas-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Start Next dev server
+        shell: bash
+        run: |
+          npm run dev > /tmp/openlovart-next.log 2>&1 &
+          echo $! > /tmp/openlovart-next.pid
+
+      - name: Wait for app
+        shell: bash
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000 > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Next dev server did not become ready in time.'
+          cat /tmp/openlovart-next.log || true
+          exit 1
+
+      - name: Run canvas QA scenarios
+        run: npm run qa:canvas:scenarios
+
+      - name: Publish canvas QA summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# Canvas QA Summary"
+            echo
+
+            for report in \
+              "artifacts/canvas-qa/layers/summary.md" \
+              "artifacts/canvas-qa/media/summary.md" \
+              "artifacts/canvas-qa/canvas/summary.md" \
+              "artifacts/canvas-qa/projects/summary.md" \
+              "artifacts/canvas-qa/settings/summary.md" \
+              "artifacts/canvas-qa/persistence/summary.md"
+            do
+              if [ -f "$report" ]; then
+                echo "## ${report}"
+                echo
+                cat "$report"
+                echo
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload canvas QA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-qa-artifacts
+          path: |
+            artifacts/canvas-qa/**
+            /tmp/openlovart-next.log
+          if-no-files-found: warn
+
+      - name: Stop Next dev server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/openlovart-next.pid ]; then
+            kill $(cat /tmp/openlovart-next.pid) || true
+          fi

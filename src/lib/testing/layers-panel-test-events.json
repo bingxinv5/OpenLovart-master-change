@@ -1,0 +1,4 @@
+{
+  "moveToParentEvent": "lovart:test-move-layer-to-parent",
+  "reorderEvent": "lovart:test-reorder-layer"
+}

@@ -1,0 +1,18 @@
+# Keep the main graph focused on architecture and workflows.
+node_modules/
+.next/
+coverage/
+build/
+out/
+.vercel/
+.clerk/
+.cdn-cache/
+artifacts/
+upscayl-api/models/
+upscayl-api/outputs/
+upscayl-api/uploads/
+.env*
+*.tsbuildinfo
+next-env.d.ts
+package-lock.json
+upscayl-api/package-lock.json

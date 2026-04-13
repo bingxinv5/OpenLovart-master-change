@@ -1,0 +1,531 @@
+# API Docs
+
+## Docs
+- [指南](https://gpt-best.apifox.cn/doc-3530850.md): 
+- [获取 Base URL 和 API Key](https://gpt-best.apifox.cn/doc-6535931.md): 
+- [通知设置-WebHook参数介绍](https://gpt-best.apifox.cn/doc-5202018.md): 
+- [通过 AI 快速生成调用代码](https://gpt-best.apifox.cn/doc-6826301.md): 
+- 聊天(Chat) [所有对话模型均兼容 OpenAI 格式](https://gpt-best.apifox.cn/doc-6113929.md): 
+- 聊天(Chat) [Realtime (实时语音、对话](https://gpt-best.apifox.cn/doc-5287337.md): 
+- 聊天(Chat) [聊天完成对象](https://gpt-best.apifox.cn/doc-3530855.md): 
+- 聊天(Chat) [聊天完成块对象](https://gpt-best.apifox.cn/doc-3530856.md): 
+- 聊天(Chat) [视觉语言模型介绍](https://gpt-best.apifox.cn/doc-5824173.md): 
+- 聊天(Chat) > Claude 官方格式 [所有 OpenAI格式 LLM 模型均支持 Claude 官方格式](https://gpt-best.apifox.cn/doc-7327090.md): 
+- 聊天(Chat) > GPTs [简介](https://gpt-best.apifox.cn/doc-3857110.md): 
+- 聊天(Responses) [Responses API与Chat API对比](https://gpt-best.apifox.cn/doc-7026818.md): 
+- RAG(嵌入、重排序 > 嵌入（Embeddings） [嵌入对象](https://gpt-best.apifox.cn/doc-3530858.md): 
+- RAG(嵌入、重排序 > 重排序（Reranker） [介绍](https://gpt-best.apifox.cn/doc-5711012.md): 
+- 视频模型 [视频生成模型简介](https://gpt-best.apifox.cn/doc-5824160.md): 
+- 视频模型 > 统一格式接口 [统一格式接口介绍](https://gpt-best.apifox.cn/doc-7324259.md): 
+- 视频模型 > 统一格式接口 > Grok 视频 [必看须知](https://gpt-best.apifox.cn/doc-7649808.md): 
+- 视频模型 > Higgsfield [Higgsfield 视频模型](https://gpt-best.apifox.cn/doc-6919212.md): 
+- 视频模型 > pixverse > 简单版 [接入文档](https://gpt-best.apifox.cn/doc-5981994.md): 
+- 视频模型 > Runway > 官方格式 [接入介绍](https://gpt-best.apifox.cn/doc-5488659.md): 
+- 视频模型 > Runway > 简单版(goamz/rocket [style 列表](https://gpt-best.apifox.cn/doc-6478782.md): 
+- 视频模型 > Pika > 通用版 [接入介绍](https://gpt-best.apifox.cn/doc-5923404.md): 
+- 视频模型 > Mid journey [请看 绘图模型 -> MidJourney](https://gpt-best.apifox.cn/doc-7061407.md): 
+- 视频模型 > Seedance(即梦视频 [推荐接入统一接口格式](https://gpt-best.apifox.cn/doc-7324633.md): 
+- 视频模型 > vidu [接入介绍](https://gpt-best.apifox.cn/doc-7643829.md): 
+- 视频模型 > qwen视频模型 [文生视频](https://gpt-best.apifox.cn/doc-7809702.md): 
+- 视频模型 > qwen视频模型 [基于首帧生成视频](https://gpt-best.apifox.cn/doc-7809705.md): 
+- 视频模型 > qwen视频模型 [多图生视频](https://gpt-best.apifox.cn/doc-7809721.md): 
+- 视频模型 > qwen视频模型 [图生动作](https://gpt-best.apifox.cn/doc-7809726.md): 
+- 视频模型 > qwen视频模型 [视频换人](https://gpt-best.apifox.cn/doc-7809736.md): 
+- 视频模型 > qwen视频模型 [舞动人像](https://gpt-best.apifox.cn/doc-7809751.md): 
+- 视频模型 > qwen视频模型 [数字人](https://gpt-best.apifox.cn/doc-7809777.md): 
+- 视频模型 > qwen视频模型 [悦动人像 EMO](https://gpt-best.apifox.cn/doc-7809807.md): 
+- 视频模型 > qwen视频模型 [灵动人像 LivePortrait](https://gpt-best.apifox.cn/doc-7809813.md): 
+- 视频模型 > qwen视频模型 [表情包 Emoji](https://gpt-best.apifox.cn/doc-7809838.md): 
+- 视频模型 > qwen视频模型 [通用视频编辑](https://gpt-best.apifox.cn/doc-7809843.md): 
+- 视频模型 > qwen视频模型 [声动人像VideoRetalk](https://gpt-best.apifox.cn/doc-7809844.md): 
+- 视频模型 > qwen视频模型 [视频风格重绘](https://gpt-best.apifox.cn/doc-7809848.md): 
+- 绘图模型 [生图模型简介](https://gpt-best.apifox.cn/doc-5824149.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [Dalle 格式介绍](https://gpt-best.apifox.cn/doc-7414819.md): 
+- 绘图模型 > Mid journey [补充 其他参数以及回调](https://gpt-best.apifox.cn/doc-3530863.md): 
+- 绘图模型 > Mid journey [Midjourney接入向导](https://gpt-best.apifox.cn/doc-6172523.md): 
+- 绘图模型 > Ideogram(官方格式 [快速接入](https://gpt-best.apifox.cn/doc-6850468.md): 
+- 绘图模型 > recraft 官方格式 [附录](https://gpt-best.apifox.cn/doc-5763915.md): 
+- 绘图模型 >  豆包(即梦、火山)绘图 [快速接入](https://gpt-best.apifox.cn/doc-6850488.md): 
+- 绘图模型 >  豆包(即梦、火山)绘图 [能力介绍&计费说明](https://gpt-best.apifox.cn/doc-6303052.md): 
+- 绘图模型 >  豆包(即梦、火山)绘图 > 即梦4 [注意事项-必看](https://gpt-best.apifox.cn/doc-7431936.md): 
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [接入教程 ](https://gpt-best.apifox.cn/doc-6826694.md): 
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [Flux 分辨率](https://gpt-best.apifox.cn/doc-6780955.md): 
+- 绘图模型 > Flux 系列 > Bfl 官方格式 [快速接入](https://gpt-best.apifox.cn/doc-6850445.md): 
+- 音频接口 > Suno文生歌 [补充](https://gpt-best.apifox.cn/doc-4344094.md): 
+- 音频接口 > Suno文生歌 [GoAmz 配置方式](https://gpt-best.apifox.cn/doc-7431751.md): 
+- 音频接口 > Suno文生歌 [音乐版本以及生成参数介绍](https://gpt-best.apifox.cn/doc-5633215.md): 
+- 音频接口 > Suno文生歌 [场景一: 灵感模式](https://gpt-best.apifox.cn/doc-6643827.md): 
+- 音频接口 > Suno文生歌 [场景二: 自定义.歌词歌名](https://gpt-best.apifox.cn/doc-6643829.md): 
+- 音频接口 > Suno文生歌 [场景三: 纯音乐.自定义](https://gpt-best.apifox.cn/doc-6643830.md): 
+- 音频接口 > Suno文生歌 [场景四: 纯音乐.灵感模式](https://gpt-best.apifox.cn/doc-6643831.md): 
+- 音频接口 > Suno文生歌 [场景五: 续写自定义音频](https://gpt-best.apifox.cn/doc-6643832.md): 
+- 音频接口 > Suno文生歌 [场景六: 续写音乐并获取完整音乐](https://gpt-best.apifox.cn/doc-6643833.md): 
+- 音频接口 > Suno文生歌 [场景七: Cover 音乐翻版\修改风格](https://gpt-best.apifox.cn/doc-6643851.md): 
+- 音频接口 > Suno文生歌 [场景八: Replace Section.替换片段](https://gpt-best.apifox.cn/doc-6643852.md): 
+- 音频接口 > Suno文生歌 [场景九: Persona.歌手风格](https://gpt-best.apifox.cn/doc-6643853.md): 
+- 音频接口 > Suno文生歌 [场景十: 上传续写](https://gpt-best.apifox.cn/doc-6643749.md): 
+- 音频接口 > Suno文生歌 [场景十一：stems声曲分离 Vocals Instrumental](https://gpt-best.apifox.cn/doc-7457984.md): 
+- 音频接口 > Suno文生歌 [场景十二：Timing:歌词、音频时间线](https://gpt-best.apifox.cn/doc-7457986.md): 
+- 音频接口 > Suno文生歌 [场景十三：高阶参数](https://gpt-best.apifox.cn/doc-7491115.md): 
+- 音频接口 > MINIMAX 语音合成 [场景一：同步语音合成](https://gpt-best.apifox.cn/doc-7717229.md): 
+- 音频接口 > MINIMAX 语音合成 [场景二：异步长文本语音合成](https://gpt-best.apifox.cn/doc-7717250.md): 
+- 文件上传（Files） [README](https://gpt-best.apifox.cn/doc-3530861.md): 
+- 文件上传（Files） [文件对象](https://gpt-best.apifox.cn/doc-3530862.md): 
+- PPT接口 > 文多多(官方格式) [介绍](https://gpt-best.apifox.cn/doc-5041256.md): 
+- 快手可灵(官方格式) [简介](https://gpt-best.apifox.cn/doc-5818889.md): 
+- 快手可灵(官方格式) [对接教程](https://gpt-best.apifox.cn/doc-5540151.md): 
+- 快手可灵(官方格式) [Callback协议](https://gpt-best.apifox.cn/doc-5163127.md): 
+- Fal.ai 平台兼容 [接入教程](https://gpt-best.apifox.cn/doc-6874958.md): 
+- Replicate平台兼容 [接入教程](https://gpt-best.apifox.cn/doc-6535906.md): 
+- 帮助中心 [常见问题及解决办法](https://gpt-best.apifox.cn/doc-3533210.md): 
+- 废弃、未开放 > Udio文生歌 [接入流程](https://gpt-best.apifox.cn/doc-5438976.md): 
+- 废弃、未开放 > 通用版 [接入文档](https://gpt-best.apifox.cn/doc-5821943.md): 
+- 废弃、未开放 > 数字人 [简介](https://gpt-best.apifox.cn/doc-5835755.md): 
+- 废弃、未开放 > Riffusion [Riffusion API 调用说明文档](https://gpt-best.apifox.cn/doc-6989124.md): 
+- 废弃、未开放 > Viggle 舞蹈合成 [介绍](https://gpt-best.apifox.cn/doc-5041316.md): 
+
+## API Docs
+- 列出模型 [Models（列出模型）](https://gpt-best.apifox.cn/api-287780941.md): 列出当前可用的模型，OpenAI 格式
+- 聊天(Chat) > Claude 官方格式 [Messages(官方Anthropic格式)](https://gpt-best.apifox.cn/api-228980408.md): 
+- 聊天(Chat) > Claude 官方格式 [Messages(识图)](https://gpt-best.apifox.cn/api-266125082.md): 
+- 聊天(Chat) > Claude 官方格式 [Messages(思考)](https://gpt-best.apifox.cn/api-266125085.md): 也可以使用 -thinking 模型，openai 格式，我们已兼容 think
+- 聊天(Chat) > Claude 官方格式 [Messages(函数调用)](https://gpt-best.apifox.cn/api-287782944.md): 
+- 聊天(Chat) > GPTs [通过关键词搜索 GPTs](https://gpt-best.apifox.cn/api-153827355.md): 关键词搜索 gpts ，返回 json 数组
+- 聊天(Chat) > GPTs [通过ID搜索 GPTs](https://gpt-best.apifox.cn/api-153827405.md): 通过ID搜索 GPTs 详情
+- 聊天(Chat) > GPTs [通过关键词搜索 GPTs V2](https://gpt-best.apifox.cn/api-200261919.md): 关键词搜索 gpts ，返回 json 数组
+- 聊天(Chat) > GPTs [通过ID搜索 GPTs V2](https://gpt-best.apifox.cn/api-200261921.md): 通过ID搜索 GPTs 详情
+- 聊天(Chat) > Gemini 官方格式 [Gemini 官方格式](https://gpt-best.apifox.cn/api-350079690.md): 支持 Gemini 官方格式；
+- 聊天(Chat) > Gemini 官方格式 [OpenAI Chat(Gemini 预设tools调用) ](https://gpt-best.apifox.cn/api-428148354.md): 支持Gemini 预设 tools：
+- 聊天(Chat) [Chat(聊天)](https://gpt-best.apifox.cn/api-139393491.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 聊天(Chat) [Chat(流式返回) ](https://gpt-best.apifox.cn/api-287782723.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 聊天(Chat) [Chat(分析图片)](https://gpt-best.apifox.cn/api-139453850.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 聊天(Chat) [Chat(分析视频) ](https://gpt-best.apifox.cn/api-321040299.md): 所有对话模型，都可使用此接口， 修改 model 属性为模型名
+- 聊天(Chat) [Chat(结构化输出) ](https://gpt-best.apifox.cn/api-287782788.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 聊天(Chat) [Chat(兼容Recraftv3)](https://gpt-best.apifox.cn/api-287782792.md): 给定一个提示，该模型将返回一个或多个预测的完成，并且还可以返回每个位置的替代标记的概率。
+- 聊天(Chat) [Chat(指定GPTs)](https://gpt-best.apifox.cn/api-153827428.md): 模型名称格式为：gpt-4-gizmo-*，系统会自动进行识别
+- 聊天(Chat) [Chat(修改图片) ](https://gpt-best.apifox.cn/api-287782833.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 聊天(Chat) [Chat(生成图片)  ](https://gpt-best.apifox.cn/api-287782839.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 聊天(Chat) [Chat(工具tools调用)](https://gpt-best.apifox.cn/api-223322111.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 聊天(Chat) [Chat(Claude Thinking)](https://gpt-best.apifox.cn/api-266125510.md): 给定一个提示，该模型将返回一个或多个预测的完成，并且还可以返回每个位置的替代标记的概率。
+- 聊天(Chat) [gpt-3.5-turbo-instruct](https://gpt-best.apifox.cn/api-139393495.md): 给定一个提示，该模型将返回一个或多个预测的完成，并且还可以返回每个位置的替代标记的概率。
+- 聊天(Responses) [创建模型响应](https://gpt-best.apifox.cn/api-321434971.md): https://platform.openai.com/docs/api-reference/responses/create
+- 聊天(Responses) [创建模型响应(流式返回)](https://gpt-best.apifox.cn/api-321436991.md): https://platform.openai.com/docs/api-reference/responses/create
+- 聊天(Responses) [创建模型响应（调用联网](https://gpt-best.apifox.cn/api-322273221.md): https://platform.openai.com/docs/api-reference/responses/create
+- RAG(嵌入、重排序 > 嵌入（Embeddings） [创建嵌入](https://gpt-best.apifox.cn/api-252607178.md): 获取给定输入的矢量表示，机器学习模型和算法可以轻松使用该表示。
+- RAG(嵌入、重排序 > 嵌入（Embeddings） [多模态向量嵌入](https://gpt-best.apifox.cn/api-139393496.md): 获取给定输入的矢量表示，机器学习模型和算法可以轻松使用该表示。
+- RAG(嵌入、重排序 > 重排序（Reranker） [rerank](https://gpt-best.apifox.cn/api-246660634.md): 
+- 视频模型 > 统一格式接口 > Google-Veo [Veo文生视频](https://gpt-best.apifox.cn/api-343590061.md): 
+- 视频模型 > 统一格式接口 > Google-Veo [Veo图生视频 ](https://gpt-best.apifox.cn/api-343632235.md): 当模型是带 veo2-fast-frames 最多支持两个，分别是首尾帧
+- 视频模型 > 统一格式接口 > Google-Veo [Veo查询任务](https://gpt-best.apifox.cn/api-343593236.md): 统一接口格式
+- 视频模型 > 统一格式接口 > 阿里Wan(万相视频 [Wan文生视频](https://gpt-best.apifox.cn/api-342290999.md): 通义万相文生视频模型基于文本提示词，生成一段流畅的视频。支持的能力包括：
+- 视频模型 > 统一格式接口 > 阿里Wan(万相视频 [Wan图生视频](https://gpt-best.apifox.cn/api-342181510.md): 统一接口格式
+- 视频模型 > 统一格式接口 > 阿里Wan(万相视频 [Wan首尾帧图生视频](https://gpt-best.apifox.cn/api-342291320.md): 统一接口格式
+- 视频模型 > 统一格式接口 > 阿里Wan(万相视频 [Wan文生视频带音频](https://gpt-best.apifox.cn/api-356163999.md): 通义万相文生视频模型基于文本提示词，生成一段流畅的视频。支持的能力包括：
+- 视频模型 > 统一格式接口 > 阿里Wan(万相视频 [Wan图生视频带音频](https://gpt-best.apifox.cn/api-356164000.md): 通义万相-图生视频模型根据首帧图像和文本提示词，生成一段流畅的视频。支持的能力包括：
+- 视频模型 > 统一格式接口 > 阿里Wan(万相视频 [Wan查询任务](https://gpt-best.apifox.cn/api-342240878.md): 统一接口格式
+- 视频模型 > 统一格式接口 > Grok 视频 [Grok创建视频](https://gpt-best.apifox.cn/api-375247345.md): 此模型不直接对外开放，请联系管理员了解详情
+- 视频模型 > 统一格式接口 > Grok 视频 [Grok查询任务](https://gpt-best.apifox.cn/api-375249156.md): 统一接口格式
+- 视频模型 > 统一格式接口 > Grok 视频 [Grok视频-多图参考](https://gpt-best.apifox.cn/api-428187162.md): 此模型不直接对外开放，请联系管理员了解详情
+- 视频模型 > 统一格式接口 > Seedance(即梦视频 [Seedance文生视频](https://gpt-best.apifox.cn/api-343444777.md): 统一接口格式
+- 视频模型 > 统一格式接口 > Seedance(即梦视频 [Seedance图生视频](https://gpt-best.apifox.cn/api-343464094.md): 统一接口格式
+- 视频模型 > 统一格式接口 > Seedance(即梦视频 [Seedance首尾帧图生视频](https://gpt-best.apifox.cn/api-343464933.md): 统一接口格式
+- 视频模型 > 统一格式接口 > Seedance(即梦视频 [Seedance查询任务](https://gpt-best.apifox.cn/api-343444780.md): 统一接口格式
+- 视频模型 > Higgsfield [生成视频任务](https://gpt-best.apifox.cn/api-313271608.md): 
+- 视频模型 > Higgsfield [生成演说任务](https://gpt-best.apifox.cn/api-313271660.md): HIGGSFIELD.3 生成演说视频 [人物说话]
+- 视频模型 > Higgsfield [生成广告任务](https://gpt-best.apifox.cn/api-313271690.md): HIGGSFIELD.4 生成广告视频 [产品展示]
+- 视频模型 > Higgsfield [获取任务状态](https://gpt-best.apifox.cn/api-313271643.md): HIGGSFIELD.2 获取视频任务状态 [查询结果]
+- 视频模型 > Higgsfield [获取演说模板](https://gpt-best.apifox.cn/api-313271732.md): 
+- 视频模型 > Higgsfield [获取动作模板](https://gpt-best.apifox.cn/api-313271706.md): HIGGSFIELD.5.1 获取动作模板列表 [视频动作]
+- 视频模型 > Higgsfield [获取语音模板](https://gpt-best.apifox.cn/api-313271762.md): 
+- 视频模型 > Higgsfield [获取环境声音模板](https://gpt-best.apifox.cn/api-313271780.md): HIGGSFIELD.5.4 获取环境声音模板列表 [背景音]
+- 视频模型 > pixverse > 简单版 [Generate(图生视频](https://gpt-best.apifox.cn/api-260252040.md): 
+- 视频模型 > pixverse > 简单版 [Generate(文生视频](https://gpt-best.apifox.cn/api-260301783.md): 
+- 视频模型 > pixverse > 简单版 [获取进度(免费](https://gpt-best.apifox.cn/api-260252178.md): **status**
+- 视频模型 > Luma > 官方接口格式 > 任务查询 [查询单个任务(免费](https://gpt-best.apifox.cn/api-189362390.md): vip 账号的会在 video. download_url 返回 无水印地址，有时可能为空，需要另外从 无水印接口获取
+- 视频模型 > Luma > 官方接口格式 > 任务查询 [批量获取任务(免费](https://gpt-best.apifox.cn/api-189360758.md): 
+- 视频模型 > Luma > 官方接口格式 [提交生成视频任务](https://gpt-best.apifox.cn/api-189360757.md): 
+- 视频模型 > Luma > 官方接口格式 [扩展视频](https://gpt-best.apifox.cn/api-191475015.md): task id 为需要延长的视频任务id
+- 视频模型 > Luma > 官方接口格式 [提交生成视频任务-异步](https://gpt-best.apifox.cn/api-194183986.md): 提交任务速度更快，适合有上传图片这种响应慢的情况，避免客户端超时
+- 视频模型 > Luma > 官方接口格式 [获取视频无水印链接（VIP版才支持）（废弃，查询接口有返回](https://gpt-best.apifox.cn/api-191474993.md): 废弃，查询接口有返回
+- 视频模型 > Luma > GoAmzAI格式(兼容版，开发接入请勿对接 [生成视频 (兼容版，开发接入请勿对接](https://gpt-best.apifox.cn/api-220409212.md): 
+- 视频模型 > Luma > GoAmzAI格式(兼容版，开发接入请勿对接 [获取视频(免费](https://gpt-best.apifox.cn/api-220409213.md): 
+- 视频模型 > 智谱清影 [生成(generations)](https://gpt-best.apifox.cn/api-200368895.md): 
+- 视频模型 > 智谱清影 [查询(async-result)(免费](https://gpt-best.apifox.cn/api-200374941.md): 
+- 视频模型 > 智谱清影 [查询(async-result) 批量(免费](https://gpt-best.apifox.cn/api-200382139.md): 
+- 视频模型 > Runway > 官方格式 [提交视频生成任务](https://gpt-best.apifox.cn/api-234029137.md): https://docs.dev.runwayml.com/api/#tag/Start-generating/paths/~1v1~1image_to_video/post
+- 视频模型 > Runway > 官方格式 [查询视频任务(免费](https://gpt-best.apifox.cn/api-234029138.md): 
+- 视频模型 > Runway > 简单版(goamz/rocket [generate(参考图片)](https://gpt-best.apifox.cn/api-259399482.md): ### 请求参数
+- 视频模型 > Runway > 简单版(goamz/rocket [generate(文生视频](https://gpt-best.apifox.cn/api-259399395.md): 
+- 视频模型 > Runway > 简单版(goamz/rocket [video2video(视频转视频 风格重绘](https://gpt-best.apifox.cn/api-259399518.md): ### 请求参数
+- 视频模型 > Runway > 简单版(goamz/rocket [Act-two 表情迁移(原act-one](https://gpt-best.apifox.cn/api-338335609.md): Act-two 表情迁移
+- 视频模型 > Runway > 简单版(goamz/rocket [Aleph上下文视频模型](https://gpt-best.apifox.cn/api-338335613.md): Runway Aleph 是一种先进的上下文视频模型，为多任务视觉生成设定了新的前沿，能够对输入视频进行广泛编辑，例如添加、移除和转换对象，生成场景的任何角度，以及修改风格和光照等
+- 视频模型 > Runway > 简单版(goamz/rocket [查询视频任务(免费](https://gpt-best.apifox.cn/api-259399394.md): 
+- 视频模型 > Pika > 通用版 [generate (文生视频\图生视频\视频生视频)](https://gpt-best.apifox.cn/api-229374791.md): 
+- 视频模型 > Pika > 通用版 [获取pika affect列表(免费](https://gpt-best.apifox.cn/api-258805785.md): 
+- 视频模型 > Pika > 通用版 [查询视频任务(免费](https://gpt-best.apifox.cn/api-223415346.md): 字段	类型	说明
+- 视频模型 > MiniMax视频模型 [视频生成任务](https://gpt-best.apifox.cn/api-313272194.md): https://platform.minimaxi.com/document/video_api_intro?key=68abdfdaaf3fef26183d6501
+- 视频模型 > MiniMax视频模型 [图生视频生成](https://gpt-best.apifox.cn/api-349752638.md): 
+- 视频模型 > MiniMax视频模型 [首尾帧视频生成](https://gpt-best.apifox.cn/api-349752186.md): MiniMax-Hailuo-02 模型 首尾帧视频生成功能
+- 视频模型 > MiniMax视频模型 [视频任务状态查询](https://gpt-best.apifox.cn/api-313272293.md): 
+- 视频模型 > MiniMax视频模型 [获取视频链接](https://gpt-best.apifox.cn/api-337525758.md): 
+- 视频模型 > Seedance(即梦视频 [创建任务-官方格式](https://gpt-best.apifox.cn/api-343680647.md): 仅需将官方 API 地址，更换为我们的地址
+- 视频模型 > Seedance(即梦视频 [查询-官方格式](https://gpt-best.apifox.cn/api-343680865.md): 详情请参考官方文档 https://www.volcengine.com/docs/82379/1520757
+- 视频模型 > Sora2官方格式 > 统一格式 [Chat(聊天格式兼容](https://gpt-best.apifox.cn/api-358026246.md): 在提示词中添加要求即可，如提示词以(竖屏、横屏,15s,高清）开头; 也可以通过模型名来指定
+- 视频模型 > Sora2官方格式 > 统一格式 [Sora2文生视频](https://gpt-best.apifox.cn/api-358024351.md): 视频大概耗时
+- 视频模型 > Sora2官方格式 > 统一格式 [Sora2图生视频](https://gpt-best.apifox.cn/api-358024500.md): 视频大概耗时
+- 视频模型 > Sora2官方格式 > 统一格式 [Sora2故事板视频](https://gpt-best.apifox.cn/api-385318417.md): 提示词按照以下格式传即可自动启用故事板
+- 视频模型 > Sora2官方格式 > 统一格式 [Sora2 使用角色客串](https://gpt-best.apifox.cn/api-369451139.md): 角色客串功能:
+- 视频模型 > Sora2官方格式 > 统一格式 [Sora2查询任务](https://gpt-best.apifox.cn/api-358024353.md): 统一接口格式
+- 视频模型 > Sora2官方格式 [创建视频](https://gpt-best.apifox.cn/api-362481361.md): https://platform.openai.com/docs/api-reference/videos/create
+- 视频模型 > Sora2官方格式 [remix 编辑视频](https://gpt-best.apifox.cn/api-362806489.md): https://platform.openai.com/docs/api-reference/videos/create
+- 视频模型 > Sora2官方格式 [查询视频进度](https://gpt-best.apifox.cn/api-362760648.md): https://platform.openai.com/docs/api-reference/videos/create
+- 视频模型 > Sora2官方格式 [创建角色 Character](https://gpt-best.apifox.cn/api-374618722.md): 创建角色，后续可用于 @ 调用，注意调用角色需要跟 prompt 有空格隔开
+- 视频模型 > Sora2官方格式 [查询视频内容](https://gpt-best.apifox.cn/api-413600479.md): https://platform.openai.com/docs/api-reference/videos/create
+- 视频模型 > vidu [图生视频](https://gpt-best.apifox.cn/api-374481658.md): ### 参数名称及描述
+- 视频模型 > vidu [参考生视频](https://gpt-best.apifox.cn/api-374481783.md): 具体参数请看官方文档： 
+- 视频模型 > vidu [首尾帧](https://gpt-best.apifox.cn/api-374481785.md): 具体参数请看官方文档： 
+- 视频模型 > vidu [文生视频](https://gpt-best.apifox.cn/api-374481802.md): 具体参数请看官方文档： 
+- 视频模型 > vidu [查询任务](https://gpt-best.apifox.cn/api-374481817.md): 
+- 视频模型 > qwen视频模型 [文生视频](https://gpt-best.apifox.cn/api-387945275.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2865250)
+- 视频模型 > qwen视频模型 [首帧生成视频接口](https://gpt-best.apifox.cn/api-387957977.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2867393)
+- 视频模型 > qwen视频模型 [首尾帧生成视频](https://gpt-best.apifox.cn/api-387961469.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2880649)
+- 视频模型 > qwen视频模型 [多图生视频](https://gpt-best.apifox.cn/api-387966119.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2922183)
+- 视频模型 > qwen视频模型 [图生动作](https://gpt-best.apifox.cn/api-387971634.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2981852)
+- 视频模型 > qwen视频模型 [视频换人](https://gpt-best.apifox.cn/api-387972820.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2982219)
+- 视频模型 > qwen视频模型 [AnimateAnyone 图像检测API参考](https://gpt-best.apifox.cn/api-387978294.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/animate-anyone-detect-api)
+- 视频模型 > qwen视频模型 [AnimateAnyone动作模板生成](https://gpt-best.apifox.cn/api-387981629.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/animate-anyone-template-api)
+- 视频模型 > qwen视频模型 [AnimateAnyone 视频生成](https://gpt-best.apifox.cn/api-387982518.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/animateanyone-video-generation-api)
+- 视频模型 > qwen视频模型 [数字人wan2.2-s2v图像检测](https://gpt-best.apifox.cn/api-387986314.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/wan-s2v-detect-api)
+- 视频模型 > qwen视频模型 [数字人wan2.2-s2v视频生成](https://gpt-best.apifox.cn/api-387987545.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/wan-s2v-api)
+- 视频模型 > qwen视频模型 [EMO图像检测](https://gpt-best.apifox.cn/api-387989980.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/emo-detect-api)
+- 视频模型 > qwen视频模型 [EMO 视频生成 API](https://gpt-best.apifox.cn/api-387990728.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/emo-api)
+- 视频模型 > qwen视频模型 [LivePortrait图像检测](https://gpt-best.apifox.cn/api-387993581.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/liveportrait-detect-api)
+- 视频模型 > qwen视频模型 [LivePortrait 视频生成](https://gpt-best.apifox.cn/api-387995280.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/liveportrait-api)
+- 视频模型 > qwen视频模型 [表情包Emoji 图像](https://gpt-best.apifox.cn/api-387999018.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/emoji-detect-api)
+- 视频模型 > qwen视频模型 [Emoji 视频生成](https://gpt-best.apifox.cn/api-388000245.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/emoji-api)
+- 视频模型 > qwen视频模型 [通用视频编辑](https://gpt-best.apifox.cn/api-388004129.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2922183)
+- 视频模型 > qwen视频模型 [VideoRetalk 视频生成](https://gpt-best.apifox.cn/api-388014879.md): [官方api 文档](https://help.aliyun.com/zh/model-studio/videoretalk-api)
+- 视频模型 > qwen视频模型 [视频风格重绘](https://gpt-best.apifox.cn/api-388016709.md): [官方api 文档](https://bailian.console.aliyun.com/?spm=5176.12818093_47.resourceCenter.1.3a9d2cc9l8f5UQ&userCode=okjhlpr5&tab=api#/api/?type=model&url=2846319)
+- 视频模型 > qwen视频模型 [获取任务进度](https://gpt-best.apifox.cn/api-388030360.md): 根据任务ID查询结果
+- 视频模型 > sdols > 统一格式 [文生视频](https://gpt-best.apifox.cn/api-440239454.md): 统一接口格式
+- 视频模型 > sdols > 统一格式 [多模态参考生视频](https://gpt-best.apifox.cn/api-440239834.md): 统一接口格式
+- 视频模型 > sdols > 统一格式 [查询任务](https://gpt-best.apifox.cn/api-440239576.md): 统一接口格式
+- 视频模型 > sdols > 官方格式 [创建任务-官方格式](https://gpt-best.apifox.cn/api-440251336.md): 仅需将官方 API 地址，更换为我们的地
+- 视频模型 > sdols > 官方格式 [查询-官方格式](https://gpt-best.apifox.cn/api-440251337.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [Generations 通用 (图生图&文生图)](https://gpt-best.apifox.cn/api-302915860.md): 如果支持参考图，例如 flux-kontext ，参考图url 放 prompt 中空格隔开
+- 绘图模型 > OpenAI Dall-e 格式 [Edits 通用 (图像编辑)](https://gpt-best.apifox.cn/api-288978020.md): official docs:  
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana(Generations，推荐对接)](https://gpt-best.apifox.cn/api-341817446.md): Nano-banana 和 gemini-2.5-flash-image-preview 的区别
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana(Edits兼容) ](https://gpt-best.apifox.cn/api-341817449.md): Nano-banana 和 gemini-2.5-flash-image-preview 的区别
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana 官方格式 gemini-2.5-flash-image](https://gpt-best.apifox.cn/api-363472251.md): 官方文档：
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana-2(Pro)(Generations，推荐对接)](https://gpt-best.apifox.cn/api-420361512.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana-2(Pro)(Edits兼容) ](https://gpt-best.apifox.cn/api-420361517.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana-2(Pro) 官方格式 gemini-3-pro-image-preview](https://gpt-best.apifox.cn/api-406882253.md): 官方文档：
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana-3.1-Flash(Generations，推荐对接) ](https://gpt-best.apifox.cn/api-420646217.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana-3.1-Flash(Edits兼容) ](https://gpt-best.apifox.cn/api-420646219.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [Nano-banana-3.1-Flash官方格式 gemini-3-pro-image-preview](https://gpt-best.apifox.cn/api-420647492.md): 官方文档：
+- 绘图模型 > OpenAI Dall-e 格式 [Recraftv3](https://gpt-best.apifox.cn/api-201845672.md): model 支持
+- 绘图模型 > OpenAI Dall-e 格式 [文生图](https://gpt-best.apifox.cn/api-229045941.md): [图片](https://platform.openai.com/docs/api-reference/images)
+- 绘图模型 > OpenAI Dall-e 格式 [Flux](https://gpt-best.apifox.cn/api-139454705.md): model 支持
+- 绘图模型 > OpenAI Dall-e 格式 [qwen-image (文生图) ](https://gpt-best.apifox.cn/api-332494686.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [qwen-image-edit (图生图)](https://gpt-best.apifox.cn/api-338005095.md): 仅支持一张参考图，支持放 prompt
+- 绘图模型 > OpenAI Dall-e 格式 [qwen-image-edit-2509 (图生图) ](https://gpt-best.apifox.cn/api-354499620.md): Qwen-Image-Edit-2509 的首要更新是支持了多图输入。
+- 绘图模型 > OpenAI Dall-e 格式 [Grok Image](https://gpt-best.apifox.cn/api-439071064.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [图像编辑(qwen-image-edit)](https://gpt-best.apifox.cn/api-338005715.md): 
+- 绘图模型 > OpenAI Dall-e 格式 [所有图像编辑(异步) ](https://gpt-best.apifox.cn/api-339685644.md): 支持所有画图模型异步请求，仅需添加 query 参数 async=true，请求body 与之前一致即可；
+- 绘图模型 > OpenAI Dall-e 格式 [所有画图(异步) ](https://gpt-best.apifox.cn/api-356258955.md): 支持所有画图模型异步请求，仅需添加 query 参数 async=true，请求body 与之前一致即可；
+- 绘图模型 > OpenAI Dall-e 格式 [所有画图(查询异步结果) ](https://gpt-best.apifox.cn/api-356258956.md): status： 
+- 绘图模型 > OpenAI 聊天格式 [Chat(生成图片)  ](https://gpt-best.apifox.cn/api-350777251.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 绘图模型 > OpenAI 聊天格式 [Chat(修改图片)  ](https://gpt-best.apifox.cn/api-350776953.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 绘图模型 > Mid journey > 换脸任务提交 [提交swap_face任务](https://gpt-best.apifox.cn/api-139393499.md): 
+- 绘图模型 > Mid journey > 任务提交 [提交Imagine任务(文生图、文图生图)](https://gpt-best.apifox.cn/api-139393505.md): 
+- 绘图模型 > Mid journey > 任务提交 [提交Blend任务(图生图)](https://gpt-best.apifox.cn/api-139393503.md): 
+- 绘图模型 > Mid journey > 任务提交 [提交Describe任务(图生文)](https://gpt-best.apifox.cn/api-139393504.md): 
+- 绘图模型 > Mid journey > 任务提交 [提交Shorten任务(prompt分析)](https://gpt-best.apifox.cn/api-139393507.md): 
+- 绘图模型 > Mid journey > 任务提交 [执行动作(所有的关联按钮动作UPSCALE; VARIATION; REROLL; ZOOM等)](https://gpt-best.apifox.cn/api-139393501.md): 
+- 绘图模型 > Mid journey > 任务提交 [提交Modal(提交局部重绘、ZOOM)](https://gpt-best.apifox.cn/api-139393506.md): 
+- 绘图模型 > Mid journey > 任务提交 [上传图片获得url](https://gpt-best.apifox.cn/api-295408056.md): 
+- 绘图模型 > Mid journey > 任务提交 [绘图变化-simple(UPSCALE; VARIATION; REROLL)](https://gpt-best.apifox.cn/api-139393502.md): 即将废弃，请使用 执行动作 接口；功能更多，对接更简单
+- 绘图模型 > Mid journey > 任务提交 [绘图变化(UPSCALE; VARIATION; REROLL)](https://gpt-best.apifox.cn/api-139393500.md): 即将废弃，请使用 执行动作 接口；功能更多，对接更简单
+- 绘图模型 > Mid journey > 任务提交 [提交Video任务(文生视频、文图生视频) ](https://gpt-best.apifox.cn/api-323778153.md): 一次出 4 个视频
+- 绘图模型 > Mid journey > 任务提交 [提交edits任务(图片编辑)](https://gpt-best.apifox.cn/api-323778871.md): 
+- 绘图模型 > Mid journey > 任务查询(免费 [根据ID列表查询任务(免费](https://gpt-best.apifox.cn/api-139393508.md): 
+- 绘图模型 > Mid journey > 任务查询(免费 [指定ID获取任务(免费](https://gpt-best.apifox.cn/api-139393509.md): 
+- 绘图模型 > Mid journey > 任务查询(免费 [获取任务图片的seed(免费](https://gpt-best.apifox.cn/api-139393510.md): 
+- 绘图模型 > Ideogram(官方格式 [Generate  3.0（文生图） ](https://gpt-best.apifox.cn/api-293514651.md): 使用 Ideogram 3.0 模型，根据给定的提示和可选参数同步生成图像
+- 绘图模型 > Ideogram(官方格式 [Edit 3.0（编辑）](https://gpt-best.apifox.cn/api-293514710.md): 使用提供的蒙版和 Ideogram 3.0 同步编辑给定图像。蒙版指示应编辑图像的哪个部分，而提示和所选样式可以进一步指导编辑
+- 绘图模型 > Ideogram(官方格式 [Remix 3.0（混合图）](https://gpt-best.apifox.cn/api-293514811.md): Remix 根据给定的提示和可选参数与 Ideogram 3.0 模型同步提供图像。
+- 绘图模型 > Ideogram(官方格式 [Reframe 3.0（重构） ](https://gpt-best.apifox.cn/api-293515027.md): 使用 Ideogram 3.0 将方形图像重构为选定的分辨率。支持的图像格式包括 JPEG、PNG 和 WebP。
+- 绘图模型 > Ideogram(官方格式 [Replace Background 3.0（背景替换） ](https://gpt-best.apifox.cn/api-293515067.md): 使用 Ideogram 3.0 的提示同步替换给定图像的背景。将识别并保留前景主题，而背景将根据提示和所选样式进行替换。支持的图像格式包括 JPEG、PNG 和 WebP。图片链接在有限的时间内可用;如果您想保留图像，则必须下载它。。
+- 绘图模型 > recraft 官方格式 [Generate Image（生成图片）](https://gpt-best.apifox.cn/api-249424281.md): 
+- 绘图模型 > recraft 官方格式 [Vectorize Image（矢量化图片）](https://gpt-best.apifox.cn/api-249428326.md): 
+- 绘图模型 > recraft 官方格式 [Remove Background（删除背景）](https://gpt-best.apifox.cn/api-249428564.md): 
+- 绘图模型 > recraft 官方格式 [Clarity Upscale（清晰度提升）](https://gpt-best.apifox.cn/api-249428595.md): 
+- 绘图模型 > recraft 官方格式 [Generative Upscale（生成高清）](https://gpt-best.apifox.cn/api-249428611.md): 
+- 绘图模型 > recraft 官方格式 [Create style（创建样式）](https://gpt-best.apifox.cn/api-249428635.md): 
+- 绘图模型 > SeedEdit(图片编辑 [Dall-e 携带参考图](https://gpt-best.apifox.cn/api-253633109.md): 仅部分模型支持 图片 参考
+- 绘图模型 > SeedEdit(图片编辑 [Chat(修改图片) ](https://gpt-best.apifox.cn/api-253633113.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 绘图模型 >  豆包(即梦、火山)绘图 > 即梦4 [即梦4 绘图](https://gpt-best.apifox.cn/api-347833949.md): 支持多图参考
+- 绘图模型 >  豆包(即梦、火山)绘图 > 即梦4 [即梦4 edits](https://gpt-best.apifox.cn/api-349233981.md): 
+- 绘图模型 >  豆包(即梦、火山)绘图 > 即梦4 [即梦4 Chat](https://gpt-best.apifox.cn/api-349234005.md): 
+- 绘图模型 >  豆包(即梦、火山)绘图 [即梦3 图生图](https://gpt-best.apifox.cn/api-332061068.md): https://www.volcengine.com/docs/82379/1666946
+- 绘图模型 >  豆包(即梦、火山)绘图 [即梦3 文生图](https://gpt-best.apifox.cn/api-332061825.md): https://www.volcengine.com/docs/82379/1541523
+- 绘图模型 >  豆包(即梦、火山)绘图 [同步请求例子: SeedEdit ](https://gpt-best.apifox.cn/api-275105853.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [异步请求提交例子: SeedEdit](https://gpt-best.apifox.cn/api-275105941.md): 当前商品下的能力已支持通过同步转异步接口进行异步调用，
+- 绘图模型 >  豆包(即梦、火山)绘图 [异步请求查询例子: SeedEdit](https://gpt-best.apifox.cn/api-275106013.md): 当前商品下的能力已支持通过同步转异步接口进行异步调用，
+- 绘图模型 >  豆包(即梦、火山)绘图 [即梦3.0](https://gpt-best.apifox.cn/api-285882094.md): https://www.volcengine.com/docs/85128/1526761
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用2.1-文生图](https://gpt-best.apifox.cn/api-289471829.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用2.0Pro-指令编辑（SeedEdit）](https://gpt-best.apifox.cn/api-289472056.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用2.0Pro-文生图](https://gpt-best.apifox.cn/api-289472073.md): {
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用2.0-角色特征保持](https://gpt-best.apifox.cn/api-289472079.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用2.0-文生图](https://gpt-best.apifox.cn/api-289472081.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用2.0Pro-图生图](https://gpt-best.apifox.cn/api-289472085.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用1.4-角色特征保持](https://gpt-best.apifox.cn/api-289472086.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用1.4-文生图](https://gpt-best.apifox.cn/api-289472089.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [动漫1.3.X-文生图/图生图](https://gpt-best.apifox.cn/api-289472105.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用XL pro-图生图](https://gpt-best.apifox.cn/api-289472111.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [通用XL pro-文生图](https://gpt-best.apifox.cn/api-289472120.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [AI营销商品图](https://gpt-best.apifox.cn/api-289472178.md): https://www.volcengine.com/docs/6791/1279296
+- 绘图模型 >  豆包(即梦、火山)绘图 [单图写真（pv版](https://gpt-best.apifox.cn/api-289472180.md): 将输入的人像图片通过大模型生成技术，生成与输入人像特征高相似的风格化图片，目前4种头像风格（单人、男女均支持）和9种胸像写真风格（单人、只支持女生）
+- 绘图模型 >  豆包(即梦、火山)绘图 [inpainting涂抹消除](https://gpt-best.apifox.cn/api-289472195.md): 用户可通过涂抹、选区等方式建立重绘区域，调用算法重新绘制。此功能为不支持输入prompt的消除功能，在路人消除、杂物消除、水印消除等任务表现较好，推荐使用分割接口来进行消除，消除的人物选择完整，建议一次性给客户返回3-4个效果供客户进行挑选。
+- 绘图模型 >  豆包(即梦、火山)绘图 [inpainting涂抹编辑](https://gpt-best.apifox.cn/api-289473237.md): 用户可通过涂抹、选区等方式建立重绘区域，调用算法重新绘制。此功能为支持输入prompt的涂抹编辑功能，按照prompt生成指定内容。考虑效果更优，建议一次性给客户返回3-4个效果供客户进行挑选。
+- 绘图模型 >  豆包(即梦、火山)绘图 [outpainting智能扩图](https://gpt-best.apifox.cn/api-289473244.md): 智能扩图支持多种扩展类型，包括：等比扩展、画幅扩展、四边扩展、画布扩展，用户prompt可选输入，不输入则按照算法默认逻辑进行扩展。
+- 绘图模型 >  豆包(即梦、火山)绘图 [实时生图-图生图](https://gpt-best.apifox.cn/api-289473249.md): 本接口提供根据用户的草图与文本提示，进行实时绘图的能力。核心是参考用户绘制图片的框架结构，结合用户输入的文本提示，实时转化为精美的图像
+- 绘图模型 > Flux 系列 > OpenAI Chat 格式 [Flux(Chat(生成图片))  ](https://gpt-best.apifox.cn/api-258069048.md): [官方指南](https://platform.openai.com/docs/guides/text-generation/chat-completions-api)
+- 绘图模型 > Flux 系列 > OpenAI Chat 格式 [Flux(Chat(图生图))](https://gpt-best.apifox.cn/api-306433193.md): 给定一个提示，该模型将返回一个或多个预测的完成，并且还可以返回每个位置的替代标记的概率。
+- 绘图模型 > Flux 系列 > OpenAI Dalle 格式 [Flux(Dall-e 格式)](https://gpt-best.apifox.cn/api-258068997.md): 
+- 绘图模型 > Flux 系列 > OpenAI Dalle 格式 [Flux(Dalle3 Edits(图生图&文生图))](https://gpt-best.apifox.cn/api-303213093.md): 仅支持 flux-kontext pro、max ，支持多图参考
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-kontext-max](https://gpt-best.apifox.cn/api-302899506.md): https://replicate.com/black-forest-labs/flux-kontext-max
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-kontext-pro](https://gpt-best.apifox.cn/api-302897690.md): https://replicate.com/black-forest-labs/flux-kontext-pro
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-schnell](https://gpt-best.apifox.cn/api-289467760.md): https://replicate.com/black-forest-labs/flux-schnell
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-pro](https://gpt-best.apifox.cn/api-289467758.md): https://replicate.com/black-forest-labs/flux-pro?input=http
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-dev](https://gpt-best.apifox.cn/api-289467755.md): https://replicate.com/black-forest-labs/flux-dev
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-1.1-pro-ultra](https://gpt-best.apifox.cn/api-289467754.md): https://replicate.com/black-forest-labs/flux-1.1-pro-ultra?input=http
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-1.1-pro](https://gpt-best.apifox.cn/api-289467749.md): https://replicate.com/black-forest-labs/flux-1.1-pro?input=http
+- 绘图模型 > Flux 系列 > Replicate 官方格式 [创建任务-black-forest-labs/flux-fill-dev](https://gpt-best.apifox.cn/api-326728726.md): https://replicate.com/black-forest-labs/flux-fill-dev
+- 绘图模型 > Flux 系列 > Bfl 官方格式 [获取任务](https://gpt-best.apifox.cn/api-306433290.md): 
+- 绘图模型 > Flux 系列 > Bfl 官方格式 [创建任务-flux-dev](https://gpt-best.apifox.cn/api-306433294.md): 
+- 绘图模型 > Flux 系列 > Bfl 官方格式 [创建任务-flux-kontext-max](https://gpt-best.apifox.cn/api-306433308.md): 官方文档：
+- 绘图模型 > Flux 系列 > Bfl 官方格式 [flux-2-pro](https://gpt-best.apifox.cn/api-382419079.md): 此模型按量付费，不同分辨率不同价格
+- 音频接口 > Suno文生歌 [生成歌曲(自定义模式)](https://gpt-best.apifox.cn/api-290935144.md): 
+- 音频接口 > Suno文生歌 [生成歌曲(灵感模式)](https://gpt-best.apifox.cn/api-290934291.md): 
+- 音频接口 > Suno文生歌 [生成歌曲(续写模式)](https://gpt-best.apifox.cn/api-290942843.md): 
+- 音频接口 > Suno文生歌 [生成歌曲(歌手风格) ](https://gpt-best.apifox.cn/api-294754915.md): # 接入步骤：
+- 音频接口 > Suno文生歌 [生成歌曲(上传歌曲二次创作)](https://gpt-best.apifox.cn/api-294753410.md): 
+- 音频接口 > Suno文生歌 [生成歌曲(拼接歌曲)](https://gpt-best.apifox.cn/api-208365078.md): 1. 先生成音乐（2首
+- 音频接口 > Suno文生歌 [生成歌曲(曲声分离)](https://gpt-best.apifox.cn/api-318769173.md): 请求体
+- 音频接口 > Suno文生歌 [生成歌词](https://gpt-best.apifox.cn/api-175774406.md): 
+- 音频接口 > Suno文生歌 [上传请求](https://gpt-best.apifox.cn/api-294748271.md): 
+- 音频接口 > Suno文生歌 [报告上传完毕](https://gpt-best.apifox.cn/api-294752192.md): 
+- 音频接口 > Suno文生歌 [查询上传处理状态](https://gpt-best.apifox.cn/api-294752734.md): 
+- 音频接口 > Suno文生歌 [初始化音频文件](https://gpt-best.apifox.cn/api-294753238.md): 
+- 音频接口 > Suno文生歌 [Persona:创建歌手风格](https://gpt-best.apifox.cn/api-294753975.md): clip_id 需要系统内存在的,非 uploader
+- 音频接口 > Suno文生歌 [tags: 拓展 style tags](https://gpt-best.apifox.cn/api-367617233.md): tags 就是 style
+- 音频接口 > Suno文生歌 [查询歌词](https://gpt-best.apifox.cn/api-175909212.md): 
+- 音频接口 > Suno文生歌 [查询歌曲](https://gpt-best.apifox.cn/api-294776598.md): 
+- 音频接口 > Suno文生歌 [批量获取任务](https://gpt-best.apifox.cn/api-175774564.md): 
+- 音频接口 > Suno文生歌 [Timing:歌词、音频时间线](https://gpt-best.apifox.cn/api-294760071.md): 
+- 音频接口 > Suno文生歌 [wav:获取 wav 格式文件](https://gpt-best.apifox.cn/api-294760335.md): 
+- 音频接口 > Suno文生歌 [mp4:生成 mp4 mv 视频](https://gpt-best.apifox.cn/api-294760478.md): 
+- 音频接口 > Suno文生歌 [获取 midi](https://gpt-best.apifox.cn/api-361672095.md): 通过 14.all-stems:全轨声曲分离 获取其中的一首歌的 clip_id 值为 a624123d-22cc-4d4d-bf28-78d312f61597
+- 音频接口 > Suno文生歌 [上传音乐通过 url](https://gpt-best.apifox.cn/api-208365072.md): 
+- 音频接口 > Suno文生歌 [生成歌曲 (v1 版本)](https://gpt-best.apifox.cn/api-294772799.md): 
+- 音频接口 > Suno文生歌 [拼接歌曲 (v1 版本)](https://gpt-best.apifox.cn/api-290952475.md): 
+- 音频接口 > Suno文生歌 [生成歌词 (v1 版本)](https://gpt-best.apifox.cn/api-290938780.md): 
+- 音频接口 > Suno文生歌 [声曲分离 (v1 版本)](https://gpt-best.apifox.cn/api-315376771.md): 将已生成的音乐进行声曲分离，分离出人声和伴奏两个音轨
+- 音频接口 > Suno文生歌 [查询歌曲 (v1 版本)](https://gpt-best.apifox.cn/api-290935683.md): 
+- 音频接口 > Suno文生歌 [查询歌词 (v1 版本)](https://gpt-best.apifox.cn/api-290939762.md): 
+- 音频接口 > Suno文生歌 [生成歌曲(灵感模式) Copy](https://gpt-best.apifox.cn/api-323777831.md): 
+- 音频接口 > OpenAI(TTS\Wishper [创建语音(tts](https://gpt-best.apifox.cn/api-139393492.md): 支持流式返回，可以一边读取返回，一边播放。
+- 音频接口 > OpenAI(TTS\Wishper [创建转录(whisper](https://gpt-best.apifox.cn/api-139393493.md): 
+- 音频接口 > OpenAI(TTS\Wishper [创建翻译(whisper](https://gpt-best.apifox.cn/api-139393494.md): 
+- 音频接口 > MINIMAX 语音合成 [OpenAI TTS 格式](https://gpt-best.apifox.cn/api-404638784.md): 支持流式返回，可以一边读取返回，一边播放。
+- 音频接口 > MINIMAX 语音合成 [同步语音合成](https://gpt-best.apifox.cn/api-379964423.md): [官方文档](https://platform.minimaxi.com/docs/api-reference/speech-t2a-http)
+- 音频接口 > MINIMAX 语音合成 [创建异步语音合成任务](https://gpt-best.apifox.cn/api-379965171.md): [官方文档](https://platform.minimaxi.com/docs/api-reference/speech-t2a-async-create)
+- 音频接口 > MINIMAX 语音合成 [查询语音生成任务状态](https://gpt-best.apifox.cn/api-379966857.md): [官方文档](https://platform.minimaxi.com/docs/api-reference/speech-t2a-async-query)
+- 音频接口 > MINIMAX 语音合成 [上传复刻音频](https://gpt-best.apifox.cn/api-379970460.md): [官方文档](https://platform.minimaxi.com/docs/api-reference/voice-cloning-uploadcloneaudio)
+- 音频接口 > MINIMAX 语音合成 [上传示例音频](https://gpt-best.apifox.cn/api-379974908.md): [官方文档](https://platform.minimaxi.com/docs/api-reference/voice-cloning-uploadprompt)
+- 音频接口 > MINIMAX 语音合成 [音色快速复刻](https://gpt-best.apifox.cn/api-417680875.md): [官方文档](https://platform.minimaxi.com/docs/api-reference/voice-cloning-clone)
+- 音频接口 > MINIMAX 语音合成 [获取file](https://gpt-best.apifox.cn/api-403194961.md): 
+- 音频接口 > MINIMAX 语音合成 [音色快速复刻 Copy](https://gpt-best.apifox.cn/api-417681110.md): [官方文档](https://platform.minimaxi.com/docs/api-reference/voice-design-design)
+- 文件上传（Files） [上传文件](https://gpt-best.apifox.cn/api-139393498.md): 上传可跨各种端点/功能使用的文件
+- PPT接口 > 文多多(官方格式) [分页查询 PPT 模板(免费](https://gpt-best.apifox.cn/api-208341732.md): 
+- PPT接口 > 文多多(官方格式) [更换 PPT 模板(免费](https://gpt-best.apifox.cn/api-208341733.md): 
+- PPT接口 > 文多多(官方格式) [修改大纲(免费](https://gpt-best.apifox.cn/api-208341734.md): 响应 event-stream，结构同 generateOutline 生成大纲，该接口用来修改调整大纲结构
+- PPT接口 > 文多多(官方格式) [解析文件内容(免费](https://gpt-best.apifox.cn/api-208341736.md): 
+- PPT接口 > 文多多(官方格式) [生成大纲(免费](https://gpt-best.apifox.cn/api-208341737.md): 
+- PPT接口 > 文多多(官方格式) [生成大纲内容(免费](https://gpt-best.apifox.cn/api-208341738.md): 
+- PPT接口 > 文多多(官方格式) [随机 PPT 模板(免费](https://gpt-best.apifox.cn/api-208341739.md): 
+- PPT接口 > 文多多(官方格式) [获取 PPT 列表(免费](https://gpt-best.apifox.cn/api-208341741.md): 
+- PPT接口 > 文多多(官方格式) [加载 PPT 数据(免费](https://gpt-best.apifox.cn/api-208341742.md): 
+- PPT接口 > 文多多(官方格式) [下载 PPT(免费](https://gpt-best.apifox.cn/api-208341743.md): 
+- PPT接口 > 文多多(官方格式) [更新 PPT 属性(免费](https://gpt-best.apifox.cn/api-208341744.md): 
+- PPT接口 > 文多多(官方格式) [保存 PPT(免费](https://gpt-best.apifox.cn/api-208341745.md): 
+- PPT接口 > 文多多(官方格式) [删除PPT(免费](https://gpt-best.apifox.cn/api-208341746.md): 
+- PPT接口 > 文多多(官方格式) [生成大纲内容同时异步生成PPT(免费](https://gpt-best.apifox.cn/api-208341747.md): 
+- PPT接口 > 文多多(官方格式) [查询异步生成PPT信息(免费](https://gpt-best.apifox.cn/api-208341748.md): 说明：该接口不需要轮询，在 generateContent 接口流式返回 pptId 数据时调用，每出现一次 pptId 就调用一次获取最新的 PPT 信息
+- PPT接口 > 文多多(官方格式) [ppt转json(免费](https://gpt-best.apifox.cn/api-208341749.md): 
+- PPT接口 > 文多多(官方格式) [json转ppt](https://gpt-best.apifox.cn/api-208341750.md): 
+- 快手可灵(官方格式) [Omni-Video](https://gpt-best.apifox.cn/api-384889432.md): 本文档不实时更新，完整版请查看官方文档：https://docs.qingque.cn/d/home/eZQCRUy_LWt70n5Wz2sTiLV6J?identityId=1oEFzU43FYK#section=h.hhdxwtuxzvyf
+- 快手可灵(官方格式) [Omni-Video查询任务(免费](https://gpt-best.apifox.cn/api-384982099.md): 
+- 快手可灵(官方格式) [文生视频](https://gpt-best.apifox.cn/api-216574019.md): 本文档不实时更新，完整版请查看官方文档：https://docs.qingque.cn/d/home/eZQClW07IFEuX1csc-VejdY2M
+- 快手可灵(官方格式) [文生视频查询任务(免费）](https://gpt-best.apifox.cn/api-253413276.md): 
+- 快手可灵(官方格式) [图生视频](https://gpt-best.apifox.cn/api-216574020.md): 本文档不实时更新，完整版请查看官方文档：https://docs.qingque.cn/d/home/eZQClW07IFEuX1csc-VejdY2M
+- 快手可灵(官方格式) [图生视频查询任务(免费） ](https://gpt-best.apifox.cn/api-414663125.md): 
+- 快手可灵(官方格式) [多图参考生视频](https://gpt-best.apifox.cn/api-327714825.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/multiImageToVideo
+- 快手可灵(官方格式) [多图参考生视频查询任务(免费 ）](https://gpt-best.apifox.cn/api-414668029.md): 
+- 快手可灵(官方格式) [动作控制](https://gpt-best.apifox.cn/api-413585880.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/motionControl
+- 快手可灵(官方格式) [动作控制查询任务(免费）](https://gpt-best.apifox.cn/api-414674391.md): 
+- 快手可灵(官方格式) [多模态视频编辑（初始化待编辑视频）](https://gpt-best.apifox.cn/api-413588988.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/multimodalToVideo
+- 快手可灵(官方格式) [多模态视频编辑 （增加视频选区）](https://gpt-best.apifox.cn/api-414682205.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/multimodalToVideo
+- 快手可灵(官方格式) [多模态视频编辑 （删减视频选区）](https://gpt-best.apifox.cn/api-414689342.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/multimodalToVideo
+- 快手可灵(官方格式) [多模态视频编辑 （清除视频选区）](https://gpt-best.apifox.cn/api-414689981.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/multimodalToVideo
+- 快手可灵(官方格式) [多模态视频编辑 （创建任务）](https://gpt-best.apifox.cn/api-414694037.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/multimodalToVideo
+- 快手可灵(官方格式) [多模态视频编辑查询任务(免费）](https://gpt-best.apifox.cn/api-414702641.md): 
+- 快手可灵(官方格式) [视频延长](https://gpt-best.apifox.cn/api-257160028.md): 1、生成视频
+- 快手可灵(官方格式) [视频延长查询任务(免费）](https://gpt-best.apifox.cn/api-414711111.md): 
+- 快手可灵(官方格式) [数字人](https://gpt-best.apifox.cn/api-413779510.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/avatar
+- 快手可灵(官方格式) [数字人查询任务(免费)](https://gpt-best.apifox.cn/api-414714998.md): 
+- 快手可灵(官方格式) [对口型 (人脸识别)](https://gpt-best.apifox.cn/api-414721234.md): 1、生成视频
+- 快手可灵(官方格式) [对口型（创建任务）](https://gpt-best.apifox.cn/api-257163488.md): 1、生成视频
+- 快手可灵(官方格式) [对口型查询任务(免费) ](https://gpt-best.apifox.cn/api-414719730.md): 
+- 快手可灵(官方格式) [视频特效](https://gpt-best.apifox.cn/api-287783002.md): 您可以根据 effect_scene 实现不同的特效效果，现支持：
+- 快手可灵(官方格式) [视频特效查询任务(免费) ](https://gpt-best.apifox.cn/api-414723331.md): 
+- 快手可灵(官方格式) [文生音效](https://gpt-best.apifox.cn/api-337534133.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/textToAudio
+- 快手可灵(官方格式) [文生音效查询任务(免费) ](https://gpt-best.apifox.cn/api-414723886.md): 
+- 快手可灵(官方格式) [视频生音效](https://gpt-best.apifox.cn/api-337536217.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/videoToAudio
+- 快手可灵(官方格式) [视频生音效查询任务(免费) ](https://gpt-best.apifox.cn/api-414724671.md): 
+- 快手可灵(官方格式) [语音合成](https://gpt-best.apifox.cn/api-413878202.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/TTS
+- 快手可灵(官方格式) [图像生成](https://gpt-best.apifox.cn/api-253413273.md): 本文档不实时更新，完整版请查看官方文档：https://docs.qingque.cn/d/home/eZQClW07IFEuX1csc-VejdY2M
+- 快手可灵(官方格式) [图像合成查询任务(免费)  ](https://gpt-best.apifox.cn/api-414724938.md): 
+- 快手可灵(官方格式) [Omni-Image（O1）](https://gpt-best.apifox.cn/api-413809080.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/OmniImage
+- 快手可灵(官方格式) [Omni-Image（O1）查询任务(免费) ](https://gpt-best.apifox.cn/api-414726006.md): 
+- 快手可灵(官方格式) [多图参考生图](https://gpt-best.apifox.cn/api-337538792.md): 本文档不实时更新，完整版请查看官方文档：
+- 快手可灵(官方格式) [多图参考生图查询任务(免费) ](https://gpt-best.apifox.cn/api-414730280.md): 
+- 快手可灵(官方格式) [扩图](https://gpt-best.apifox.cn/api-337543595.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/imageExpand
+- 快手可灵(官方格式) [扩图查询任务(免费) ](https://gpt-best.apifox.cn/api-414732379.md): 
+- 快手可灵(官方格式) [图像识别](https://gpt-best.apifox.cn/api-413814444.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/imageRecognize
+- 快手可灵(官方格式) [主体（创建主体)](https://gpt-best.apifox.cn/api-388435394.md): 官方文档：
+- 快手可灵(官方格式) [主体（查询自定义主体）](https://gpt-best.apifox.cn/api-388422210.md): 
+- 快手可灵(官方格式) [主体（查询预设主体）](https://gpt-best.apifox.cn/api-388432694.md): 
+- 快手可灵(官方格式) [主体（删除自定义主体）](https://gpt-best.apifox.cn/api-414746006.md): 
+- 快手可灵(官方格式) [虚拟试穿](https://gpt-best.apifox.cn/api-257152814.md): 官方文档：https://docs.qingque.cn/d/home/eZQClW07IFEuX1csc-VejdY2M#section=h.kz5geyrjtazf
+- 快手可灵(官方格式) [虚拟试穿查询任务(免费)  ](https://gpt-best.apifox.cn/api-414732835.md): 
+- 快手可灵(官方格式) [自定义音色（创建自定义音色）](https://gpt-best.apifox.cn/api-413883167.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/customVoices
+- 快手可灵(官方格式) [自定义音色（查询自定义音色）](https://gpt-best.apifox.cn/api-414753384.md): 
+- 快手可灵(官方格式) [自定义音色（查询官方音色）](https://gpt-best.apifox.cn/api-414755722.md): 
+- 快手可灵(官方格式) [自定义音色 （删除自定义音色）](https://gpt-best.apifox.cn/api-414757318.md): 本文档不实时更新，完整版请查看官方文档：https://app.klingai.com/cn/dev/document-api/apiReference/model/customVoices
+- Fal.ai 平台兼容 [获取请求状态](https://gpt-best.apifox.cn/api-309451355.md): Queue 可以具有以下类型之一及其各自的属性：status
+- Fal.ai 平台兼容 [获取请求结果](https://gpt-best.apifox.cn/api-309452425.md): 
+- Fal.ai 平台兼容 [recraft/upscale/crisp](https://gpt-best.apifox.cn/api-344278257.md): 
+- Fal.ai 平台兼容 [FLUX.1 [Dev] 文本生成图片](https://gpt-best.apifox.cn/api-309502688.md): 
+- Fal.ai 平台兼容 [ FLUX.1 [Dev] 图片生成图片](https://gpt-best.apifox.cn/api-309501877.md): 
+- Fal.ai 平台兼容 [FLUX.1 [Dev] Redux](https://gpt-best.apifox.cn/api-309504286.md): 
+- Fal.ai 平台兼容 [FLUX.1 [Schell] Redux](https://gpt-best.apifox.cn/api-309503830.md): 
+- Fal.ai 平台兼容 [FLUX.1 Kontext [Pro]](https://gpt-best.apifox.cn/api-309256309.md): 
+- Fal.ai 平台兼容 [FLUX.1 Kontext [Multi]（实验性多图编辑）](https://gpt-best.apifox.cn/api-309320132.md): 实验性多图像编辑API，支持对多张图片，结合文本提示进行图像内容上下文理解和修改。广泛用于AI图片编辑、修图等场景。
+- Fal.ai 平台兼容 [FLUX.1 Kontext [Max]](https://gpt-best.apifox.cn/api-309292279.md): 
+- Fal.ai 平台兼容 [FLUX.1 Kontext [Max] 文本转图像](https://gpt-best.apifox.cn/api-309326161.md): FLUX.1 Kontext [max] 是一款高性能文本转图像AI模型，支持高还原文本描述生成高质量图片，且在各种细节和风格领域表现突出。
+- Fal.ai 平台兼容 [FLUX.1 Kontext [Max] 文本转图像](https://gpt-best.apifox.cn/api-309304467.md): FLUX.1 Kontext [max] 是一款高性能文本转图像AI模型，支持高还原文本描述生成高质量图片，且在各种细节和风格领域表现突出。
+- Fal.ai 平台兼容 [FLUX.1 Kontext [Max Multi]（实验性多图编辑）](https://gpt-best.apifox.cn/api-309299431.md): 
+- Replicate平台兼容 [创建任务-通过模型version（predictions）](https://gpt-best.apifox.cn/api-208781136.md): version models 支持以下
+- Replicate平台兼容 [创建任务-lucataco/flux-dev-lora](https://gpt-best.apifox.cn/api-289463627.md): https://replicate.com/lucataco/flux-dev-lora
+- Replicate平台兼容 [创建任务-lucataco/flux-schnell-lora](https://gpt-best.apifox.cn/api-289463625.md): https://replicate.com/lucataco/flux-schnell-lora?input=http
+- Replicate平台兼容 [创建任务-andreasjansson/stable-diffusion-animation](https://gpt-best.apifox.cn/api-289463628.md): https://replicate.com/andreasjansson/stable-diffusion-animation
+- Replicate平台兼容 [创建任务-stability-ai/stable-diffusion-img2img](https://gpt-best.apifox.cn/api-289463624.md): https://replicate.com/stability-ai/stable-diffusion-img2img?input=http
+- Replicate平台兼容 [创建任务-stability-ai/stable-diffusion-inpainting](https://gpt-best.apifox.cn/api-289463623.md): https://replicate.com/stability-ai/stable-diffusion-inpainting?input=http
+- Replicate平台兼容 [创建任务-cjwbw/rembg](https://gpt-best.apifox.cn/api-289463633.md): https://replicate.com/cjwbw/rembg
+- Replicate平台兼容 [创建任务-lucataco/remove-bg](https://gpt-best.apifox.cn/api-409886835.md): https://replicate.com/lucataco/remove-bg
+- Replicate平台兼容 [创建任务-stability-ai/sdxl](https://gpt-best.apifox.cn/api-289463621.md): https://replicate.com/stability-ai/sdxl
+- Replicate平台兼容 [创建任务-stability-ai/stable-diffusion](https://gpt-best.apifox.cn/api-289463618.md): https://replicate.com/stability-ai/stable-diffusion
+- Replicate平台兼容 [创建任务-ideogram-ai/ideogram-v2-turbo](https://gpt-best.apifox.cn/api-289470320.md): https://replicate.com/ideogram-ai/ideogram-v2-turbo
+- Replicate平台兼容 [创建任务-sujaykhandekar/object-removal](https://gpt-best.apifox.cn/api-289463630.md): https://replicate.com/sujaykhandekar/object-removal?input=http
+- Replicate平台兼容 [创建任务-lucataco/animate-diff](https://gpt-best.apifox.cn/api-289463629.md): https://replicate.com/lucataco/animate-diff
+- Replicate平台兼容 [创建任务-通过url路径](https://gpt-best.apifox.cn/api-258518077.md): models 支持以下
+- Replicate平台兼容 [创建任务-minimax/video-01](https://gpt-best.apifox.cn/api-289470311.md): https://replicate.com/minimax/video-01?input=http
+- Replicate平台兼容 [创建任务-minimax/video-01-live](https://gpt-best.apifox.cn/api-289470304.md): https://replicate.com/minimax/video-01-live
+- Replicate平台兼容 [创建任务-recraft-ai/recraft-v3-svg](https://gpt-best.apifox.cn/api-289470315.md): https://replicate.com/recraft-ai/recraft-v3-svg
+- Replicate平台兼容 [创建任务-recraft-ai/recraft-v3](https://gpt-best.apifox.cn/api-289470314.md): https://replicate.com/recraft-ai/recraft-v3
+- Replicate平台兼容 [获取任务进度（predictions (免费](https://gpt-best.apifox.cn/api-234151145.md): 
+- 平台API [获取用户信息（余额](https://gpt-best.apifox.cn/api-225483899.md): token 需要在 个人中心生成 系统令牌 进行调用
+- 平台API [查询令牌余额](https://gpt-best.apifox.cn/api-304480868.md): 
+- 平台API [MJ 任务执行速度](https://gpt-best.apifox.cn/api-323034807.md): 
+- 平台API [获取模型列表](https://gpt-best.apifox.cn/api-399453203.md): 
+- 废弃、未开放 > Udio文生歌 [根据描述创建音乐](https://gpt-best.apifox.cn/api-231379998.md): 详细请看接入流程
+- 废弃、未开放 > Udio文生歌 [根据歌词创建音乐](https://gpt-best.apifox.cn/api-231380050.md): 详细请看接入流程
+- 废弃、未开放 > Udio文生歌 [音乐续写](https://gpt-best.apifox.cn/api-231381329.md): **config.source.song_id**
+- 废弃、未开放 > Udio文生歌 [获取任务进度(免费](https://gpt-best.apifox.cn/api-231379999.md): 当"finished": true, 时，歌曲完成。两个歌曲都为 "finished": true,  时，任务完成
+- 废弃、未开放 > Sora [创建视频](https://gpt-best.apifox.cn/api-254218816.md): 尺寸参数:
+- 废弃、未开放 > Sora [查询视频任务(免费](https://gpt-best.apifox.cn/api-254218817.md): status 有 
+- 废弃、未开放 > 通用版 [生成任务](https://gpt-best.apifox.cn/api-253630012.md): 
+- 废弃、未开放 > 通用版 [查询任务(免费](https://gpt-best.apifox.cn/api-253632127.md): 状态 1 完成成功 5 已提交 10 生成中 7 内容审核不通过失败 8 生成失败
+- 废弃、未开放 > 通用版 [创建角色](https://gpt-best.apifox.cn/api-253632146.md): 
+- 废弃、未开放 > 数字人 [生成数字人视频](https://gpt-best.apifox.cn/api-254218813.md): 上传图片/视频和音频/文本，生成对应的数字人视频
+- 废弃、未开放 > 数字人 [获取任务详情(免费](https://gpt-best.apifox.cn/api-254218814.md): 根据任务ID获取生成结果的详细信息
+- 废弃、未开放 > 数字人 [查询默认 voice 列表(免费](https://gpt-best.apifox.cn/api-254218815.md): 
+- 废弃、未开放 > 普通版 有水印 [上传舞蹈视频](https://gpt-best.apifox.cn/api-208350212.md): 
+- 废弃、未开放 > 普通版 有水印 [创建舞蹈视频任务](https://gpt-best.apifox.cn/api-208350213.md): 
+- 废弃、未开放 > 普通版 有水印 [上传角色图片](https://gpt-best.apifox.cn/api-208350214.md): 
+- 废弃、未开放 > 普通版 有水印 [获取任务进度、结果](https://gpt-best.apifox.cn/api-208350215.md): ids 为 taskID 目前仅支持一个ID；多个ID进来只会去取第一个结果
+- 废弃、未开放 > 普通版 有水印 [获取官方舞蹈视频模版-获取tag](https://gpt-best.apifox.cn/api-208350216.md): 这边获取的data[0].id为tagID
+- 废弃、未开放 > 普通版 有水印 [获取官方舞蹈视频模版-获取tag下的模版](https://gpt-best.apifox.cn/api-208350217.md): 获取官方舞蹈视频模版
+- 废弃、未开放 > ideogram-v2 [ideogram（文生图）](https://gpt-best.apifox.cn/api-209285790.md): Generates images synchronously based on a given prompt and optional parameters.
+- 废弃、未开放 > ideogram-v2 [Remix（混合图）](https://gpt-best.apifox.cn/api-209287536.md): Remix provided images synchronously based on a given prompt and optional parameters
+- 废弃、未开放 > ideogram-v2 [Upscale（放大高清）](https://gpt-best.apifox.cn/api-209287554.md): Remix provided images synchronously based on a given prompt and optional parameters
+- 废弃、未开放 > ideogram-v2 [Describe（描述）](https://gpt-best.apifox.cn/api-209287616.md): Describe an image
+- 废弃、未开放 > ideogram-v2 [Edit（编辑）](https://gpt-best.apifox.cn/api-249417715.md): Remix provided images synchronously based on a given prompt and optional parameters
+- 废弃、未开放 > 即梦 [即梦3 视频生成](https://gpt-best.apifox.cn/api-300428220.md): 
+- 废弃、未开放 > 即梦 [任务查询](https://gpt-best.apifox.cn/api-300428267.md): TaskStatus:
+- 废弃、未开放 > Riffusion [RIFF.1 音乐生成（专业模式）](https://gpt-best.apifox.cn/api-318226174.md): 
+- 废弃、未开放 > Riffusion [RIFF.2 音乐生成（灵感模式）](https://gpt-best.apifox.cn/api-318226199.md): 通过提供主题词生成两首音乐作品。
+- 废弃、未开放 > Riffusion [RIFF.3 获取生成任务结果](https://gpt-best.apifox.cn/api-318226206.md): 
+- 废弃、未开放 > Riffusion [RIFF.4 上传音频](https://gpt-best.apifox.cn/api-318226222.md): 
+- 废弃、未开放 > Riffusion [RIFF.5 翻唱模式](https://gpt-best.apifox.cn/api-318226229.md): 与RIFF.1相同，但必须包含morph对象，且transform设为"cover"。
+- 废弃、未开放 > Riffusion [RIFF.6 续写模式](https://gpt-best.apifox.cn/api-318226234.md): 请求参数: 与RIFF.1相同，但必须包含morph对象，且transform设为"extend"。
+- 废弃、未开放 > Riffusion [RIFF.7 替换模式](https://gpt-best.apifox.cn/api-318226260.md): 请求参数: 与RIFF.1相同，但必须包含morph对象，且transform设为"inpaint"。
+- 废弃、未开放 > Riffusion [RIFF.8 人声替换模式](https://gpt-best.apifox.cn/api-318226270.md): 请求参数: 与RIFF.1相同，但必须包含morph对象，且transform设为"swap_vocals"。
+- 废弃、未开放 > Riffusion [RIFF.9 音乐风格替换模式](https://gpt-best.apifox.cn/api-318226284.md): 请求参数: 与RIFF.1相同，但必须包含morph对象，且transform设为"swap_sound"。
+- 废弃、未开放 > Riffusion [RIFF.10 使用上传音频进行翻唱](https://gpt-best.apifox.cn/api-318226288.md): 请求参数: 与RIFF.1相同，但morph对象中使用audio_upload_id代替riff_id。
+- 废弃、未开放 > Viggle 舞蹈合成 [上传舞蹈视频](https://gpt-best.apifox.cn/api-208350175.md): 
+- 废弃、未开放 > Viggle 舞蹈合成 [创建舞蹈视频任务](https://gpt-best.apifox.cn/api-208350176.md): 
+- 废弃、未开放 > Viggle 舞蹈合成 [上传角色图片](https://gpt-best.apifox.cn/api-208350177.md): 
+- 废弃、未开放 > Viggle 舞蹈合成 [获取任务进度、结果(免费](https://gpt-best.apifox.cn/api-208350178.md): ids 为 taskID 目前仅支持一个ID；多个ID进来只会去取第一个结果
+- 废弃、未开放 > Viggle 舞蹈合成 [获取官方舞蹈视频模版-获取tag](https://gpt-best.apifox.cn/api-208350179.md): 这边获取的data[0].id为tagID
+- 废弃、未开放 > Viggle 舞蹈合成 [获取官方舞蹈视频模版-获取tag下的模版](https://gpt-best.apifox.cn/api-208350180.md): 获取官方舞蹈视频模版
+- 废弃、未开放 [Act-one 表情迁移](https://gpt-best.apifox.cn/api-259399953.md): 当前仅支持16:9的视频和图片
+
+## Schemas
+- Schemas [Blend提交参数](https://gpt-best.apifox.cn/schema-77436421.md): 
+- Schemas [Pet](https://gpt-best.apifox.cn/schema-142634208.md): 
+- Schemas [CheckActivationDTO](https://gpt-best.apifox.cn/schema-77436422.md): 
+- Schemas [Category](https://gpt-best.apifox.cn/schema-142634209.md): 
+- Schemas [Describe提交参数](https://gpt-best.apifox.cn/schema-77436423.md): 
+- Schemas [Tag](https://gpt-best.apifox.cn/schema-142634210.md): 
+- Schemas [Discord账号](https://gpt-best.apifox.cn/schema-77436424.md): 
+- Schemas [Filter](https://gpt-best.apifox.cn/schema-77436425.md): 
+- Schemas [Imagine提交参数](https://gpt-best.apifox.cn/schema-77436426.md): 
+- Schemas [Map«string,object»](https://gpt-best.apifox.cn/schema-77436427.md): 
+- Schemas [Message«Map«string,object»»](https://gpt-best.apifox.cn/schema-77436428.md): 
+- Schemas [Message«Void»](https://gpt-best.apifox.cn/schema-77436429.md): 
+- Schemas [Message«string»](https://gpt-best.apifox.cn/schema-77436430.md): 
+- Schemas [Modal提交参数](https://gpt-best.apifox.cn/schema-77436431.md): 
+- Schemas [Option](https://gpt-best.apifox.cn/schema-77436432.md): 
+- Schemas [Pageable](https://gpt-best.apifox.cn/schema-77436433.md): 
+- Schemas [Page«Map«string,object»»](https://gpt-best.apifox.cn/schema-77436434.md): 
+- Schemas [Page«任务»](https://gpt-best.apifox.cn/schema-77436435.md): 
+- Schemas [Shorten提交参数](https://gpt-best.apifox.cn/schema-77436436.md): 
+- Schemas [Sort](https://gpt-best.apifox.cn/schema-77436437.md): 
+- Schemas [SwapFace提交参数](https://gpt-best.apifox.cn/schema-77436438.md): 
+- Schemas [TaskQueryDTO](https://gpt-best.apifox.cn/schema-77436439.md): 
+- Schemas [任务](https://gpt-best.apifox.cn/schema-77436440.md): 
+- Schemas [任务查询参数](https://gpt-best.apifox.cn/schema-77436441.md): 
+- Schemas [变化任务提交参数](https://gpt-best.apifox.cn/schema-77436442.md): 
+- Schemas [变化任务提交参数-simple](https://gpt-best.apifox.cn/schema-77436443.md): 
+- Schemas [可执行按钮](https://gpt-best.apifox.cn/schema-77436444.md): 
+- Schemas [可执行按钮_1](https://gpt-best.apifox.cn/schema-77436445.md): 
+- Schemas [执行动作参数](https://gpt-best.apifox.cn/schema-77436446.md): 
+- Schemas [提交结果](https://gpt-best.apifox.cn/schema-77436447.md): 
+- Schemas [激活服务参数](https://gpt-best.apifox.cn/schema-77436448.md): 
+- Schemas [账号修改参数](https://gpt-best.apifox.cn/schema-77436449.md): 
+- Schemas [账号创建参数](https://gpt-best.apifox.cn/schema-77436450.md): 
+- Schemas [账号查询参数](https://gpt-best.apifox.cn/schema-77436451.md): 
+- Schemas [账号筛选条件](https://gpt-best.apifox.cn/schema-77436452.md): 
