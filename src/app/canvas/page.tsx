@@ -142,6 +142,21 @@ import { cancelActiveWorkerJobs, isWorkerCancelledError } from '@/lib/image-work
 import { appendProjectMediaHistory, clearProjectMediaHistory, readProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
 import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, saveProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
 
+function areCanvasRenderMetricsEqual(left: CanvasRenderMetrics | null, right: CanvasRenderMetrics) {
+    return !!left
+        && left.visibleCount === right.visibleCount
+        && left.totalCount === right.totalCount
+        && left.culledCount === right.culledCount
+        && left.virtualizedCount === right.virtualizedCount
+        && left.deferredCount === right.deferredCount
+        && left.maxVisibleElements === right.maxVisibleElements
+        && left.viewportMargin === right.viewportMargin
+        && left.partitionCount === right.partitionCount
+        && left.partitionTileSize === right.partitionTileSize;
+}
+
+    const GENERATED_IMAGE_RENDER_SRC_TTL_MS = 15_000;
+
 function ZoomControl({ scale, onZoomIn, onZoomOut, onZoomTo, onFitToScreen }: {
     scale: number;
     onZoomIn: () => void;
@@ -265,6 +280,23 @@ function LovartCanvasContent() {
         residentElementCount: 0,
         unloadedElementCount: 0,
     });
+    const runtimeImageRenderSrcsRef = useRef<Map<string, string>>(new Map());
+    const runtimeImageRenderSrcTimersRef = useRef<Map<string, number>>(new Map());
+    const [runtimeImageRenderSrcs, setRuntimeImageRenderSrcs] = useState<Record<string, string>>({});
+
+    const handleRenderMetricsChange = useCallback((nextMetrics: CanvasRenderMetrics) => {
+        if (!benchmarkMode) {
+            return;
+        }
+
+        setRenderMetrics((previous) => areCanvasRenderMetricsEqual(previous, nextMetrics) ? previous : nextMetrics);
+    }, [benchmarkMode]);
+
+    useEffect(() => {
+        if (!benchmarkMode) {
+            setRenderMetrics(null);
+        }
+    }, [benchmarkMode]);
 
     // ── Normalized Map state: O(1) element access instead of O(n) array traversal ──
     const elementsMapRef = useRef<Map<string, CanvasElement>>(new Map());
@@ -295,6 +327,88 @@ function LovartCanvasContent() {
         }
         spatialIndexNeedsRebuildRef.current = true;
         setElementsVersion(v => v + 1);
+    }, []);
+
+    const releaseRuntimeImageRenderSrc = useCallback((elementId: string) => {
+        const existingTimer = runtimeImageRenderSrcTimersRef.current.get(elementId);
+        if (existingTimer !== undefined) {
+            window.clearTimeout(existingTimer);
+            runtimeImageRenderSrcTimersRef.current.delete(elementId);
+        }
+
+        const currentUrl = runtimeImageRenderSrcsRef.current.get(elementId);
+        if (currentUrl) {
+            runtimeImageRenderSrcsRef.current.delete(elementId);
+            try {
+                URL.revokeObjectURL(currentUrl);
+            } catch {
+                // Ignore stale object URL cleanup failures.
+            }
+        }
+
+        setRuntimeImageRenderSrcs((previous) => {
+            if (!(elementId in previous)) {
+                return previous;
+            }
+
+            const next = { ...previous };
+            delete next[elementId];
+            return next;
+        });
+    }, []);
+
+    const primeRuntimeImageRenderSrc = useCallback((elementId: string, blob: Blob | null) => {
+        if (typeof window === 'undefined' || !blob) {
+            return;
+        }
+
+        const nextUrl = URL.createObjectURL(blob);
+        const previousTimer = runtimeImageRenderSrcTimersRef.current.get(elementId);
+        if (previousTimer !== undefined) {
+            window.clearTimeout(previousTimer);
+        }
+
+        const previousUrl = runtimeImageRenderSrcsRef.current.get(elementId);
+        runtimeImageRenderSrcsRef.current.set(elementId, nextUrl);
+        setRuntimeImageRenderSrcs((previous) => ({
+            ...previous,
+            [elementId]: nextUrl,
+        }));
+
+        if (previousUrl && previousUrl !== nextUrl) {
+            try {
+                URL.revokeObjectURL(previousUrl);
+            } catch {
+                // Ignore stale object URL cleanup failures.
+            }
+        }
+
+        const cleanupTimer = window.setTimeout(() => {
+            releaseRuntimeImageRenderSrc(elementId);
+        }, GENERATED_IMAGE_RENDER_SRC_TTL_MS);
+        runtimeImageRenderSrcTimersRef.current.set(elementId, cleanupTimer);
+    }, [releaseRuntimeImageRenderSrc]);
+
+    useEffect(() => {
+        const activeIds = new Set(elements.map((element) => element.id));
+        runtimeImageRenderSrcsRef.current.forEach((_, elementId) => {
+            if (!activeIds.has(elementId)) {
+                releaseRuntimeImageRenderSrc(elementId);
+            }
+        });
+    }, [elements, releaseRuntimeImageRenderSrc]);
+
+    useEffect(() => () => {
+        runtimeImageRenderSrcTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+        runtimeImageRenderSrcTimersRef.current.clear();
+        runtimeImageRenderSrcsRef.current.forEach((url) => {
+            try {
+                URL.revokeObjectURL(url);
+            } catch {
+                // Ignore stale object URL cleanup failures.
+            }
+        });
+        runtimeImageRenderSrcsRef.current.clear();
     }, []);
 
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -441,6 +555,7 @@ function LovartCanvasContent() {
 
     const {
         announceCompletedResult,
+        announcePassiveCompletedResult,
         clearToast,
         flashLayerHighlights,
         focusCanvasElement,
@@ -1114,6 +1229,9 @@ function LovartCanvasContent() {
         let prefetchedBlob: Blob | null = null;
         if (resultUrl.startsWith('http://') || resultUrl.startsWith('https://')) {
             prefetchedBlob = await fetchRemoteBlob(resultUrl, `lovart-${source}-image`);
+            if (prefetchedBlob) {
+                primeRuntimeImageRenderSrc(elementId, prefetchedBlob);
+            }
         }
 
         const finalContent = await normalizeGeneratedImageContent(resultUrl, source, prefetchedBlob);
@@ -1157,7 +1275,7 @@ function LovartCanvasContent() {
         if (pid) {
             removeGeneration(pid, elementId);
         }
-    }, [normalizeGeneratedImageContent, persistGeneratedAssetToDisk, resolveImageDisplayMetrics, setElements, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
+    }, [normalizeGeneratedImageContent, persistGeneratedAssetToDisk, primeRuntimeImageRenderSrc, resolveImageDisplayMetrics, setElements, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
     const replaceGeneratorWithPendingImage = useCallback((
         elementId: string,
@@ -1182,6 +1300,7 @@ function LovartCanvasContent() {
                 ...item,
                 type: 'image',
                 content: imageUrl,
+                flowReferenceImages: item.savedReferenceImages || item.flowReferenceImages,
                 referenceImageId: undefined,
                 savedReferenceImages: undefined,
                 savedReferenceImage: undefined,
@@ -1218,6 +1337,9 @@ function LovartCanvasContent() {
         let prefetchedBlob: Blob | null = null;
         if (resultUrl.startsWith('http://') || resultUrl.startsWith('https://')) {
             prefetchedBlob = await fetchRemoteBlob(resultUrl, `lovart-${source}-image`);
+            if (prefetchedBlob) {
+                primeRuntimeImageRenderSrc(elementId, prefetchedBlob);
+            }
         }
 
         const finalContent = await normalizeGeneratedImageContent(resultUrl, source, prefetchedBlob);
@@ -1253,6 +1375,7 @@ function LovartCanvasContent() {
                 ...item,
                 type: 'image',
                 content: finalContent,
+                flowReferenceImages: previousElement?.flowReferenceImages || previousElement?.savedReferenceImages,
                 referenceImageId: undefined,
                 savedReferenceImages: undefined,
                 savedReferenceImage: undefined,
@@ -1277,7 +1400,7 @@ function LovartCanvasContent() {
             sourceElement: previousElement,
             sourceElementId: elementId,
         });
-    }, [normalizeGeneratedImageContent, persistGeneratedAssetToDisk, recordProjectMediaItem, resolveAspectRatioFallbackMetrics, resolveImageDisplayMetrics, setElements, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
+    }, [normalizeGeneratedImageContent, persistGeneratedAssetToDisk, primeRuntimeImageRenderSrc, recordProjectMediaItem, resolveAspectRatioFallbackMetrics, resolveImageDisplayMetrics, setElements, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
     const finalizePolledImageResult = useCallback(async (
         element: CanvasElement,
@@ -1907,7 +2030,7 @@ function LovartCanvasContent() {
             finalizePolledImageResult,
             persistGeneratedAssetToDisk,
             recordProjectMediaItem,
-            announceCompletedResult,
+            announceCompletedResult: announcePassiveCompletedResult,
             showToast,
         },
     });
@@ -3342,21 +3465,34 @@ function LovartCanvasContent() {
         const generatorId = uuidv4();
         const hasLinkedFlowConnector = latestSourceElement.linkedElements?.some((linkedId) => elementsMapRef.current.get(linkedId)?.type === 'connector') ?? false;
         const shouldInheritSavedReferences = !(latestSourceElement.type === 'image' && (latestSourceElement.referenceImageId || hasLinkedFlowConnector));
+
+        const appendSerializedReferenceImages = (target: string[], serialized?: string) => {
+            if (!serialized?.trim()) {
+                return;
+            }
+
+            try {
+                const parsed = JSON.parse(serialized);
+                if (!Array.isArray(parsed)) {
+                    return;
+                }
+
+                parsed.forEach((item) => {
+                    if (typeof item === 'string' && item.trim() && !target.includes(item)) {
+                        target.push(item);
+                    }
+                });
+            } catch {
+                // Ignore malformed legacy reference payloads.
+            }
+        };
+
         const inheritedReferenceImages = (() => {
             const nextImages = [latestSourceElement.content];
-            if (shouldInheritSavedReferences && latestSourceElement.savedReferenceImages?.trim()) {
-                try {
-                    const parsed = JSON.parse(latestSourceElement.savedReferenceImages);
-                    if (Array.isArray(parsed)) {
-                        parsed.forEach((item) => {
-                            if (typeof item === 'string' && item.trim() && !nextImages.includes(item)) {
-                                nextImages.push(item);
-                            }
-                        });
-                    }
-                } catch {
-                    // Ignore malformed legacy reference payloads.
-                }
+            if (latestSourceElement.type === 'image' && latestSourceElement.flowReferenceImages?.trim()) {
+                appendSerializedReferenceImages(nextImages, latestSourceElement.flowReferenceImages);
+            } else if (shouldInheritSavedReferences && latestSourceElement.savedReferenceImages?.trim()) {
+                appendSerializedReferenceImages(nextImages, latestSourceElement.savedReferenceImages);
             }
 
             return nextImages.length > 0 ? JSON.stringify(nextImages) : undefined;
@@ -3503,7 +3639,7 @@ function LovartCanvasContent() {
                     height: currentElement.height || 300,
                 },
             );
-            announceCompletedResult(elementId, '✅ 分镜图片生成完成，已回填到当前卡片');
+            announcePassiveCompletedResult(elementId, '✅ 分镜图片生成完成，已回填到当前卡片');
             return true;
         } catch (error) {
             const interrupted = isRecoverableGenerationSubmissionError(error);
@@ -3521,7 +3657,7 @@ function LovartCanvasContent() {
         } finally {
             setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
         }
-    }, [announceCompletedResult, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, resolveElementReferenceImages, setElements, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model]);
+    }, [announcePassiveCompletedResult, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, resolveElementReferenceImages, setElements, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model]);
 
     const submitStoryboardVideoGeneratorElement = useCallback(async (elementId: string, snapshot?: CanvasElement) => {
         const currentElement = snapshot || elementsMapRef.current.get(elementId);
@@ -3615,7 +3751,7 @@ function LovartCanvasContent() {
                 sourceElement: currentElement,
                 sourceElementId: elementId,
             });
-            announceCompletedResult(elementId, '✅ 分镜视频生成完成，已回填到当前批次');
+            announcePassiveCompletedResult(elementId, '✅ 分镜视频生成完成，已回填到当前批次');
             return true;
         } catch (error) {
             const interrupted = isRecoverableGenerationSubmissionError(error);
@@ -3633,7 +3769,7 @@ function LovartCanvasContent() {
         } finally {
             setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
         }
-    }, [announceCompletedResult, persistGeneratedAssetToDisk, recordProjectMediaItem, resolveElementFrameImages, setElements, workbenchSettings.videoDefaults.aspectRatio, workbenchSettings.videoDefaults.duration, workbenchSettings.videoDefaults.enhancePrompt, workbenchSettings.videoDefaults.model]);
+    }, [announcePassiveCompletedResult, persistGeneratedAssetToDisk, recordProjectMediaItem, resolveElementFrameImages, setElements, workbenchSettings.videoDefaults.aspectRatio, workbenchSettings.videoDefaults.duration, workbenchSettings.videoDefaults.enhancePrompt, workbenchSettings.videoDefaults.model]);
 
     const handleGenerateStoryboardSelection = useCallback((ids: string[]) => {
         const targets = ids
@@ -4670,6 +4806,7 @@ function LovartCanvasContent() {
                     normalizedElement.selectedAspectRatio = displayMetrics.aspectRatio ?? normalizedElement.selectedAspectRatio;
                 }
 
+                normalizedElement.flowReferenceImages = normalizedElement.savedReferenceImages || normalizedElement.flowReferenceImages;
                 normalizedElement.referenceImageId = undefined;
                 normalizedElement.savedReferenceImages = undefined;
                 normalizedElement.savedReferenceImage = undefined;
@@ -5521,7 +5658,8 @@ function LovartCanvasContent() {
                     highlightedResultId={highlightedResultId}
                     canPaste={clipboardRef.current.length > 0}
                     spatialIndex={spatialIndexRef.current}
-                    onRenderMetricsChange={setRenderMetrics}
+                    resolvedImageSrcMap={runtimeImageRenderSrcs}
+                    onRenderMetricsChange={benchmarkMode ? handleRenderMetricsChange : undefined}
                     minimapRightOffset={rightWorkbenchOffset}
                 />
                 <FloatingToolbar

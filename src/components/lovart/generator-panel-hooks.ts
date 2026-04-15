@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from 'react';
+import { isDataUrl } from '@/lib/data-url';
+import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
 import { createGenerationTaskPatch } from '@/lib/generation-task-state';
 import { readFileAsDataUrl, type ElementChangeHandler } from './generator-panel-shared';
 
@@ -95,20 +97,24 @@ export function useClearGeneratorError(
     }, [elementId, errorFromElement, onElementChange]);
 }
 
-export function serializeReferenceImage(referenceImage: File | string | null) {
+export async function serializeReferenceImage(referenceImage: File | string | null) {
     if (referenceImage === null) return undefined;
-    if (typeof referenceImage === 'string') return referenceImage;
-    return readFileAsDataUrl(referenceImage);
+    if (typeof referenceImage === 'string') {
+        return isDataUrl(referenceImage)
+            ? await compressReferenceImageDataUrl(referenceImage)
+            : referenceImage;
+    }
+
+    return await compressReferenceImageDataUrl(await readFileAsDataUrl(referenceImage));
 }
 
 export async function serializeReferenceImages(images: (File | string)[]): Promise<string | undefined> {
     if (images.length === 0) return undefined;
     const results: string[] = [];
     for (const img of images) {
-        if (typeof img === 'string') {
-            results.push(img);
-        } else {
-            results.push(await readFileAsDataUrl(img));
+        const serialized = await serializeReferenceImage(img);
+        if (serialized) {
+            results.push(serialized);
         }
     }
     return JSON.stringify(results);

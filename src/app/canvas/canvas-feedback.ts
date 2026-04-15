@@ -46,9 +46,12 @@ export function useCanvasFeedback({
         elementId: string,
         options?: {
             ensureVisible?: boolean;
+            select?: boolean;
         },
     ) => {
-        setSelectedIds([elementId]);
+        if (options?.select !== false) {
+            setSelectedIds([elementId]);
+        }
 
         if (options?.ensureVisible) {
             const target = elements.find((element) => element.id === elementId);
@@ -94,6 +97,11 @@ export function useCanvasFeedback({
         showToast(message, 'success');
     }, [highlightGeneratedResult, showToast]);
 
+    const announcePassiveCompletedResult = useCallback((elementId: string, message: string) => {
+        highlightGeneratedResult(elementId, { select: false });
+        showToast(message, 'success');
+    }, [highlightGeneratedResult, showToast]);
+
     useEffect(() => {
         if (!toast) return;
         const timer = window.setTimeout(() => setToast(null), toast.type === 'error' ? 5000 : 3000);
@@ -109,6 +117,7 @@ export function useCanvasFeedback({
 
     return {
         announceCompletedResult,
+        announcePassiveCompletedResult,
         clearToast,
         flashLayerHighlights,
         focusCanvasElement,

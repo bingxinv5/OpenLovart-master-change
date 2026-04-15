@@ -36,6 +36,10 @@ export interface CanvasRenderMetrics {
     partitionTileSize: number;
 }
 
+function serializeRenderMetrics(metrics: CanvasRenderMetrics) {
+    return JSON.stringify(metrics);
+}
+
 interface CanvasAreaProps {
     scale: number;
     pan: { x: number; y: number };
@@ -104,10 +108,11 @@ interface CanvasAreaProps {
     spatialIndex?: SpatialIndex;
     /** Right offset for minimap to avoid overlapping side panels */
     minimapRightOffset?: number;
+    resolvedImageSrcMap?: Record<string, string>;
     onRenderMetricsChange?: (metrics: CanvasRenderMetrics) => void;
 }
 
-export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChange, onScaleChange, elements, selectedIds, highlightedElementIds = [], onSelect, onElementChange, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onAddElement, activeTool, onToolChange, onDragStart, onDragEnd, onConnectFlow, onCopyElement, onCopySelection, onCutSelection, onPasteAt, onDuplicateSelection, onDownloadElement, onSendSelectionToChat, onGroupSelection, onUngroupSelection, onMergeSelection, onBringForward, onSendBackward, onBringToFront, onSendToBack, onToggleElementsHidden, onToggleElementsLocked, onDeleteSelection, onExportStoryboardSelection, onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, projectReferenceImages, onUseProjectReferenceImage, onSaveAsProjectReference, onSaveSelectionAsProjectReference, onAiEditElement, onRecoverImageEditTask, onReplaceBackground, onMockupElement, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onAddImage, onAddVideo, onOpenImageGenerator, onOpenVideoGenerator, onCanvasMouseMove, canvasSelectMode, onCanvasSelectPick, onCancelCanvasSelect, generatorSubmittingMap, highlightedResultId, canPaste, onBatchElementChange, spatialIndex, minimapRightOffset, onRenderMetricsChange }: CanvasAreaProps) {
+export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChange, onScaleChange, elements, selectedIds, highlightedElementIds = [], onSelect, onElementChange, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onAddElement, activeTool, onToolChange, onDragStart, onDragEnd, onConnectFlow, onCopyElement, onCopySelection, onCutSelection, onPasteAt, onDuplicateSelection, onDownloadElement, onSendSelectionToChat, onGroupSelection, onUngroupSelection, onMergeSelection, onBringForward, onSendBackward, onBringToFront, onSendToBack, onToggleElementsHidden, onToggleElementsLocked, onDeleteSelection, onExportStoryboardSelection, onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, projectReferenceImages, onUseProjectReferenceImage, onSaveAsProjectReference, onSaveSelectionAsProjectReference, onAiEditElement, onRecoverImageEditTask, onReplaceBackground, onMockupElement, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onAddImage, onAddVideo, onOpenImageGenerator, onOpenVideoGenerator, onCanvasMouseMove, canvasSelectMode, onCanvasSelectPick, onCancelCanvasSelect, generatorSubmittingMap, highlightedResultId, canPaste, onBatchElementChange, spatialIndex, minimapRightOffset, resolvedImageSrcMap, onRenderMetricsChange }: CanvasAreaProps) {
     const DRAG_START_THRESHOLD = 3;
     const MOVE_SNAP_THRESHOLD = 10;
     const RESIZE_SNAP_THRESHOLD = 10;
@@ -2565,31 +2570,41 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
     }, [elements, isDragging, isPanning, isResizing, isSelecting, pan, scale, selectedIds, spatialIndex, viewportSize.height, viewportSize.width]);
 
     const visibleElements = viewportRenderPlan.visibleElements;
+    const renderMetrics = useMemo<CanvasRenderMetrics>(() => ({
+        visibleCount: visibleElements.length,
+        totalCount: elements.length,
+        culledCount: viewportRenderPlan.culledCount,
+        virtualizedCount: viewportRenderPlan.virtualizedCount,
+        deferredCount: viewportRenderPlan.deferredCount,
+        maxVisibleElements: viewportRenderPlan.maxVisibleElements,
+        viewportMargin: viewportRenderPlan.viewportMargin,
+        partitionCount: viewportRenderPlan.partitionCount,
+        partitionTileSize: viewportRenderPlan.partitionTileSize,
+    }), [
+        elements.length,
+        viewportRenderPlan.culledCount,
+        viewportRenderPlan.deferredCount,
+        viewportRenderPlan.maxVisibleElements,
+        viewportRenderPlan.partitionCount,
+        viewportRenderPlan.partitionTileSize,
+        viewportRenderPlan.viewportMargin,
+        viewportRenderPlan.virtualizedCount,
+        visibleElements.length,
+    ]);
 
     useEffect(() => {
         if (!onRenderMetricsChange) {
             return;
         }
 
-        const nextMetrics: CanvasRenderMetrics = {
-            visibleCount: visibleElements.length,
-            totalCount: elements.length,
-            culledCount: viewportRenderPlan.culledCount,
-            virtualizedCount: viewportRenderPlan.virtualizedCount,
-            deferredCount: viewportRenderPlan.deferredCount,
-            maxVisibleElements: viewportRenderPlan.maxVisibleElements,
-            viewportMargin: viewportRenderPlan.viewportMargin,
-            partitionCount: viewportRenderPlan.partitionCount,
-            partitionTileSize: viewportRenderPlan.partitionTileSize,
-        };
-        const serializedMetrics = JSON.stringify(nextMetrics);
+        const serializedMetrics = serializeRenderMetrics(renderMetrics);
         if (serializedMetrics === lastRenderMetricsRef.current) {
             return;
         }
 
         lastRenderMetricsRef.current = serializedMetrics;
-        onRenderMetricsChange(nextMetrics);
-    }, [elements.length, onRenderMetricsChange, viewportRenderPlan, visibleElements.length]);
+        onRenderMetricsChange(renderMetrics);
+    }, [onRenderMetricsChange, renderMetrics]);
 
     useEffect(() => {
         visibleElementsRef.current = visibleElements;
@@ -3141,6 +3156,7 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
                             <CanvasElementRenderer
                                 key={el.id}
                                 el={el}
+                                resolvedImageSrc={resolvedImageSrcMap?.[el.id]}
                                 isSelected={isSelected}
                                 selectedImageCount={multiReferenceCandidateCount}
                                 showResizeHandles={isSelected && selectedIds.length === 1 && !isDrawing}

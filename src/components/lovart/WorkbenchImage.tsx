@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cachedDataUrlToBlobUrl } from '@/lib/blob-utils';
-import { fetchRemoteBlob } from '@/lib/blob-utils';
 import { isImageRef, getImageBlobUrlWithLOD, reprioritizeImageLodCache } from '@/lib/editor-kernel';
 import {
     normalizeDisplayPixels,
@@ -71,6 +70,7 @@ function clearTimer(timerRef: React.MutableRefObject<number | null>) {
 
 export interface WorkbenchImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'className'> {
     content?: string;
+    resolvedSrc?: string;
     displayPixels?: number;
     canvasScale?: number;
     prioritizeDetail?: boolean;
@@ -84,6 +84,7 @@ export interface WorkbenchImageProps extends Omit<React.ImgHTMLAttributes<HTMLIm
 
 export function WorkbenchImage({
     content,
+    resolvedSrc,
     displayPixels,
     canvasScale = 1,
     prioritizeDetail = false,
@@ -104,8 +105,6 @@ export function WorkbenchImage({
     const currentContentRef = useRef<string | null>(null);
     /** 当前使用的 LOD 请求像素，用于检测降级 */
     const currentLodRef = useRef<number>(0);
-    /** fetchRemoteBlob 创建的 blob URL，需要在 cleanup 时释放 */
-    const remoteBlobUrlRef = useRef<string | null>(null);
     const promotionTimerRef = useRef<number | null>(null);
     const [activeLayer, setActiveLayer] = useState<ImageLayer | null>(null);
     const [pendingLayer, setPendingLayer] = useState<(ImageLayer & { visible: boolean }) | null>(null);
@@ -168,6 +167,21 @@ export function WorkbenchImage({
         onLoadStateChangeRef.current = onLoadStateChange;
     }, [onLoadStateChange]);
 
+    const commitResolvedLayer = useCallback((nextLayer: ImageLayer) => {
+        const shouldKeepCurrentLayer = !!currentSrcRef.current
+            && nextLayer.src !== currentSrcRef.current;
+
+        if (shouldKeepCurrentLayer) {
+            setPendingLayer({ ...nextLayer, visible: false });
+            setLoadState('loading');
+            return;
+        }
+
+        setPendingLayer(null);
+        setActiveLayer(nextLayer);
+        setLoadState(nextLayer.src === currentSrcRef.current ? 'ready' : 'loading');
+    }, [setLoadState]);
+
     useEffect(() => {
         if (typeof window === 'undefined') {
             return;
@@ -215,6 +229,7 @@ export function WorkbenchImage({
 
     useEffect(() => {
         let cancelled = false;
+        const preferredResolvedSrc = resolvedSrc?.trim() || null;
 
         const load = async () => {
             clearTimer(promotionTimerRef);
@@ -229,37 +244,21 @@ export function WorkbenchImage({
             }
 
             if (!isImageRef(content)) {
-                if (currentContentRef.current !== content) {
-                    setPendingLayer(null);
-                    setActiveLayer(null);
-                }
-
-                // 远程 URL → 先尝试直接 fetch 为 blob 再展示，绕过可能的 CDN 限制
-                if (content.startsWith('http://') || content.startsWith('https://')) {
-                    try {
-                        const blob = await fetchRemoteBlob(content, 'workbench-image', 15_000);
-                        if (!cancelled && blob) {
-                            const blobUrl = URL.createObjectURL(blob);
-                            remoteBlobUrlRef.current = blobUrl; // 记录以便 cleanup 释放
-                            setPendingLayer(null);
-                            setActiveLayer({ src: blobUrl, content, requestPixels: 0 });
-                            setLoadState('loading');
-                            return;
-                        }
-                    } catch { /* fall through to direct <img src> */ }
-                }
-                const nextSrc = cachedDataUrlToBlobUrl(content) || content;
+                const nextSrc = preferredResolvedSrc || cachedDataUrlToBlobUrl(content) || content;
                 if (!cancelled) {
-                    setPendingLayer(null);
-                    setActiveLayer({ src: nextSrc, content, requestPixels: 0 });
-                    setLoadState(nextSrc === currentSrcRef.current ? 'ready' : 'loading');
+                    // Remote URLs can be handed to <img> immediately; caching/localization
+                    // happens elsewhere and should not block first paint of generated results.
+                    commitResolvedLayer({ src: nextSrc, content, requestPixels: 0 });
                 }
                 return;
             }
 
-            if (currentContentRef.current !== content) {
-                setActiveLayer(null);
-                setPendingLayer(null);
+            if (
+                preferredResolvedSrc
+                && currentSrcRef.current !== preferredResolvedSrc
+                && (currentContentRef.current !== content || currentLodRef.current === 0)
+            ) {
+                commitResolvedLayer({ src: preferredResolvedSrc, content, requestPixels: 0 });
             }
 
             if (currentContentRef.current === content && currentSrcRef.current && currentLodRef.current >= previewRequestPixels) {
@@ -284,9 +283,7 @@ export function WorkbenchImage({
 
                 // 这里不能主动 revoke 旧的 blob URL：这些 URL 由 image-store 的全局 LRU 缓存统一管理。
                 // 如果组件单方面释放，缓存仍可能继续返回已失效 URL，造成偶发断图。
-                setPendingLayer(null);
-                setActiveLayer({ src: previewUrl, content, requestPixels: previewRequestPixels });
-                setLoadState(previewUrl === currentSrcRef.current ? 'ready' : 'loading');
+                commitResolvedLayer({ src: previewUrl, content, requestPixels: previewRequestPixels });
             } catch {
                 if (!cancelled) {
                     setActiveLayer(null);
@@ -301,13 +298,8 @@ export function WorkbenchImage({
         return () => {
             cancelled = true;
             clearTimer(promotionTimerRef);
-            // 释放 fetchRemoteBlob 创建的 blob URL，防止内存泄漏
-            if (remoteBlobUrlRef.current) {
-                try { URL.revokeObjectURL(remoteBlobUrlRef.current); } catch { /* ignore */ }
-                remoteBlobUrlRef.current = null;
-            }
         };
-    }, [content, loadRequestPixels, setLoadState]);
+    }, [commitResolvedLayer, content, loadRequestPixels, resolvedSrc, setLoadState]);
 
     useEffect(() => {
         if (!content || !isImageRef(content) || !shouldUpgradeToFinal) {

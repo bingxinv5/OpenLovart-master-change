@@ -42,9 +42,11 @@ import {
 } from './textarea-mention-utils';
 import { runImageGenerationFlow } from './image-generation-flow';
 import { requestImageGeneration } from '@/lib/ai-client';
+import { isDataUrl } from '@/lib/data-url';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import { getMaxReferenceImagesForImageModel, shouldUseDomesticImageBatching } from '@/lib/image-generation-models';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
+import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
 import { useImageGenerationDefaults } from '@/lib/generation-defaults';
 
 type ImageModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
@@ -54,6 +56,7 @@ type ImageSize = '1K' | '2K' | '4K';
 const GROK_IMAGE_ASPECT_RATIOS: AspectRatio[] = ['4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
 const GROK_IMAGE_SIZES: ImageSize[] = ['1K', '2K'];
 const PROMPT_REFERENCE_TOKEN_REGEX = /@参考图(\d+)/g;
+const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
 
 const MODEL_LABELS: Record<ImageModel, string> = {
     'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
@@ -674,9 +677,29 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const resolveReferenceImageValue = useCallback(async (value: File | string) => {
         if (typeof value === 'string') {
+            if (isImageRef(value)) {
+                const resolved = await getImageDataUrl(value);
+                if (!resolved) {
+                    throw new Error('参考图读取失败，请重新选择图片后再试。');
+                }
+
+                return await compressReferenceImageDataUrl(resolved, {
+                    targetBytes: IMAGE_REFERENCE_TARGET_BYTES,
+                });
+            }
+
+            if (isDataUrl(value)) {
+                return await compressReferenceImageDataUrl(value, {
+                    targetBytes: IMAGE_REFERENCE_TARGET_BYTES,
+                });
+            }
+
             return value;
         }
-        return await readFileAsDataUrl(value);
+
+        return await compressReferenceImageDataUrl(await readFileAsDataUrl(value), {
+            targetBytes: IMAGE_REFERENCE_TARGET_BYTES,
+        });
     }, []);
 
     const handleSaveReferenceFavorite = useCallback(async (value: File | string, seedLabel?: string) => {
@@ -741,15 +764,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             const referenceImageDataList: string[] = [];
             if (referenceImages.length > 0) {
                 for (const img of referenceImages) {
-                    if (typeof img === 'string') {
-                        if (isImageRef(img)) {
-                            const dataUrl = await getImageDataUrl(img);
-                            if (dataUrl) referenceImageDataList.push(dataUrl);
-                        } else {
-                            referenceImageDataList.push(img);
-                        }
-                    } else {
-                        referenceImageDataList.push(await readFileAsDataUrl(img));
+                    const resolved = await resolveReferenceImageValue(img);
+                    if (resolved) {
+                        referenceImageDataList.push(resolved);
                     }
                 }
             }

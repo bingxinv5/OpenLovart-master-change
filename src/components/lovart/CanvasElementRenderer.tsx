@@ -214,6 +214,7 @@ export interface ElementHandlers {
 // ─── Props for the memoized element renderer ───
 export interface CanvasElementRendererProps {
     el: CanvasElement;
+    resolvedImageSrc?: string;
     // Pre-computed boolean flags for efficient shallow comparison
     isSelected: boolean;
     selectedImageCount: number;
@@ -253,6 +254,7 @@ export interface CanvasElementRendererProps {
 export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
     function CanvasElementRenderer({
         el,
+        resolvedImageSrc,
         isSelected,
         selectedImageCount,
         showResizeHandles,
@@ -515,6 +517,7 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     <>
                         <WorkbenchImage
                             content={el.content}
+                            resolvedSrc={resolvedImageSrc}
                             displayPixels={Math.max(el.width || 400, el.height || 400) * scale}
                             canvasScale={scale}
                             prioritizeDetail={shouldPrioritizeImageDetail}

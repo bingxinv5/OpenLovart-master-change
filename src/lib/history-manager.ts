@@ -4,7 +4,7 @@
  * 核心思想：
  * - 不再对整个 elements[] 做 JSON 深拷贝（包含 base64 图片 → 每快照数 GB）
  * - 改为记录「差分补丁 (Patch)」：新增、删除、修改了哪些字段
- * - content / savedReferenceImage / savedFrameImages 等大字段
+ * - content / savedReferenceImage / savedFrameImages / flowReferenceImages 等大字段
  *   被分离到 ContentStore（引用计数），Patch 里只存引用 hash
  * - 每次 undo/redo 只需 apply/reverse 一个轻量 Patch
  *
@@ -27,6 +27,7 @@ function getSnapshotString(snapshot: Snapshot, key: string): string {
 /** 大字段名列表 — 这些字段存入 ContentStore 而非 Patch */
 const LARGE_FIELDS = new Set([
   'content',
+  'flowReferenceImages',
   'savedReferenceImage',
   'savedFrameImages',
 ]);

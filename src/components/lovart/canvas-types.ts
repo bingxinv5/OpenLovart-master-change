@@ -51,6 +51,7 @@ export interface CanvasElement {
     savedPromptMentionBindings?: string;
     savedPromptMentionIds?: string;
     savedReferenceImages?: string;
+    flowReferenceImages?: string;
     annotationTitle?: string;
     annotationNote?: string;
     storyboardShotCode?: string;

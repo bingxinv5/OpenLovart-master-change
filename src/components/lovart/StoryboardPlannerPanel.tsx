@@ -8,15 +8,15 @@ import {
   type StoryboardPlanResponse,
   type StoryboardPlanShot,
 } from '@/lib/ai-client';
-import { bytesToBase64, extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
+import { isDataUrl } from '@/lib/data-url';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import { useImageGenerationDefaults, type ImageGenerationDefaults } from '@/lib/generation-defaults';
-import { compressImage } from '@/lib/image-ops-bridge';
 import {
   createGenerationIdlePatch,
   createGenerationTaskPatch,
 } from '@/lib/generation-task-state';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
+import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
 import type { CanvasElement } from './canvas-types';
 import { runImageGenerationFlow, waitForImageGenerationResult } from './image-generation-flow';
 import { WorkbenchImage } from './WorkbenchImage';
@@ -63,15 +63,6 @@ const SAVE_DEBOUNCE_MS = 1500;
 const SHOT_COUNT_OPTIONS = [4, 6, 9, 12, 16] as const;
 
 const MAX_SOURCE_IMAGES = 5;
-const TARGET_REFERENCE_IMAGE_BYTES = 4 * 1024 * 1024;
-const HARD_MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
-const STORYBOARD_REFERENCE_COMPRESSION_STEPS = [
-  { maxResolution: 2560, quality: 0.9 },
-  { maxResolution: 2048, quality: 0.85 },
-  { maxResolution: 1600, quality: 0.8 },
-  { maxResolution: 1280, quality: 0.74 },
-  { maxResolution: 1024, quality: 0.68 },
-] as const;
 
 type SourceImage = { content: string; label: string };
 
@@ -225,21 +216,6 @@ function buildCombinedStoryboardPrompt(plan: StoryboardPlanResponse): string {
   return zh;
 }
 
-function estimateBase64Bytes(base64: string) {
-  const normalizedLength = base64.replace(/\s+/g, '').length;
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  return Math.floor((normalizedLength * 3) / 4) - padding;
-}
-
-function estimateDataUrlBytes(dataUrl: string) {
-  if (!isDataUrl(dataUrl)) return 0;
-  return estimateBase64Bytes(extractDataUrlBase64(dataUrl));
-}
-
-function buildDataUrlFromBuffer(buffer: ArrayBuffer, mime: string) {
-  return `data:${mime};base64,${bytesToBase64(new Uint8Array(buffer))}`;
-}
-
 async function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -250,28 +226,7 @@ async function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 async function compressStoryboardReferenceDataUrl(dataUrl: string): Promise<string> {
-  if (!isDataUrl(dataUrl)) {
-    return dataUrl;
-  }
-
-  let candidate = dataUrl;
-  if (estimateDataUrlBytes(candidate) <= TARGET_REFERENCE_IMAGE_BYTES) {
-    return candidate;
-  }
-
-  for (const step of STORYBOARD_REFERENCE_COMPRESSION_STEPS) {
-    const compressed = await compressImage(candidate, step.maxResolution, step.quality);
-    candidate = buildDataUrlFromBuffer(compressed.buffer, compressed.mime);
-    if (estimateDataUrlBytes(candidate) <= TARGET_REFERENCE_IMAGE_BYTES) {
-      return candidate;
-    }
-  }
-
-  if (estimateDataUrlBytes(candidate) > HARD_MAX_REFERENCE_IMAGE_BYTES) {
-    throw new Error('参考图压缩后仍超过 10MB，请先裁剪或缩小后再试。');
-  }
-
-  return candidate;
+  return await compressReferenceImageDataUrl(dataUrl);
 }
 
 /** Grid layout description for each shot count option */
