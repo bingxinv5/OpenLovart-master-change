@@ -1045,7 +1045,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                         <div className={`${referenceImages.length > 0 ? 'group/refs' : ''} relative px-3 pb-2.5`}>
                             <div className="relative" style={{ minHeight: '32px' }}>
                                 {/* Collapsed: stacked mini thumbnails + small + button */}
-                                <div className={`flex items-end gap-1 transition-all duration-300 ease-out ${referenceImages.length > 0 ? 'group-hover/refs:opacity-0 group-hover/refs:scale-95 group-hover/refs:pointer-events-none' : ''}`}>
+                                <div className={`relative z-0 flex items-end gap-1 transition-all duration-300 ease-out ${referenceImages.length > 0 ? 'group-hover/refs:opacity-0 group-hover/refs:scale-95 group-hover/refs:pointer-events-none' : ''}`}>
                                     {referenceImages.length > 0 && (
                                         <div
                                             className="relative flex items-end"
@@ -1096,8 +1096,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
                                 {/* Expanded: full thumbnail row (only when there are references) */}
                                 {referenceImages.length > 0 && (
-                                    <div className="absolute inset-0 flex items-end gap-1.5 transition-all duration-300 ease-out opacity-0 scale-95 pointer-events-none group-hover/refs:opacity-100 group-hover/refs:scale-100 group-hover/refs:pointer-events-auto">
-                                        <button type="button" onClick={() => { if (confirmClear) { handleClearReferenceImages(); setConfirmClear(false); } else { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 2000); } }} className={`shrink-0 self-center rounded-full p-1 transition-colors ${confirmClear ? 'bg-rose-50 text-rose-500 ring-1 ring-rose-200' : 'text-slate-300 hover:text-slate-500'}`} title={confirmClear ? '再次点击确认清空' : '清空参考图'}>
+                                    <div className="absolute inset-0 z-10 flex items-end gap-1.5 transition-all duration-300 ease-out opacity-0 scale-95 pointer-events-none group-hover/refs:opacity-100 group-hover/refs:scale-100 group-hover/refs:pointer-events-auto">
+                                        <button type="button" onClick={() => { if (confirmClear) { handleClearReferenceImages(); setConfirmClear(false); } else { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 2000); } }} className={`relative z-20 shrink-0 self-center rounded-full p-1 transition-colors ${confirmClear ? 'bg-rose-50 text-rose-500 ring-1 ring-rose-200' : 'text-slate-300 hover:text-slate-500'}`} title={confirmClear ? '再次点击确认清空' : '清空参考图'}>
                                             <X size={14} />
                                         </button>
                                         {referenceImages.map((img, index) => (
@@ -1119,7 +1119,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveReferenceImage(index)}
-                                                    className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-white text-slate-400 shadow ring-1 ring-slate-200 transition-colors hover:bg-rose-50 hover:text-rose-500 group-hover/item:flex"
+                                                    className="absolute -right-1 -top-1 z-20 hidden h-4 w-4 items-center justify-center rounded-full bg-white text-slate-400 shadow ring-1 ring-slate-200 transition-colors hover:bg-rose-50 hover:text-rose-500 group-hover/item:flex"
                                                     title={`移除参考图 ${index + 1}`}
                                                 >
                                                     <X size={9} />
