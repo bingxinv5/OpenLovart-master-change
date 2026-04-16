@@ -155,6 +155,153 @@ function areCanvasRenderMetricsEqual(left: CanvasRenderMetrics | null, right: Ca
         && left.partitionTileSize === right.partitionTileSize;
 }
 
+type AiCanvasPlanAction =
+    | {
+        type: 'create-image-generator';
+        prompt?: string;
+        title?: string;
+        useSelectionAsReferences?: boolean;
+    }
+    | {
+        type: 'create-video-generator';
+        prompt?: string;
+        title?: string;
+        useSelectionAsReferences?: boolean;
+    }
+    | {
+        type: 'create-text-note';
+        text: string;
+    }
+    | {
+        type: 'frame-selection';
+    }
+    | {
+        type: 'save-selection-as-reference';
+    };
+
+function isAiCanvasPlanRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readAiCanvasPlanString(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readAiCanvasPlanBoolean(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
+}
+
+function isEditableOverlayTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+
+    if (target.closest('[data-testid="canvas-area"]')) {
+        return false;
+    }
+
+    return !!target.closest('textarea, input, select, [contenteditable]:not([contenteditable="false"])');
+}
+
+function parseAiCanvasPlanActions(input: unknown): AiCanvasPlanAction[] {
+    if (!isAiCanvasPlanRecord(input) || !Array.isArray(input.canvasActions)) {
+        return [];
+    }
+
+    const actions: AiCanvasPlanAction[] = [];
+    for (const rawAction of input.canvasActions) {
+        if (!isAiCanvasPlanRecord(rawAction)) {
+            continue;
+        }
+
+        const type = readAiCanvasPlanString(rawAction.type);
+        switch (type) {
+            case 'create-image-generator':
+                actions.push({
+                    type,
+                    prompt: readAiCanvasPlanString(rawAction.prompt),
+                    title: readAiCanvasPlanString(rawAction.title),
+                    useSelectionAsReferences: readAiCanvasPlanBoolean(rawAction.useSelectionAsReferences),
+                });
+                break;
+            case 'create-video-generator':
+                actions.push({
+                    type,
+                    prompt: readAiCanvasPlanString(rawAction.prompt),
+                    title: readAiCanvasPlanString(rawAction.title),
+                    useSelectionAsReferences: readAiCanvasPlanBoolean(rawAction.useSelectionAsReferences),
+                });
+                break;
+            case 'create-text-note': {
+                const text = readAiCanvasPlanString(rawAction.text);
+                if (!text) {
+                    break;
+                }
+                actions.push({ type, text });
+                break;
+            }
+            case 'frame-selection':
+                actions.push({ type });
+                break;
+            case 'save-selection-as-reference':
+                actions.push({ type });
+                break;
+            default:
+                break;
+        }
+    }
+
+    return actions;
+}
+
+function buildAiCanvasSelectionSummary(elements: CanvasElement[], selectedIds: string[]) {
+    const selectedElements = elements.filter((element) => selectedIds.includes(element.id));
+    if (selectedElements.length === 0) {
+        return '当前没有选中任何元素。';
+    }
+
+    const typeLabelMap: Partial<Record<CanvasElement['type'], string>> = {
+        image: '图片',
+        text: '文本',
+        shape: '形状',
+        path: '路径',
+        'image-generator': '图像生成器',
+        'video-generator': '视频生成器',
+        'storyboard-planner': '分镜规划器',
+        video: '视频',
+        connector: '连接线',
+        mark: '标记',
+        frame: '画板',
+    };
+    const typeCounts = new Map<string, number>();
+    selectedElements.forEach((element) => {
+        const label = typeLabelMap[element.type] || element.type;
+        typeCounts.set(label, (typeCounts.get(label) || 0) + 1);
+    });
+
+    const summary = Array.from(typeCounts.entries())
+        .map(([type, count]) => `${type} ${count} 个`)
+        .join('，');
+    const selectedNames = selectedElements
+        .map((element) => element.displayName || element.savedPrompt || `${typeLabelMap[element.type] || element.type}#${element.id.slice(0, 4)}`)
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .slice(0, 3)
+        .map((value) => value.trim());
+    const canFrameSelection = selectedElements.filter((element) => element.type !== 'connector').length >= 2;
+    const canSaveAsReference = selectedElements.some((element) => element.type === 'image' && !!element.content);
+
+    return [
+        `当前选中 ${selectedElements.length} 个元素：${summary}。`,
+        selectedNames.length > 0 ? `示例名称：${selectedNames.join('、')}。` : '',
+        `可创建编组：${canFrameSelection ? '是' : '否'}。`,
+        `可加入项目参考库：${canSaveAsReference ? '是' : '否'}。`,
+    ].filter(Boolean).join(' ');
+}
+
     const GENERATED_IMAGE_RENDER_SRC_TTL_MS = 60_000;
 
 function ZoomControl({ scale, onZoomIn, onZoomOut, onZoomTo, onFitToScreen }: {
@@ -1978,6 +2125,58 @@ function LovartCanvasContent() {
         }
     }, [isLoading]);
 
+    useEffect(() => {
+        const resolveCanvasArea = () => document.querySelector('[data-testid="canvas-area"]');
+        let isCanvasPointerSuspended = false;
+
+        const suspendCanvasPointerEvents = () => {
+            if (isCanvasPointerSuspended) {
+                return;
+            }
+
+            const canvasArea = resolveCanvasArea();
+            if (!(canvasArea instanceof HTMLElement)) {
+                return;
+            }
+
+            canvasArea.style.pointerEvents = 'none';
+            isCanvasPointerSuspended = true;
+        };
+
+        const restoreCanvasPointerEvents = () => {
+            if (!isCanvasPointerSuspended) {
+                return;
+            }
+
+            const canvasArea = resolveCanvasArea();
+            if (canvasArea instanceof HTMLElement) {
+                canvasArea.style.pointerEvents = '';
+            }
+            isCanvasPointerSuspended = false;
+        };
+
+        const handleDocumentMouseDown = (event: MouseEvent) => {
+            if (!isEditableOverlayTarget(event.target)) {
+                return;
+            }
+
+            suspendCanvasPointerEvents();
+        };
+
+        document.addEventListener('mousedown', handleDocumentMouseDown, true);
+        window.addEventListener('mouseup', restoreCanvasPointerEvents, true);
+        window.addEventListener('pointerup', restoreCanvasPointerEvents, true);
+        window.addEventListener('blur', restoreCanvasPointerEvents);
+
+        return () => {
+            document.removeEventListener('mousedown', handleDocumentMouseDown, true);
+            window.removeEventListener('mouseup', restoreCanvasPointerEvents, true);
+            window.removeEventListener('pointerup', restoreCanvasPointerEvents, true);
+            window.removeEventListener('blur', restoreCanvasPointerEvents);
+            restoreCanvasPointerEvents();
+        };
+    }, []);
+
     // ──── 差分 Undo/Redo（替代全量 JSON 深拷贝）────────────────
     const historyManagerRef = useRef<HistoryManager>(new HistoryManager({ maxPatches: 100 }));
     const dirtyTrackerRef = useRef<DirtyTracker>(new DirtyTracker());
@@ -2486,6 +2685,10 @@ function LovartCanvasContent() {
         return _buildAutoGroupFrame(items, frameName, uuidv4);
     }, []);
 
+    const aiCanvasPlanContextSummary = useMemo(() => {
+        return buildAiCanvasSelectionSummary(elements, selectedIds);
+    }, [elements, selectedIds]);
+
     // sanitizeToolName, sanitizeFilenameStem, getElementBaseName, buildToolResultNames,
     // resolveToolResultNaming — now imported from canvas-page-utils
 
@@ -2704,6 +2907,156 @@ function LovartCanvasContent() {
             ...attrs,
         } satisfies CanvasElement;
     }, []);
+
+    const handleApplyAiCanvasPlan = useCallback(async (rawPlan: unknown) => {
+        const actions = parseAiCanvasPlanActions(rawPlan);
+        if (actions.length === 0) {
+            return { summary: '未检测到可执行的画布动作。' };
+        }
+
+        const initialSelectedIds = [...selectedIdsRef.current];
+        const initialSelectedElements = initialSelectedIds
+            .map((id) => elementsMapRef.current.get(id))
+            .filter((element): element is CanvasElement => !!element);
+        const selectionImageContents = Array.from(new Set(
+            initialSelectedElements
+                .filter((element) => element.type === 'image' && !!element.content)
+                .map((element) => element.content as string),
+        ));
+        const groupableSelectionCount = initialSelectedElements.filter((element) => element.type !== 'connector').length;
+
+        const basePlacement = (() => {
+            if (initialSelectedElements.length === 0) {
+                return getPlacementPosition();
+            }
+
+            const minX = Math.min(...initialSelectedElements.map((element) => element.x));
+            const maxX = Math.max(...initialSelectedElements.map((element) => element.x + (element.width || 0)));
+            const maxY = Math.max(...initialSelectedElements.map((element) => element.y + (element.height || 0)));
+            return {
+                x: Math.round((minX + maxX) / 2),
+                y: Math.round(maxY + 120),
+            };
+        })();
+
+        let placementOffsetIndex = 0;
+        const nextPlacementCenter = () => {
+            const offsetIndex = placementOffsetIndex;
+            placementOffsetIndex += 1;
+            return {
+                x: basePlacement.x + offsetIndex * 32,
+                y: basePlacement.y + offsetIndex * 40,
+            };
+        };
+
+        const executed: string[] = [];
+        const skipped: string[] = [];
+
+        for (const action of actions) {
+            switch (action.type) {
+                case 'create-image-generator': {
+                    const center = nextPlacementCenter();
+                    const imageGenerator = buildGeneratorElement('image-generator', {
+                        ...buildCenteredElementBounds(center, 400, 400),
+                        displayName: action.title,
+                        savedPrompt: action.prompt,
+                        savedReferenceImages: action.useSelectionAsReferences && selectionImageContents.length > 0
+                            ? JSON.stringify(selectionImageContents)
+                            : undefined,
+                    });
+
+                    runHistoryTransaction({ label: 'AI 创建图像生成器', source: 'ai-canvas-plan' }, () => {
+                        addAndSelectElement(imageGenerator);
+                        return { selectionAfter: [imageGenerator.id] };
+                    });
+
+                    executed.push(action.useSelectionAsReferences && selectionImageContents.length > 0
+                        ? '创建图像生成器并绑定当前选中图片'
+                        : '创建图像生成器');
+                    break;
+                }
+                case 'create-video-generator': {
+                    const center = nextPlacementCenter();
+                    const selectedFrameImages = action.useSelectionAsReferences && selectionImageContents.length > 0
+                        ? JSON.stringify(selectionImageContents.slice(0, 2))
+                        : undefined;
+                    const videoGenerator = buildGeneratorElement('video-generator', {
+                        ...buildCenteredElementBounds(center, 400, 300),
+                        displayName: action.title,
+                        savedPrompt: action.prompt,
+                        savedFrameImages: selectedFrameImages,
+                    });
+
+                    runHistoryTransaction({ label: 'AI 创建视频生成器', source: 'ai-canvas-plan' }, () => {
+                        addAndSelectElement(videoGenerator);
+                        return { selectionAfter: [videoGenerator.id] };
+                    });
+
+                    executed.push(selectedFrameImages
+                        ? '创建视频生成器并绑定当前选中图片'
+                        : '创建视频生成器');
+                    break;
+                }
+                case 'create-text-note': {
+                    const center = nextPlacementCenter();
+                    const textNote: CanvasElement = {
+                        id: uuidv4(),
+                        type: 'text',
+                        x: center.x - 120,
+                        y: center.y - 24,
+                        content: action.text,
+                    };
+
+                    runHistoryTransaction({ label: 'AI 创建文本说明', source: 'ai-canvas-plan' }, () => {
+                        addAndSelectElement(textNote);
+                        return { selectionAfter: [textNote.id] };
+                    });
+
+                    executed.push('创建文本说明');
+                    break;
+                }
+                case 'frame-selection': {
+                    if (groupableSelectionCount < 2) {
+                        skipped.push('当前选区不足两个元素，无法创建编组');
+                        break;
+                    }
+
+                    handleGroupSelection(initialSelectedIds);
+                    executed.push('将当前选区编组为画板');
+                    break;
+                }
+                case 'save-selection-as-reference': {
+                    if (!currentProjectIdRef.current) {
+                        skipped.push('当前项目尚未保存，无法写入项目参考库');
+                        break;
+                    }
+
+                    if (selectionImageContents.length === 0) {
+                        skipped.push('当前选区没有可加入参考库的图片');
+                        break;
+                    }
+
+                    saveProjectReferenceFromSelection(initialSelectedIds);
+                    executed.push('将当前选中图片加入项目参考库');
+                    break;
+                }
+            }
+        }
+
+        if (executed.length === 0 && skipped.length === 0) {
+            return { summary: '未执行任何画布动作。' };
+        }
+
+        const summaryParts: string[] = [];
+        if (executed.length > 0) {
+            summaryParts.push(`已执行 ${executed.length} 项画布操作：${executed.join('、')}。`);
+        }
+        if (skipped.length > 0) {
+            summaryParts.push(`未执行：${skipped.join('；')}。`);
+        }
+
+        return { summary: summaryParts.join('\n') };
+    }, [addAndSelectElement, buildCenteredElementBounds, buildGeneratorElement, getPlacementPosition, handleGroupSelection, runHistoryTransaction, saveProjectReferenceFromSelection]);
 
     const resolveCanvasContentBlob = useCallback(async (content: string, remoteFilename: string) => {
         return _resolveCanvasContentBlob(content, remoteFilename, { getImageBlob, dataUrlToBlob, fetchRemoteBlob });
@@ -5179,6 +5532,8 @@ function LovartCanvasContent() {
                         onClearAllMarks={handleClearAllMarks}
                         canvasImages={canvasImages}
                         onPickFromCanvas={handlePickFromCanvasForChat}
+                        canvasPlanContextSummary={aiCanvasPlanContextSummary}
+                        onApplyCanvasPlan={handleApplyAiCanvasPlan}
                     />
                 </div>
             )}

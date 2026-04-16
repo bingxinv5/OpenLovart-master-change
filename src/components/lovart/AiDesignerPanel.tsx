@@ -57,13 +57,76 @@ interface AiDesignerPanelProps {
     onClearAllMarks?: () => void;
     canvasImages?: { id: string; content: string; width: number; height: number; x: number; y: number }[];
     onPickFromCanvas?: () => void;
+    canvasPlanContextSummary?: string;
+    onApplyCanvasPlan?: (plan: unknown) => Promise<{ summary?: string } | void> | { summary?: string } | void;
+}
+
+type ParsedCanvasPlan = {
+    canvasActions: unknown[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function extractCanvasPlanFromMessage(content: string): {
+    cleanedContent: string;
+    plan: ParsedCanvasPlan | null;
+} {
+    const blockPattern = /```(?:json)?\s*([\s\S]*?)```/gi;
+    let match: RegExpExecArray | null;
+    let matchedBlock = '';
+    let parsedPlan: ParsedCanvasPlan | null = null;
+
+    while ((match = blockPattern.exec(content)) !== null) {
+        const candidate = match[1]?.trim();
+        if (!candidate) {
+            continue;
+        }
+
+        try {
+            const parsed = JSON.parse(candidate) as unknown;
+            if (isRecord(parsed) && Array.isArray(parsed.canvasActions)) {
+                matchedBlock = match[0];
+                parsedPlan = { canvasActions: parsed.canvasActions };
+            }
+        } catch {
+            // Ignore malformed JSON blocks and keep scanning.
+        }
+    }
+
+    if (!matchedBlock || !parsedPlan) {
+        return {
+            cleanedContent: content.trim(),
+            plan: null,
+        };
+    }
+
+    return {
+        cleanedContent: content.replace(matchedBlock, '').replace(/\n{3,}/g, '\n\n').trim(),
+        plan: parsedPlan,
+    };
+}
+
+function buildCanvasPlanInstruction(contextSummary?: string) {
+    const selectionSummary = contextSummary?.trim() || '当前没有选中任何元素，涉及选区的动作默认不可执行。';
+    return [
+        '[画布动作协议]',
+        '你正在协助一个可编辑画布。只有当用户明确要求你直接操作画布时，才在正常答复末尾追加一个 ```json 代码块。',
+        '代码块必须是一个 JSON 对象，格式为 {"canvasActions":[...]}。',
+        '当前仅支持以下动作：create-image-generator、create-video-generator、create-text-note、frame-selection、save-selection-as-reference。',
+        'create-image-generator / create-video-generator 可选字段：prompt、title、useSelectionAsReferences。',
+        'create-text-note 必须提供 text。',
+        `当前选区摘要：${selectionSummary}`,
+        '如果用户只是咨询、评审、解释、闲聊，或请求超出这些动作范围，不要输出 canvasActions。',
+    ].join('\n');
 }
 
 function getAiDesignerMentionSearchText(item: MentionItem): string {
     return `${item.insert} ${item.label} ${item.description}`.toLowerCase();
 }
 
-export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, initialPrompt, selectedModel: externalModel, onModelChange, isExpanded, onExpandToggle, panelMode, onPanelModeChange, marks, onDeleteMark, onClearAllMarks, canvasImages, onPickFromCanvas }: AiDesignerPanelProps) {
+export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, initialPrompt, selectedModel: externalModel, onModelChange, isExpanded, onExpandToggle, panelMode, onPanelModeChange, marks, onDeleteMark, onClearAllMarks, canvasImages, onPickFromCanvas, canvasPlanContextSummary, onApplyCanvasPlan }: AiDesignerPanelProps) {
     const [inputValue, setInputValue] = useState('');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -461,13 +524,23 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
         const apiText = (toolMatch?.tool.type === 'tool-prompt' && toolMatch.tool.systemPrompt)
             ? toolMatch.tool.systemPrompt.replace('{prompt}', toolMatch.prompt || text)
             : text;
-        const apiMessages = buildApiMessages({
+        const baseApiMessages = buildApiMessages({
             messages,
             userText: apiText,
             currentAttachments,
             marks,
             webSearchEnabled,
         });
+        const apiMessages = onApplyCanvasPlan
+            ? [
+                { role: 'user' as const, content: buildCanvasPlanInstruction(canvasPlanContextSummary) },
+                {
+                    role: 'assistant' as const,
+                    content: '好的。只有在用户明确要求直接操作画布时，我才会在正常答复末尾附加符合协议的 JSON 代码块。',
+                },
+                ...baseApiMessages,
+            ]
+            : baseApiMessages;
         const controller = new AbortController();
         setAbortController(controller);
 
@@ -522,8 +595,31 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
                 }
             }
 
+            let finalContent = fullContent.trim();
+            if (onApplyCanvasPlan) {
+                const { plan, cleanedContent } = extractCanvasPlanFromMessage(fullContent);
+                if (plan && plan.canvasActions.length > 0) {
+                    try {
+                        const applyResult = await onApplyCanvasPlan(plan);
+                        const summary = applyResult?.summary?.trim();
+                        if (summary) {
+                            finalContent = cleanedContent ? `${cleanedContent}\n\n${summary}` : summary;
+                        } else if (cleanedContent) {
+                            finalContent = cleanedContent;
+                        } else {
+                            finalContent = '已按要求更新画布。';
+                        }
+                    } catch (error: unknown) {
+                        const errorMessage = error instanceof Error ? error.message : '画布操作执行失败';
+                        finalContent = cleanedContent
+                            ? `${cleanedContent}\n\n⚠️ 画布操作未执行：${errorMessage}`
+                            : `⚠️ 画布操作未执行：${errorMessage}`;
+                    }
+                }
+            }
+
             setMessages(prev => prev.map(m =>
-                m.id === assistantMessage.id ? { ...m, isStreaming: false } : m
+                m.id === assistantMessage.id ? { ...m, content: finalContent, isStreaming: false } : m
             ));
         } catch (error: unknown) {
             if (error instanceof Error && error.name === 'AbortError') {

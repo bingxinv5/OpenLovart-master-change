@@ -451,28 +451,84 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
 
     // ── Inertia panning: silky momentum after drag release ──
     const panRef = useRef(pan);
+    const committedPanRef = useRef(pan);
     const onPanChangeRef = useRef(onPanChange);
+    const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
     const panVelocityPointsRef = useRef<{ x: number; y: number; t: number }[]>([]);
     const inertiaRafRef = useRef<number | null>(null);
+    const panRafRef = useRef<number | null>(null);
 
     useEffect(() => {
         panRef.current = pan;
+        committedPanRef.current = pan;
     }, [pan]);
 
     useEffect(() => {
         onPanChangeRef.current = onPanChange;
     }, [onPanChange]);
 
+    const commitPanChange = useCallback((nextPan: { x: number; y: number }) => {
+        const previousPan = committedPanRef.current;
+        if (previousPan.x === nextPan.x && previousPan.y === nextPan.y) {
+            return;
+        }
+
+        committedPanRef.current = nextPan;
+        panRef.current = nextPan;
+        onPanChangeRef.current(nextPan);
+    }, []);
+
+    const flushPendingPanChange = useCallback(() => {
+        if (panRafRef.current !== null) {
+            cancelAnimationFrame(panRafRef.current);
+            panRafRef.current = null;
+        }
+
+        const nextPan = pendingPanRef.current;
+        pendingPanRef.current = null;
+        if (!nextPan) {
+            return;
+        }
+
+        commitPanChange(nextPan);
+    }, [commitPanChange]);
+
+    const schedulePanChange = useCallback((nextPan: { x: number; y: number }) => {
+        pendingPanRef.current = nextPan;
+        if (panRafRef.current !== null) {
+            return;
+        }
+
+        panRafRef.current = requestAnimationFrame(() => {
+            panRafRef.current = null;
+            const queuedPan = pendingPanRef.current;
+            pendingPanRef.current = null;
+            if (!queuedPan) {
+                return;
+            }
+
+            commitPanChange(queuedPan);
+        });
+    }, [commitPanChange]);
+
     const cancelInertia = useCallback(() => {
         if (inertiaRafRef.current !== null) {
             cancelAnimationFrame(inertiaRafRef.current);
             inertiaRafRef.current = null;
         }
+        if (panRafRef.current !== null) {
+            cancelAnimationFrame(panRafRef.current);
+            panRafRef.current = null;
+        }
+        pendingPanRef.current = null;
         panVelocityPointsRef.current = [];
     }, []);
 
     // Clean up inertia on unmount
-    useEffect(() => () => { if (inertiaRafRef.current !== null) cancelAnimationFrame(inertiaRafRef.current); }, []);
+    useEffect(() => () => {
+        if (inertiaRafRef.current !== null) cancelAnimationFrame(inertiaRafRef.current);
+        if (panRafRef.current !== null) cancelAnimationFrame(panRafRef.current);
+    }, []);
 
     useEffect(() => {
         const updateViewportSize = () => {
@@ -993,7 +1049,7 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
         if (isPanning || isPanningRef.current) {
             const dx = clientX - dragStartRef.current.x;
             const dy = clientY - dragStartRef.current.y;
-            onPanChange({
+            schedulePanChange({
                 x: dragStartRef.current.panX + dx,
                 y: dragStartRef.current.panY + dy
             });
@@ -1540,10 +1596,15 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
     }
 
     const handleMouseMove = (e: React.MouseEvent) => {
+        if (dragStartRef.current || isPanningRef.current || isDrawing || isSelectingRef.current || isFrameDrawing) {
+            return;
+        }
+
         processMouseMove(e.clientX, e.clientY, e.buttons, e.altKey, e.timeStamp);
     };
 
     const handleMouseUp = () => {
+        flushPendingPanChange();
         const activeSelectionBox = selectionBoxRef.current;
         if (
             !isDragging &&
@@ -1793,7 +1854,7 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
                         }
                         currentPan.x += vx;
                         currentPan.y += vy;
-                        onPanChangeRef.current({ x: currentPan.x, y: currentPan.y });
+                        commitPanChange({ x: currentPan.x, y: currentPan.y });
                         inertiaRafRef.current = requestAnimationFrame(step);
                     };
                     inertiaRafRef.current = requestAnimationFrame(step);
@@ -1891,8 +1952,8 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
             y: (viewportHeight - bounds.height * nextScale) / 2 - bounds.minY * nextScale,
         };
         onScaleChange(nextScale);
-        onPanChange(newPan);
-    }, [MAX_SCALE, MIN_SCALE, onPanChange, onScaleChange, viewportSize.height, viewportSize.width]);
+        commitPanChange(newPan);
+    }, [MAX_SCALE, MIN_SCALE, commitPanChange, onScaleChange, viewportSize.height, viewportSize.width]);
 
     const fitToElement = useCallback((el: CanvasElement) => {
         fitViewportToBounds({
@@ -2010,15 +2071,15 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
             const newPanX = mouseX - canvasX * newScale;
             const newPanY = mouseY - canvasY * newScale;
             onScaleChange(newScale);
-            onPanChange({ x: newPanX, y: newPanY });
+            commitPanChange({ x: newPanX, y: newPanY });
         } else {
             // Pan with wheel (no ctrl)
-            onPanChange({
+            commitPanChange({
                 x: pan.x - (e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX),
                 y: pan.y - e.deltaY,
             });
         }
-    }, [MAX_SCALE, MIN_SCALE, scale, pan, onScaleChange, onPanChange, cancelInertia]);
+    }, [MAX_SCALE, MIN_SCALE, scale, pan, onScaleChange, commitPanChange, cancelInertia]);
 
     // Attach non-passive wheel listener so preventDefault works
     useEffect(() => {
