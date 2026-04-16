@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cachedDataUrlToBlobUrl } from '@/lib/blob-utils';
-import { isImageRef, getImageBlobUrlWithLOD, reprioritizeImageLodCache } from '@/lib/editor-kernel';
+import { inspectImageStoredLodLevels, isImageRef, getImageBlobUrlWithLODResolution, reprioritizeImageLodCache } from '@/lib/editor-kernel';
 import {
     normalizeDisplayPixels,
     getEffectiveDevicePixelRatio,
@@ -20,13 +20,20 @@ type ImageLayer = {
     requestPixels: number;
 };
 
-async function resolveImageUrlWithRetry(content: string, displayPixels: number, retries = 2, delayMs = 120): Promise<string | null> {
-    let result: string | null = null;
+const ORIGINAL_IMAGE_REQUEST_PIXELS = Number.MAX_SAFE_INTEGER;
+const FINAL_LAYER_RETRY_DELAYS_MS = [0, 320, 800, 1600, 3200, 5000] as const;
+
+async function resolveImageLayerWithRetry(content: string, displayPixels: number, retries = 2, delayMs = 120): Promise<ImageLayer | null> {
+    let result: { url: string; resolvedLevel: number | null } | null = null;
 
     for (let attempt = 0; attempt <= retries; attempt += 1) {
-        result = await getImageBlobUrlWithLOD(content, displayPixels);
+        result = await getImageBlobUrlWithLODResolution(content, displayPixels);
         if (result) {
-            return result;
+            return {
+                src: result.url,
+                content,
+                requestPixels: result.resolvedLevel === null ? ORIGINAL_IMAGE_REQUEST_PIXELS : result.resolvedLevel,
+            };
         }
 
         if (attempt < retries) {
@@ -68,8 +75,25 @@ function clearTimer(timerRef: React.MutableRefObject<number | null>) {
     }
 }
 
+function formatImageSize(width: number | null | undefined, height: number | null | undefined): string | null {
+    if (!width || !height) {
+        return null;
+    }
+
+    return `${Math.round(width)}x${Math.round(height)}`;
+}
+
+function readLoadedImageSize(image: HTMLImageElement | null): string | null {
+    if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+        return null;
+    }
+
+    return formatImageSize(image.naturalWidth, image.naturalHeight);
+}
+
 export interface WorkbenchImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'className'> {
     content?: string;
+    debugId?: string;
     resolvedSrc?: string;
     displayPixels?: number;
     canvasScale?: number;
@@ -84,6 +108,7 @@ export interface WorkbenchImageProps extends Omit<React.ImgHTMLAttributes<HTMLIm
 
 export function WorkbenchImage({
     content,
+    debugId,
     resolvedSrc,
     displayPixels,
     canvasScale = 1,
@@ -101,6 +126,8 @@ export function WorkbenchImage({
     ...imgProps
 }: WorkbenchImageProps) {
     const containerRef = useRef<HTMLDivElement>(null);
+    const primaryImageRef = useRef<HTMLImageElement>(null);
+    const pendingImageRef = useRef<HTMLImageElement>(null);
     const currentSrcRef = useRef<string | null>(null);
     const currentContentRef = useRef<string | null>(null);
     /** 当前使用的 LOD 请求像素，用于检测降级 */
@@ -109,6 +136,10 @@ export function WorkbenchImage({
     const [activeLayer, setActiveLayer] = useState<ImageLayer | null>(null);
     const [pendingLayer, setPendingLayer] = useState<(ImageLayer & { visible: boolean }) | null>(null);
     const [loadState, _setLoadState] = useState<LoadState>('loading');
+    const [storedLevelSummary, setStoredLevelSummary] = useState<string | null>(null);
+    const [containerSizeSummary, setContainerSizeSummary] = useState<string | null>(null);
+    const [activeNaturalSize, setActiveNaturalSize] = useState<string | null>(null);
+    const [pendingNaturalSize, setPendingNaturalSize] = useState<string | null>(null);
     const onLoadStateChangeRef = useRef(onLoadStateChange);
     const setLoadState = useCallback((state: LoadState) => {
         _setLoadState(state);
@@ -134,11 +165,14 @@ export function WorkbenchImage({
     const finalRequestPixels = prioritizeDetail
         ? getPriorityFinalRequestPixels(finalDisplayPixels, stableCanvasScale)
         : getFinalRequestPixels(finalDisplayPixels, stableCanvasScale);
+    const preferredResolvedSrc = resolvedSrc?.trim() || null;
     const shouldUpgradeToFinal = isNearViewport && isScaleSettled && stableCanvasScale > 0.18 && finalRequestPixels > previewRequestPixels;
     const usesImageStoreLod = !!content && isImageRef(content);
     // Remote/data URLs don't participate in the image-store LOD pipeline.
     // Re-running the load effect on hover would revoke the currently displayed blob URL and cause flicker.
-    const loadRequestPixels = usesImageStoreLod ? previewRequestPixels : 0;
+    const loadRequestPixels = usesImageStoreLod
+        ? (preferredResolvedSrc ? ORIGINAL_IMAGE_REQUEST_PIXELS : previewRequestPixels)
+        : 0;
 
     const imageRenderStyle = useMemo<React.CSSProperties>(() => {
         const renderHints: React.CSSProperties = canvasScale > 1
@@ -157,6 +191,38 @@ export function WorkbenchImage({
         };
     }, [canvasScale, externalStyle]);
 
+    const formatLayerPixels = useCallback((value: number | null | undefined) => {
+        if (value === ORIGINAL_IMAGE_REQUEST_PIXELS) {
+            return 'original';
+        }
+
+        if (typeof value !== 'number' || value <= 0) {
+            return 'runtime';
+        }
+
+        return String(value);
+    }, []);
+
+    const classifyRawContent = useCallback((value: string | undefined) => {
+        if (!value) return 'empty';
+        if (isImageRef(value)) return 'imgref';
+        if (value.startsWith('blob:')) return 'blob';
+        if (value.startsWith('data:')) return 'data';
+        if (value.startsWith('http://') || value.startsWith('https://')) return 'remote';
+        return 'other';
+    }, []);
+
+    const describeLayerSource = useCallback((layer: ImageLayer | null) => {
+        if (!layer) return 'none';
+        if (layer.requestPixels === 0) {
+            return preferredResolvedSrc && layer.src === preferredResolvedSrc ? 'runtime-resolved' : 'direct-src';
+        }
+        if (layer.requestPixels === ORIGINAL_IMAGE_REQUEST_PIXELS) {
+            return 'image-store-original';
+        }
+        return 'image-store-lod';
+    }, [preferredResolvedSrc]);
+
     useEffect(() => {
         currentSrcRef.current = activeLayer?.src ?? null;
         currentContentRef.current = activeLayer?.content ?? null;
@@ -166,6 +232,105 @@ export function WorkbenchImage({
     useEffect(() => {
         onLoadStateChangeRef.current = onLoadStateChange;
     }, [onLoadStateChange]);
+
+    useEffect(() => {
+        const node = containerRef.current;
+        if (!node || typeof window === 'undefined') {
+            return;
+        }
+
+        const update = () => {
+            const nextSummary = formatImageSize(node.clientWidth, node.clientHeight);
+            setContainerSizeSummary((current) => current === nextSummary ? current : nextSummary);
+        };
+
+        update();
+
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', update);
+            return () => window.removeEventListener('resize', update);
+        }
+
+        const observer = new ResizeObserver(() => update());
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
+        setActiveNaturalSize(null);
+    }, [activeLayer?.src]);
+
+    useEffect(() => {
+        setPendingNaturalSize(null);
+    }, [pendingLayer?.src]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+
+        const frame = window.requestAnimationFrame(() => {
+            const nextActiveSize = readLoadedImageSize(primaryImageRef.current);
+            setActiveNaturalSize((current) => current === nextActiveSize ? current : nextActiveSize);
+
+            const nextPendingSize = readLoadedImageSize(pendingImageRef.current);
+            setPendingNaturalSize((current) => current === nextPendingSize ? current : nextPendingSize);
+        });
+
+        return () => window.cancelAnimationFrame(frame);
+    }, [activeLayer?.src, loadState, pendingLayer?.src]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!content || !isImageRef(content)) {
+            setStoredLevelSummary(null);
+            return;
+        }
+
+        void inspectImageStoredLodLevels(content).then((summary) => {
+            if (cancelled) {
+                return;
+            }
+
+            if (!summary) {
+                setStoredLevelSummary(null);
+                return;
+            }
+
+            const nextSummary = `${summary.hasBase ? 'base' : 'no-base'}${summary.levels.length > 0 ? `|${summary.levels.join(',')}` : ''}`;
+            setStoredLevelSummary((current) => current === nextSummary ? current : nextSummary);
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeLayer?.requestPixels, content, pendingLayer?.requestPixels]);
+
+    useEffect(() => {
+        if (process.env.NODE_ENV !== 'development' || !debugId) {
+            return;
+        }
+
+        console.debug('[WorkbenchImageDebug]', {
+            id: debugId,
+            contentKind: classifyRawContent(content),
+            activeLayer: formatLayerPixels(activeLayer?.requestPixels),
+            activeSource: describeLayerSource(activeLayer),
+            activeNaturalSize,
+            pendingLayer: formatLayerPixels(pendingLayer?.requestPixels),
+            pendingSource: describeLayerSource(pendingLayer),
+            pendingNaturalSize,
+            previewTarget: previewRequestPixels,
+            finalTarget: finalRequestPixels,
+            hasResolvedSrc: !!preferredResolvedSrc,
+            isNearViewport,
+            shouldUpgradeToFinal,
+            containerSize: containerSizeSummary,
+            storedLevels: storedLevelSummary,
+            loadState,
+        });
+    }, [activeLayer, activeNaturalSize, classifyRawContent, containerSizeSummary, content, debugId, describeLayerSource, finalRequestPixels, formatLayerPixels, isNearViewport, loadState, pendingLayer, pendingNaturalSize, preferredResolvedSrc, previewRequestPixels, shouldUpgradeToFinal, storedLevelSummary]);
 
     const commitResolvedLayer = useCallback((nextLayer: ImageLayer) => {
         const shouldKeepCurrentLayer = !!currentSrcRef.current
@@ -229,7 +394,6 @@ export function WorkbenchImage({
 
     useEffect(() => {
         let cancelled = false;
-        const preferredResolvedSrc = resolvedSrc?.trim() || null;
 
         const load = async () => {
             clearTimer(promotionTimerRef);
@@ -261,7 +425,7 @@ export function WorkbenchImage({
                 commitResolvedLayer({ src: preferredResolvedSrc, content, requestPixels: 0 });
             }
 
-            if (currentContentRef.current === content && currentSrcRef.current && currentLodRef.current >= previewRequestPixels) {
+            if (currentContentRef.current === content && currentSrcRef.current && currentLodRef.current >= loadRequestPixels) {
                 setLoadState('ready');
                 return;
             }
@@ -271,19 +435,29 @@ export function WorkbenchImage({
                     setLoadState('loading');
                 }
 
-                const previewUrl = await resolveImageUrlWithRetry(content, previewRequestPixels);
+                const previewLayer = await resolveImageLayerWithRetry(content, loadRequestPixels);
                 if (cancelled) return;
 
-                if (!previewUrl) {
+                if (!previewLayer) {
                     setActiveLayer(null);
                     setPendingLayer(null);
                     setLoadState('error');
                     return;
                 }
 
+                const shouldPreserveRuntimeLayer = currentContentRef.current === content
+                    && currentLodRef.current === 0
+                    && previewLayer.requestPixels > 0
+                    && previewLayer.requestPixels < finalRequestPixels;
+
+                if (shouldPreserveRuntimeLayer) {
+                    setLoadState('ready');
+                    return;
+                }
+
                 // 这里不能主动 revoke 旧的 blob URL：这些 URL 由 image-store 的全局 LRU 缓存统一管理。
                 // 如果组件单方面释放，缓存仍可能继续返回已失效 URL，造成偶发断图。
-                commitResolvedLayer({ src: previewUrl, content, requestPixels: previewRequestPixels });
+                commitResolvedLayer(previewLayer);
             } catch {
                 if (!cancelled) {
                     setActiveLayer(null);
@@ -299,7 +473,7 @@ export function WorkbenchImage({
             cancelled = true;
             clearTimer(promotionTimerRef);
         };
-    }, [commitResolvedLayer, content, loadRequestPixels, resolvedSrc, setLoadState]);
+    }, [commitResolvedLayer, content, loadRequestPixels, preferredResolvedSrc, setLoadState]);
 
     useEffect(() => {
         if (!content || !isImageRef(content) || !shouldUpgradeToFinal) {
@@ -309,7 +483,7 @@ export function WorkbenchImage({
         let cancelled = false;
         let upgradeTimer: number | null = null;
 
-        if (previewRequestPixels === finalRequestPixels) {
+        if (loadRequestPixels >= finalRequestPixels) {
             return;
         }
 
@@ -318,13 +492,38 @@ export function WorkbenchImage({
         }
 
         const upgrade = async () => {
-            try {
-                const finalUrl = await resolveImageUrlWithRetry(content, finalRequestPixels, 1, 80);
-                if (cancelled || !finalUrl || finalUrl === currentSrcRef.current) return;
-                setLoadState('loading');
-                setPendingLayer({ src: finalUrl, content, requestPixels: finalRequestPixels, visible: false });
-            } catch {
-                // keep preview image
+            let bestResolvedPixels = currentLodRef.current;
+
+            for (let attempt = 0; attempt < FINAL_LAYER_RETRY_DELAYS_MS.length; attempt += 1) {
+                if (attempt > 0) {
+                    await new Promise<void>((resolve) => window.setTimeout(resolve, FINAL_LAYER_RETRY_DELAYS_MS[attempt]));
+                    if (cancelled) {
+                        return;
+                    }
+                }
+
+                try {
+                    const resolvedLayer = await resolveImageLayerWithRetry(content, finalRequestPixels, 1, 80);
+                    if (cancelled || !resolvedLayer) {
+                        return;
+                    }
+
+                    const shouldPreserveRuntimeLayer = currentContentRef.current === content
+                        && currentLodRef.current === 0
+                        && resolvedLayer.requestPixels < finalRequestPixels;
+
+                    if (!shouldPreserveRuntimeLayer && resolvedLayer.requestPixels > bestResolvedPixels && resolvedLayer.src !== currentSrcRef.current) {
+                        bestResolvedPixels = resolvedLayer.requestPixels;
+                        setLoadState('loading');
+                        setPendingLayer({ ...resolvedLayer, visible: false });
+                    }
+
+                    if (resolvedLayer.requestPixels >= finalRequestPixels) {
+                        return;
+                    }
+                } catch {
+                    return;
+                }
             }
         };
 
@@ -338,7 +537,7 @@ export function WorkbenchImage({
                 window.clearTimeout(upgradeTimer);
             }
         };
-    }, [content, finalRequestPixels, previewRequestPixels, setLoadState, shouldUpgradeToFinal]);
+    }, [content, finalRequestPixels, loadRequestPixels, setLoadState, shouldUpgradeToFinal]);
 
     useEffect(() => {
         if (!pendingLayer?.visible) {
@@ -379,10 +578,31 @@ export function WorkbenchImage({
     const visiblePendingSrc = pendingLayer?.src ?? null;
 
     return (
-        <div ref={containerRef} className={joinClasses('relative overflow-hidden', containerClassName)} style={surfaceStyle}>
+        <div
+            ref={containerRef}
+            className={joinClasses('relative overflow-hidden', containerClassName)}
+            style={surfaceStyle}
+            data-image-debug-id={debugId}
+            data-image-content-kind={classifyRawContent(content)}
+            data-image-active-layer={formatLayerPixels(activeLayer?.requestPixels)}
+            data-image-active-source={describeLayerSource(activeLayer)}
+            data-image-pending-layer={formatLayerPixels(pendingLayer?.requestPixels)}
+            data-image-pending-source={describeLayerSource(pendingLayer)}
+            data-image-preview-target={String(previewRequestPixels)}
+            data-image-final-target={String(finalRequestPixels)}
+            data-image-has-resolved-src={preferredResolvedSrc ? '1' : '0'}
+            data-image-near-viewport={isNearViewport ? '1' : '0'}
+            data-image-should-upgrade={shouldUpgradeToFinal ? '1' : '0'}
+            data-image-store-levels={storedLevelSummary ?? undefined}
+            data-image-load-state={loadState}
+            data-image-container-size={containerSizeSummary ?? undefined}
+            data-image-active-natural-size={activeNaturalSize ?? undefined}
+            data-image-pending-natural-size={pendingNaturalSize ?? undefined}
+        >
             {visiblePrimarySrc && !hasError && (
                 // eslint-disable-next-line @next/next/no-img-element -- workbench preview needs to support blob/data URLs and direct object URL lifecycle control.
                 <img
+                    ref={primaryImageRef}
                     src={visiblePrimarySrc}
                     alt={alt}
                     draggable={false}
@@ -395,6 +615,8 @@ export function WorkbenchImage({
                     )}
                     style={imageRenderStyle}
                     onLoad={(e) => {
+                        const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
+                        setActiveNaturalSize((current) => current === nextNaturalSize ? current : nextNaturalSize);
                         setLoadState('ready');
                         externalOnLoad?.(e);
                     }}
@@ -413,6 +635,7 @@ export function WorkbenchImage({
             {visiblePendingSrc && !hasError && (
                 // eslint-disable-next-line @next/next/no-img-element -- workbench preview needs to support blob/data URLs and direct object URL lifecycle control.
                 <img
+                    ref={pendingImageRef}
                     src={visiblePendingSrc}
                     alt={alt}
                     draggable={false}
@@ -426,6 +649,8 @@ export function WorkbenchImage({
                     )}
                     style={imageRenderStyle}
                     onLoad={(e) => {
+                        const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
+                        setPendingNaturalSize((current) => current === nextNaturalSize ? current : nextNaturalSize);
                         setPendingLayer((current) => current ? { ...current, visible: true } : current);
                         setLoadState('ready');
                         externalOnLoad?.(e);

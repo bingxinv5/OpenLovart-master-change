@@ -517,6 +517,7 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     <>
                         <WorkbenchImage
                             content={el.content}
+                            debugId={el.id}
                             resolvedSrc={resolvedImageSrc}
                             displayPixels={Math.max(el.width || 400, el.height || 400) * scale}
                             canvasScale={scale}

@@ -155,7 +155,7 @@ function areCanvasRenderMetricsEqual(left: CanvasRenderMetrics | null, right: Ca
         && left.partitionTileSize === right.partitionTileSize;
 }
 
-    const GENERATED_IMAGE_RENDER_SRC_TTL_MS = 15_000;
+    const GENERATED_IMAGE_RENDER_SRC_TTL_MS = 60_000;
 
 function ZoomControl({ scale, onZoomIn, onZoomOut, onZoomTo, onFitToScreen }: {
     scale: number;
@@ -4784,6 +4784,9 @@ function LovartCanvasContent() {
                 let batchBlob: Blob | null = null;
                 if (normalizedElement.content.startsWith('http://') || normalizedElement.content.startsWith('https://')) {
                     batchBlob = await fetchRemoteBlob(normalizedElement.content, 'lovart-batch-image');
+                    if (batchBlob) {
+                        primeRuntimeImageRenderSrc(normalizedElement.id, batchBlob);
+                    }
                 }
                 normalizedElement.content = await normalizeGeneratedImageContent(normalizedElement.content, 'generate-batch', batchBlob);
                 normalizedElement.imageFit = normalizedElement.imageFit || workbenchSettings.defaultImageFit;
@@ -4813,7 +4816,7 @@ function LovartCanvasContent() {
             }
             addElement(normalizedElement);
         })();
-    }, [addElement, normalizeGeneratedImageContent, resolveImageDisplayMetrics, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
+    }, [addElement, normalizeGeneratedImageContent, primeRuntimeImageRenderSrc, resolveImageDisplayMetrics, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
     // ── Stable inline callbacks (extracted from JSX to preserve referential identity) ──
     const handleDragStart = useCallback(() => setIsDraggingElement(true), []);

@@ -405,14 +405,14 @@ function cacheBlobUrl(cacheKey: string, blob: Blob): string {
   return url;
 }
 
-function scheduleBaseBlobRepair(imageId: string, resolvedKey: string, blob: Blob): void {
-  if (resolvedKey === imageId) return;
+function parseLodLevelFromKey(key: string): number | null {
+  const match = key.match(/__lod_(\d+)$/);
+  if (!match) {
+    return null;
+  }
 
-  scheduleBackgroundTask(async () => {
-    const existingBase = await getBlobByKey(imageId);
-    if (existingBase) return;
-    await putBlob(imageId, blob);
-  });
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function resolveStoredBlob(
@@ -424,7 +424,6 @@ async function resolveStoredBlob(
   for (const key of candidateKeys) {
     const blob = await getBlobByKey(key);
     if (blob) {
-      scheduleBaseBlobRepair(imageId, key, blob);
       return { key, blob };
     }
   }
@@ -459,12 +458,14 @@ export function reprioritizeImageLodCache(
  * @param content — imgref:// 引用或直接 URL
  * @param displayPixels — 元素在屏幕上的实际像素宽度（elementWidth × scale）
  */
-export async function getImageBlobUrlWithLOD(
+export async function getImageBlobUrlWithLODResolution(
   content: string,
   displayPixels: number,
-): Promise<string | null> {
+): Promise<{ url: string; resolvedLevel: number | null } | null> {
   if (!content) return null;
-  if (!isImageRef(content)) return content; // backward compat
+  if (!isImageRef(content)) {
+    return { url: content, resolvedLevel: null };
+  }
 
   const id = getRefId(content);
   const lodLevel = selectLODLevel(displayPixels);
@@ -473,13 +474,27 @@ export async function getImageBlobUrlWithLOD(
   const preferredCached = _blobUrlCache.get(preferredCacheKey);
   if (preferredCached) {
     touchLRU(preferredCacheKey);
-    return preferredCached;
+    return {
+      url: preferredCached,
+      resolvedLevel: lodLevel,
+    };
   }
 
   const resolved = await resolveStoredBlob(id, lodLevel);
   if (!resolved) return null;
 
-  return cacheBlobUrl(resolved.key, resolved.blob);
+  return {
+    url: cacheBlobUrl(resolved.key, resolved.blob),
+    resolvedLevel: resolved.key === id ? null : parseLodLevelFromKey(resolved.key),
+  };
+}
+
+export async function getImageBlobUrlWithLOD(
+  content: string,
+  displayPixels: number,
+): Promise<string | null> {
+  const resolved = await getImageBlobUrlWithLODResolution(content, displayPixels);
+  return resolved?.url ?? null;
 }
 
 /**
@@ -514,6 +529,24 @@ export async function getImageBlob(content: string): Promise<Blob | null> {
   const id = getRefId(content);
   const resolved = await resolveStoredBlob(id, null);
   return resolved?.blob || null;
+}
+
+export async function inspectImageStoredLodLevels(
+  content: string,
+): Promise<{ hasBase: boolean; levels: number[] } | null> {
+  if (!content || !isImageRef(content)) return null;
+
+  const id = getRefId(content);
+  const checks = await Promise.all([
+    getBlobByKey(id).then((blob) => !!blob),
+    ...LOD_LEVELS.map((level) => getBlobByKey(lodKey(id, level)).then((blob) => blob ? level : null)),
+  ]);
+
+  const [hasBase, ...lodHits] = checks;
+  return {
+    hasBase,
+    levels: lodHits.filter((level): level is (typeof LOD_LEVELS)[number] => level !== null),
+  };
 }
 
 /**
@@ -678,6 +711,8 @@ export const imageStore: IImageStore = {
   saveImage,
   saveImageBlob,
   getImageBlobUrlWithLOD,
+  getImageBlobUrlWithLODResolution,
+  inspectImageStoredLodLevels,
   getImageBlobUrl,
   getImageBlob,
   getImageDataUrl,

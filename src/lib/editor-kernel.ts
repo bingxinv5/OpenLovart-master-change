@@ -90,6 +90,10 @@ export interface IImageStore {
     saveImageBlob(blob: Blob, id?: string): Promise<string>;
     /** Get a Blob URL with LOD selection based on display size */
     getImageBlobUrlWithLOD(content: string, displayPixels: number): Promise<string | null>;
+    /** Get a Blob URL and the actual resolved LOD level used for that request */
+    getImageBlobUrlWithLODResolution(content: string, displayPixels: number): Promise<{ url: string; resolvedLevel: number | null } | null>;
+    /** Inspect which image-store LOD levels currently exist for a ref */
+    inspectImageStoredLodLevels(content: string): Promise<{ hasBase: boolean; levels: number[] } | null>;
     /** Get a full-resolution Blob URL */
     getImageBlobUrl(content: string): Promise<string | null>;
     /** Get the raw Blob */
@@ -169,6 +173,8 @@ export {
   saveImageBlob,
   getImageBlobUrl,
   getImageBlobUrlWithLOD,
+    getImageBlobUrlWithLODResolution,
+    inspectImageStoredLodLevels,
   getImageBlob,
   getImageDataUrl,
   deleteImage,
