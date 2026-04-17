@@ -39,7 +39,7 @@ import { useCanvasFeedback } from './canvas-feedback';
 import { getViewportSize } from './canvas-focus';
 import { getGeneratorOverlayStyle, getSelectedGeneratorElement } from './canvas-generator-overlay';
 import { applyElementGenerationPatch, applyGenerationFailure, applyVideoGenerationSuccess, setElementGenerationTask, updateGeneratorSubmittingMap } from './canvas-generation';
-import { useCanvasKeyboardShortcuts } from './canvas-keyboard-shortcuts';
+import { isEditableShortcutTarget, useCanvasKeyboardShortcuts } from './canvas-keyboard-shortcuts';
 import { useCanvasSelectionBridge } from './canvas-selection-bridge';
 import { useCanvasWorkbenchPanels } from './canvas-workbench-panels';
 import { loadCanvasSession } from './canvas-session-loader';
@@ -138,6 +138,14 @@ import { cropImageBlob, type CropImageOptions } from '@/lib/image-crop';
 import { buildStoryboardExportBlob, type StoryboardExportOptions } from '@/lib/storyboard-export';
 import { splitImageBlobIntoFrames, type StoryboardSplitFrame, type StoryboardSplitOptions } from '@/lib/storyboard-split';
 import { upscaleImageBlob, type UpscaleModelId } from '@/lib/upscale-api';
+
+function isLikelyClipboardImageFile(file: File) {
+    if (file.type.startsWith('image/')) {
+        return true;
+    }
+
+    return /\.(png|jpe?g|webp|gif|bmp|svg|avif|heic|heif)$/i.test(file.name);
+}
 import { cancelActiveWorkerJobs, isWorkerCancelledError } from '@/lib/image-worker-bridge';
 import { appendProjectMediaHistory, clearProjectMediaHistory, readProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
 import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, saveProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
@@ -592,6 +600,7 @@ function LovartCanvasContent() {
     const [projectMediaItems, setProjectMediaItems] = useState<ProjectMediaHistoryItem[]>([]);
     const [projectReferenceItems, setProjectReferenceItems] = useState<ProjectReferenceImageItem[]>([]);
     const clipboardRef = useRef<CanvasElement[]>([]); // internal clipboard for Ctrl+C/V
+    const canvasClipboardPreferredRef = useRef(false);
     const migrationPendingRef = useRef<string[]>([]); // IDs of elements migrated from base64 to ImageStore
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isInitializedRef = useRef(false);
@@ -607,6 +616,19 @@ function LovartCanvasContent() {
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
         }
+    }, []);
+
+    const markCanvasClipboardPreferred = useCallback(() => {
+        canvasClipboardPreferredRef.current = true;
+    }, []);
+
+    useEffect(() => {
+        const handleWindowBlur = () => {
+            canvasClipboardPreferredRef.current = false;
+        };
+
+        window.addEventListener('blur', handleWindowBlur);
+        return () => window.removeEventListener('blur', handleWindowBlur);
     }, []);
 
     const handleTitleChange = useCallback((nextTitle: string) => {
@@ -2604,20 +2626,22 @@ function LovartCanvasContent() {
         clipboardRef.current = elements
             .filter(el => expandedIds.includes(el.id))
             .map(cloneCanvasElement);
+        markCanvasClipboardPreferred();
         showToast(`已复制 ${expandedIds.length} 个元素`, 'success');
-    }, [cloneCanvasElement, collectSelectionWithFrameChildren, elements, showToast]);
+    }, [cloneCanvasElement, collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, showToast]);
 
     const handleCutSelection = useCallback((ids: string[]) => {
         const expandedIds = collectSelectionWithFrameChildren(ids);
         clipboardRef.current = elements
             .filter(el => expandedIds.includes(el.id))
             .map(cloneCanvasElement);
+        markCanvasClipboardPreferred();
         runHistoryTransaction({ label: '剪切元素', source: 'clipboard-cut' }, () => {
             removeElementsByIds(expandedIds);
             showToast(`已剪切 ${expandedIds.length} 个元素`, 'success');
             return { selectionAfter: [] };
         });
-    }, [cloneCanvasElement, collectSelectionWithFrameChildren, elements, removeElementsByIds, runHistoryTransaction, showToast]);
+    }, [cloneCanvasElement, collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, removeElementsByIds, runHistoryTransaction, showToast]);
 
     const handlePasteAt = useCallback((position: { x: number; y: number }) => {
         if (clipboardRef.current.length === 0) {
@@ -2641,10 +2665,11 @@ function LovartCanvasContent() {
             addElements(copies);
             setSelectedIds(copies.map(copy => copy.id));
             clipboardRef.current = copies.map(cloneCanvasElement);
+            markCanvasClipboardPreferred();
             showToast(`已粘贴 ${copies.length} 个元素`, 'success');
             return { selectionAfter: copies.map(copy => copy.id) };
         });
-    }, [addElements, cloneCanvasElement, runHistoryTransaction, showToast]);
+    }, [addElements, cloneCanvasElement, markCanvasClipboardPreferred, runHistoryTransaction, showToast]);
 
     const handleDuplicateSelection = useCallback((ids: string[], anchor?: { x: number; y: number }) => {
         runHistoryTransaction({ label: '复制副本', source: 'selection-duplicate' }, () => {
@@ -3104,6 +3129,47 @@ function LovartCanvasContent() {
         }
     }, [getPlacementPosition, addElements, showToast, refreshStorageEstimate, workbenchSettings]);
 
+    useEffect(() => {
+        const handleWindowPaste = (event: ClipboardEvent) => {
+            if (isEditableShortcutTarget(event.target, document.activeElement)) {
+                return;
+            }
+
+            const clipboardData = event.clipboardData;
+            if (!clipboardData) {
+                return;
+            }
+
+            const itemFiles = Array.from(clipboardData.items ?? [])
+                .filter((item) => item.kind === 'file')
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => !!file && isLikelyClipboardImageFile(file));
+            const fallbackFiles = Array.from(clipboardData.files ?? []).filter(isLikelyClipboardImageFile);
+            const imageFiles = itemFiles.length > 0 ? itemFiles : fallbackFiles;
+
+            if (canvasClipboardPreferredRef.current && clipboardRef.current.length > 0) {
+                event.preventDefault();
+                handlePasteAt(getPlacementPosition());
+                return;
+            }
+
+            if (imageFiles.length > 0) {
+                event.preventDefault();
+                canvasClipboardPreferredRef.current = false;
+                void handleAddImage(imageFiles);
+                return;
+            }
+
+            if (clipboardRef.current.length > 0) {
+                event.preventDefault();
+                handlePasteAt(getPlacementPosition());
+            }
+        };
+
+        window.addEventListener('paste', handleWindowPaste);
+        return () => window.removeEventListener('paste', handleWindowPaste);
+    }, [getPlacementPosition, handleAddImage, handlePasteAt]);
+
     const handleAddVideo = useCallback(async (file: File, dropPosition?: { x: number; y: number }) => {
         const center = dropPosition || getPlacementPosition();
         const elementId = uuidv4();
@@ -3246,6 +3312,7 @@ function LovartCanvasContent() {
         elements,
         selectedIds,
         clipboardRef,
+        markCanvasClipboardPreferred,
         openImageGeneratorRef,
         cloneCanvasElement,
         addElements,

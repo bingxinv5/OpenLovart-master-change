@@ -13,6 +13,7 @@ interface UseCanvasKeyboardShortcutsOptions {
     elements: CanvasElement[];
     selectedIds: string[];
     clipboardRef: React.MutableRefObject<CanvasElement[]>;
+    markCanvasClipboardPreferred?: () => void;
     openImageGeneratorRef: React.MutableRefObject<() => void>;
     cloneCanvasElement: (element: CanvasElement) => CanvasElement;
     addElements: (elements: CanvasElement[]) => void;
@@ -146,6 +147,7 @@ export function useCanvasKeyboardShortcuts(options: UseCanvasKeyboardShortcutsOp
                             latest.clipboardRef.current = latest.elements
                                 .filter((element) => latest.selectedIds.includes(element.id))
                                 .map(latest.cloneCanvasElement);
+                            latest.markCanvasClipboardPreferred?.();
                             announce('复制到剪贴板', 'Ctrl+C');
                         }
                         return;
@@ -155,24 +157,12 @@ export function useCanvasKeyboardShortcuts(options: UseCanvasKeyboardShortcutsOp
                             latest.clipboardRef.current = latest.elements
                                 .filter((element) => latest.selectedIds.includes(element.id))
                                 .map(latest.cloneCanvasElement);
+                            latest.markCanvasClipboardPreferred?.();
                             latest.removeElementsByIds(latest.selectedIds);
                             announce('剪切所选元素', 'Ctrl+X');
                         }
                         return;
                     case 'v':
-                        e.preventDefault();
-                        if (latest.clipboardRef.current.length > 0) {
-                            const copies = latest.clipboardRef.current.map((element) => ({
-                                ...latest.cloneCanvasElement(element),
-                                id: uuidv4(),
-                                x: element.x + 30,
-                                y: element.y + 30,
-                            }));
-                            latest.addElements(copies);
-                            latest.setSelectedIds(copies.map((copy) => copy.id));
-                            latest.clipboardRef.current = copies.map(latest.cloneCanvasElement);
-                            announce('粘贴元素', 'Ctrl+V');
-                        }
                         return;
                 }
 
