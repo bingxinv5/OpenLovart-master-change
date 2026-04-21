@@ -11,6 +11,7 @@ import {
     getApiErrorMessage,
     getErrorMessage,
     handleApiRouteError,
+    inspectImageResultDimensions,
     parseJsonResponse,
     proxyImageResultUrls,
     resolveRequestOrigin,
@@ -18,7 +19,10 @@ import {
 } from '../_shared/ai-service';
 import {
     buildUpstreamImageGenerationBody,
+    describeOpenAiGptImageAspectRatio,
     getMaxReferenceImagesForImageModel,
+    getOpenAiGptImagePromptCompensation,
+    isOpenAiGptImageModel,
 } from '@/lib/image-generation-models';
 
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -87,6 +91,16 @@ export async function POST(request: NextRequest) {
             responseFormat: 'url',
         });
 
+        if (isOpenAiGptImageModel(selectedModel)) {
+            const targetSize = typeof body.size === 'string' ? body.size : 'unknown';
+            const targetAspectRatio = describeOpenAiGptImageAspectRatio(targetSize, aspectRatio);
+            const compensation = getOpenAiGptImagePromptCompensation(targetSize, aspectRatio, cleanImages.length > 0);
+            console.log(
+                `[generate-image][gpt-image-2] requestedSize=${typeof imageSize === 'string' ? imageSize : '-'}, targetSize=${targetSize}, requestedAspect=${typeof aspectRatio === 'string' ? aspectRatio : '-'}, targetAspect=${targetAspectRatio}, references=${cleanImages.length}, ratioPriorityPrompt=${typeof body.prompt === 'string' && body.prompt.includes(compensation)}`,
+            );
+            console.log(`[generate-image][gpt-image-2] ratioPriorityInstruction=${compensation}`);
+        }
+
         console.log(`[generate-image] model=${selectedModel}, baseUrl=${baseUrl}, prompt="${prompt.substring(0, 50)}..."`);
 
         const targetUrl = `${baseUrl}/v1/images/generations${forceAsync === true ? '?async=true' : ''}`;
@@ -135,7 +149,13 @@ export async function POST(request: NextRequest) {
         }
 
         // Some models may return results directly
-        const imageResult = proxyImageResultUrls(extractImageResult(data), resolveRequestOrigin(request.headers, request.nextUrl.origin), {
+        const rawImageResult = extractImageResult(data);
+        const imageDimensions = await inspectImageResultDimensions(rawImageResult);
+        if (imageDimensions) {
+            console.log(`[generate-image] Immediate image result ${imageDimensions.width}x${imageDimensions.height} (${imageDimensions.format}, ${imageDimensions.source})`);
+        }
+
+        const imageResult = proxyImageResultUrls(rawImageResult, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
             filenamePrefix: 'lovart-generate-image',
         });
         if (imageResult.imageUrl) {

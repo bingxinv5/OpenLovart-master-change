@@ -44,14 +44,25 @@ import { runImageGenerationFlow } from './image-generation-flow';
 import { requestImageGeneration } from '@/lib/ai-client';
 import { isDataUrl } from '@/lib/data-url';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
-import { getMaxReferenceImagesForImageModel, shouldUseDomesticImageBatching } from '@/lib/image-generation-models';
+import {
+    describeOpenAiGptImageAspectRatio,
+    isOpenAiGptImagePixelSize,
+    OPENAI_GPT_IMAGE_PIXEL_SIZES,
+    STANDARD_IMAGE_SIZE_OPTIONS,
+    getMaxReferenceImagesForImageModel,
+    isStandardImageSize,
+    normalizeOpenAiGptImagePixelSize,
+    resolveOpenAiGptImageAspectRatio,
+    resolveOpenAiGptImagePixelSize,
+    shouldUseDomesticImageBatching,
+} from '@/lib/image-generation-models';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
-import { useImageGenerationDefaults } from '@/lib/generation-defaults';
+import { useImageGenerationDefaults, type ImageGenerationDefaults } from '@/lib/generation-defaults';
 
-type ImageModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
-type AspectRatio = 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9';
-type ImageSize = '1K' | '2K' | '4K';
+type ImageModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
+type AspectRatio = ImageGenerationDefaults['aspectRatio'];
+type ImageSize = string;
 
 const GROK_IMAGE_ASPECT_RATIOS: AspectRatio[] = ['4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
 const GROK_IMAGE_SIZES: ImageSize[] = ['1K', '2K'];
@@ -61,6 +72,7 @@ const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
 const MODEL_LABELS: Record<ImageModel, string> = {
     'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
     'nano-banana-2': 'nano-banana-2',
+    'gpt-image-2': 'gpt-image-2',
     'grok-4.2-image': 'grok-4.2-image',
     'doubao-seedream-5-0-260128': 'doubao-seedream-5-0-260128',
 };
@@ -202,6 +214,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [isRecovering, setIsRecovering] = useState(false);
     const [recoveryTaskId, setRecoveryTaskId] = useState(currentElement?.generatingTaskId || '');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [experimentalImageSizeInput, setExperimentalImageSizeInput] = useState('');
+    const [experimentalImageSizeError, setExperimentalImageSizeError] = useState<string | null>(null);
 
     const isSubmittingToApi = isSubmitting || isGeneratingFromParent;
     const isGenerating = isGeneratingFromElement || isSubmittingToApi;
@@ -267,26 +281,91 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [closeAllMenus]);
 
-    const models: ImageModel[] = ['gemini-3.1-flash-image-preview', 'nano-banana-2', 'grok-4.2-image', 'doubao-seedream-5-0-260128'];
+    const models: ImageModel[] = ['gemini-3.1-flash-image-preview', 'nano-banana-2', 'gpt-image-2', 'grok-4.2-image', 'doubao-seedream-5-0-260128'];
     const aspectRatios: AspectRatio[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1', '4:5', '5:4', '21:9'];
-    const imageSizes: ImageSize[] = ['1K', '2K', '4K'];
+    const imageSizes: ImageSize[] = [...STANDARD_IMAGE_SIZE_OPTIONS];
     const maxReferenceImages = getMaxReferenceImagesForImageModel(model);
     const isGrokImageModel = model === 'grok-4.2-image';
+    const isOpenAiGptImageModel = model === 'gpt-image-2';
     const usesDomesticImageBatching = shouldUseDomesticImageBatching(model);
     const grokUsesReferenceAspectRatio = isGrokImageModel && referenceImages.length > 0;
-    const availableAspectRatios = isGrokImageModel ? GROK_IMAGE_ASPECT_RATIOS : aspectRatios;
-    const availableImageSizes = isGrokImageModel ? GROK_IMAGE_SIZES : imageSizes;
+    const availableAspectRatios = isGrokImageModel
+        ? GROK_IMAGE_ASPECT_RATIOS
+        : aspectRatios;
+    const availableImageSizes: ImageSize[] = isOpenAiGptImageModel
+        ? [...OPENAI_GPT_IMAGE_PIXEL_SIZES]
+        : isGrokImageModel
+            ? GROK_IMAGE_SIZES
+            : imageSizes;
+    const derivedOpenAiGptImageAspectRatio = describeOpenAiGptImageAspectRatio(imageSize, aspectRatio);
+    const isOpenAiGptImageExperimentalSize = !!normalizeOpenAiGptImagePixelSize(imageSize) && !isOpenAiGptImagePixelSize(imageSize);
     const displayedAspectRatio = grokUsesReferenceAspectRatio
         ? '参考图比例'
-        : aspectRatio === 'auto'
+        : isOpenAiGptImageModel
+            ? derivedOpenAiGptImageAspectRatio
+            : aspectRatio === 'auto'
             ? '自动'
             : aspectRatio;
+    const settingsSummary = isOpenAiGptImageModel
+        ? `${imageSize} · ${displayedAspectRatio} · ×${generateCount}`
+        : `${displayedAspectRatio} · ${imageSize} · ×${generateCount}`;
+    const fallbackStandardImageSize = isStandardImageSize(imageDefaults.imageSize) ? imageDefaults.imageSize : '4K';
 
     useEffect(() => {
         if (isGrokImageModel && !GROK_IMAGE_ASPECT_RATIOS.includes(aspectRatio)) {
             setAspectRatio('1:1');
+            return;
         }
-    }, [aspectRatio, isGrokImageModel]);
+
+        if (isOpenAiGptImageModel) {
+            const nextImageSize = resolveOpenAiGptImagePixelSize(imageSize, aspectRatio);
+            if (imageSize !== nextImageSize) {
+                setImageSize(nextImageSize);
+                return;
+            }
+
+            const nextAspectRatio = resolveOpenAiGptImageAspectRatio(nextImageSize, aspectRatio);
+            if (aspectRatio !== nextAspectRatio) {
+                setAspectRatio(nextAspectRatio);
+            }
+            return;
+        }
+
+        if (aspectRatio === '9:21') {
+            setAspectRatio('9:16');
+        }
+    }, [aspectRatio, imageSize, isGrokImageModel, isOpenAiGptImageModel]);
+
+    useEffect(() => {
+        if (!isOpenAiGptImageModel && !isStandardImageSize(imageSize)) {
+            setImageSize(isGrokImageModel && fallbackStandardImageSize === '4K' ? '2K' : fallbackStandardImageSize);
+        }
+    }, [fallbackStandardImageSize, imageSize, isGrokImageModel, isOpenAiGptImageModel]);
+
+    useEffect(() => {
+        if (!isOpenAiGptImageModel) {
+            return;
+        }
+
+        const normalizedImageSize = normalizeOpenAiGptImagePixelSize(imageSize);
+        if (normalizedImageSize && !isOpenAiGptImagePixelSize(normalizedImageSize) && normalizedImageSize !== experimentalImageSizeInput) {
+            setExperimentalImageSizeInput(normalizedImageSize);
+            setExperimentalImageSizeError(null);
+        }
+    }, [experimentalImageSizeInput, imageSize, isOpenAiGptImageModel]);
+
+    const handleApplyExperimentalImageSize = useCallback(() => {
+        const normalizedImageSize = normalizeOpenAiGptImagePixelSize(experimentalImageSizeInput);
+        if (!normalizedImageSize) {
+            setExperimentalImageSizeError('请输入合法像素尺寸，例如 1536x864');
+            return;
+        }
+
+        setImageSize(normalizedImageSize);
+        setExperimentalImageSizeInput(normalizedImageSize);
+        setAspectRatio(resolveOpenAiGptImageAspectRatio(normalizedImageSize, aspectRatio));
+        setExperimentalImageSizeError(null);
+    }, [aspectRatio, experimentalImageSizeInput]);
 
     useEffect(() => {
         if (isGrokImageModel && imageSize === '4K') {
@@ -1264,9 +1343,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                             className="flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200/60 bg-slate-50/80 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white hover:text-slate-700 hover:border-slate-300"
                         >
                             <Settings2 size={12} />
-                            <span>{displayedAspectRatio}</span>
+                            <span>{isOpenAiGptImageModel ? imageSize : displayedAspectRatio}</span>
                             <span className="text-slate-300">·</span>
-                            <span>{imageSize}</span>
+                            <span>{isOpenAiGptImageModel ? displayedAspectRatio : imageSize}</span>
                             <span className="text-slate-300">·</span>
                             <span>×{generateCount}</span>
                             <ChevronDown size={11} className="text-slate-400 ml-0.5" />
@@ -1276,38 +1355,105 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                             <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/60 z-30 w-[280px] overflow-hidden">
                                 <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                                     <span className="text-xs font-medium text-slate-700">生成设置</span>
-                                    <span className="text-[10px] text-slate-400">{displayedAspectRatio} · {imageSize} · ×{generateCount}</span>
+                                    <span className="text-[10px] text-slate-400">{settingsSummary}</span>
                                 </div>
                                 <div className="p-4 space-y-0">
-                                    {/* Aspect ratio with visual icons */}
-                                    <div className="py-3">
-                                        <div className="mb-2 text-[11px] font-medium text-slate-500">画面比例</div>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {availableAspectRatios.map((ratio) => {
-                                                const ratioShapes: Record<string, { w: number; h: number }> = { '16:9': { w: 14, h: 8 }, '9:16': { w: 8, h: 14 }, '1:1': { w: 10, h: 10 }, '4:3': { w: 12, h: 9 }, '3:4': { w: 9, h: 12 }, '2:3': { w: 8, h: 12 }, '3:2': { w: 12, h: 8 }, '4:5': { w: 9, h: 11 }, '5:4': { w: 11, h: 9 }, '21:9': { w: 16, h: 7 }, 'auto': { w: 10, h: 10 } };
-                                                const shape = ratioShapes[ratio] || { w: 10, h: 10 };
-                                                return (
-                                                    <button key={ratio} type="button" onClick={() => setAspectRatio(ratio)} disabled={grokUsesReferenceAspectRatio} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${grokUsesReferenceAspectRatio ? 'cursor-not-allowed opacity-50' : ''} ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                                        <span className={`inline-block rounded-[2px] border ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} style={{ width: `${shape.w}px`, height: `${shape.h}px` }} />
-                                                        {ratio === 'auto' ? '自动' : ratio}
+                                    {isOpenAiGptImageModel ? (
+                                        <>
+                                            <div className="py-3">
+                                                <div className="mb-2">
+                                                    <div className="text-[11px] font-medium text-slate-500">稳定尺寸</div>
+                                                    <div className="mt-1 text-[10px] text-slate-400">比例优先，像素为期望值</div>
+                                                </div>
+                                                <div className="max-h-60 overflow-y-auto pr-1">
+                                                    <div className="grid grid-cols-2 gap-1.5">
+                                                        {availableImageSizes.map((size) => (
+                                                            <button
+                                                                key={size}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setImageSize(size);
+                                                                    setAspectRatio(resolveOpenAiGptImageAspectRatio(size, aspectRatio));
+                                                                    setExperimentalImageSizeError(null);
+                                                                }}
+                                                                className={`rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                                            >
+                                                                <div>{size}</div>
+                                                                <div className={`mt-0.5 text-[10px] ${imageSize === size ? 'text-white/70' : 'text-slate-400'}`}>{describeOpenAiGptImageAspectRatio(size, aspectRatio)}</div>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="py-3 border-t border-slate-100/80">
+                                                {isOpenAiGptImageExperimentalSize && (
+                                                    <div className="mb-2 text-[10px] text-amber-600">当前使用实验尺寸</div>
+                                                )}
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={experimentalImageSizeInput}
+                                                        onChange={(event) => {
+                                                            setExperimentalImageSizeInput(event.target.value);
+                                                            if (experimentalImageSizeError) {
+                                                                setExperimentalImageSizeError(null);
+                                                            }
+                                                        }}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === 'Enter') {
+                                                                event.preventDefault();
+                                                                handleApplyExperimentalImageSize();
+                                                            }
+                                                        }}
+                                                        placeholder="例如 1536x864"
+                                                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleApplyExperimentalImageSize}
+                                                        className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-700"
+                                                    >
+                                                        应用
                                                     </button>
-                                                );
-                                            })}
-                                        </div>
-                                        {grokUsesReferenceAspectRatio && (
-                                            <div className="mt-1.5 text-[10px] text-amber-600">Grok 携带参考图时按参考图比例生成</div>
-                                        )}
-                                    </div>
+                                                </div>
+                                                {experimentalImageSizeError && <div className="mt-1.5 text-[10px] text-red-600">{experimentalImageSizeError}</div>}
+                                            </div>
+                                            <div className="py-3 border-t border-slate-100/80">
+                                                <div className="mb-1 text-[11px] font-medium text-slate-500">派生比例</div>
+                                                <div className="text-xs font-medium text-slate-700">{displayedAspectRatio}</div>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="py-3">
+                                                <div className="mb-2 text-[11px] font-medium text-slate-500">画面比例</div>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {availableAspectRatios.map((ratio) => {
+                                                        const ratioShapes: Record<string, { w: number; h: number }> = { '16:9': { w: 14, h: 8 }, '9:16': { w: 8, h: 14 }, '1:1': { w: 10, h: 10 }, '4:3': { w: 12, h: 9 }, '3:4': { w: 9, h: 12 }, '2:3': { w: 8, h: 12 }, '3:2': { w: 12, h: 8 }, '4:5': { w: 9, h: 11 }, '5:4': { w: 11, h: 9 }, '21:9': { w: 16, h: 7 }, 'auto': { w: 10, h: 10 } };
+                                                        const shape = ratioShapes[ratio] || { w: 10, h: 10 };
+                                                        return (
+                                                            <button key={ratio} type="button" onClick={() => setAspectRatio(ratio)} disabled={grokUsesReferenceAspectRatio} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${grokUsesReferenceAspectRatio ? 'cursor-not-allowed opacity-50' : ''} ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                                                <span className={`inline-block rounded-[2px] border ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} style={{ width: `${shape.w}px`, height: `${shape.h}px` }} />
+                                                                {ratio === 'auto' ? '自动' : ratio}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {grokUsesReferenceAspectRatio && (
+                                                    <div className="mt-1.5 text-[10px] text-amber-600">Grok 携带参考图时按参考图比例生成</div>
+                                                )}
+                                            </div>
 
-                                    {/* Image Size */}
-                                    <div className="py-3 border-t border-slate-100/80">
-                                        <div className="mb-2 text-[11px] font-medium text-slate-500">分辨率</div>
-                                        <div className="flex gap-1.5">
-                                            {availableImageSizes.map((size) => (
-                                                <button key={size} type="button" onClick={() => setImageSize(size)} className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{size}</button>
-                                            ))}
-                                        </div>
-                                    </div>
+                                            <div className="py-3 border-t border-slate-100/80">
+                                                <div className="mb-2 text-[11px] font-medium text-slate-500">分辨率</div>
+                                                <div className="flex gap-1.5">
+                                                    {availableImageSizes.map((size) => (
+                                                        <button key={size} type="button" onClick={() => setImageSize(size)} className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{size}</button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
 
                                     {/* Generate Count */}
                                     <div className="py-3 border-t border-slate-100/80">

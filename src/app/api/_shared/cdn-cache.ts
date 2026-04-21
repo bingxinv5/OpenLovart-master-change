@@ -238,6 +238,65 @@ export async function fetchRemoteAsset(
   };
 }
 
+export async function fetchRemoteAssetPrefix(
+  url: string,
+  options: {
+    timeoutMs?: number;
+    maxBytes?: number;
+    allowedContentTypePrefixes?: string[];
+    headers?: HeadersInit;
+  } = {},
+): Promise<{ buffer: Buffer; contentType: string; url: URL }> {
+  const {
+    timeoutMs = 30_000,
+    maxBytes = 256 * 1024,
+    allowedContentTypePrefixes,
+    headers,
+  } = options;
+  const parsedUrl = await validateRemoteUrl(url);
+
+  let response: Response;
+
+  try {
+    const requestHeaders = new Headers(headers);
+    if (!requestHeaders.has('Range')) {
+      requestHeaders.set('Range', `bytes=0-${Math.max(maxBytes - 1, 0)}`);
+    }
+
+    response = await fetch(parsedUrl, {
+      headers: requestHeaders,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error: unknown) {
+    throw new RemoteFetchError(
+      `连接目标地址失败: ${error instanceof Error ? error.message : String(error)}`,
+      502,
+    );
+  }
+
+  if (!response.ok) {
+    throw new RemoteFetchError(`下载失败: HTTP ${response.status}`, response.status);
+  }
+
+  const contentType = (response.headers.get('content-type') || DEFAULT_CONTENT_TYPE).toLowerCase();
+
+  if (BLOCKED_REMOTE_CONTENT_TYPES.some((value) => contentType.startsWith(value))) {
+    throw new RemoteFetchError('不支持代理下载 HTML 页面', 415);
+  }
+
+  if (allowedContentTypePrefixes && !allowedContentTypePrefixes.some((prefix) => contentType.startsWith(prefix))) {
+    throw new RemoteFetchError('远程资源类型不受支持', 415);
+  }
+
+  const buffer = await readResponsePrefix(response, maxBytes);
+
+  return {
+    buffer,
+    contentType,
+    url: parsedUrl,
+  };
+}
+
 export async function getCacheFilePath(url: string): Promise<string> {
   return path.join(await resolveCdnCacheDirectory(), cacheKeyFromUrl(url));
 }
@@ -479,6 +538,49 @@ async function readResponseWithLimit(response: Response, maxBytes: number): Prom
       chunks.push(chunk);
     }
   } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks, totalBytes);
+}
+
+async function readResponsePrefix(response: Response, maxBytes: number): Promise<Buffer> {
+  const safeMaxBytes = Math.max(1, Math.trunc(maxBytes));
+  const reader = response.body?.getReader();
+
+  if (!reader) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return buffer.byteLength > safeMaxBytes ? buffer.subarray(0, safeMaxBytes) : buffer;
+  }
+
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (totalBytes < safeMaxBytes) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      const chunk = Buffer.from(value);
+      const remainingBytes = safeMaxBytes - totalBytes;
+      if (chunk.byteLength > remainingBytes) {
+        chunks.push(chunk.subarray(0, remainingBytes));
+        totalBytes += remainingBytes;
+        break;
+      }
+
+      chunks.push(chunk);
+      totalBytes += chunk.byteLength;
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore cancellation failures for already-completed streams.
+    }
     reader.releaseLock();
   }
 

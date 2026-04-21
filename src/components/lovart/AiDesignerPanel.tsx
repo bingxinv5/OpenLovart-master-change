@@ -17,9 +17,7 @@ import {
     detectGenerationIntent,
     detectToolPrefix,
     extractBase64Data,
-    extractGeneratedImageUrls,
     formatTime,
-    removeImageUrlsFromContent,
 } from './ai-designer-panel-utils';
 import {
     getActiveChatStorageKey,
@@ -33,6 +31,8 @@ import {
     requestAiChat,
 } from '@/lib/ai-client';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
+import { useImageGenerationDefaults } from '@/lib/generation-defaults';
+import { runImageGenerationFlow } from './image-generation-flow';
 import { runVideoGenerationFlow } from './video-generation-flow';
 import { useAiDesignerTaskPolling } from './ai-designer-task-polling';
 import {
@@ -127,6 +127,7 @@ function getAiDesignerMentionSearchText(item: MentionItem): string {
 }
 
 export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, initialPrompt, selectedModel: externalModel, onModelChange, isExpanded, onExpandToggle, panelMode, onPanelModeChange, marks, onDeleteMark, onClearAllMarks, canvasImages, onPickFromCanvas, canvasPlanContextSummary, onApplyCanvasPlan }: AiDesignerPanelProps) {
+    const imageDefaults = useImageGenerationDefaults();
     const [inputValue, setInputValue] = useState('');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -374,8 +375,9 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
         }
     };
 
-    // ========== Chat-based image generation (uses /v1/chat/completions with image model) ==========
+    // ========== Shared image generation entry inside chat panel ==========
     const handleChatImageGen = async (text: string, currentAttachments: ChatAttachment[]) => {
+        const imageGenerationModel = imageDefaults.model;
         const userMessage: ChatMessage = {
             id: `user-${Date.now()}`,
             role: 'user',
@@ -387,7 +389,7 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
         const assistantMessage: ChatMessage = {
             id: assistantMsgId,
             role: 'assistant',
-            content: '🎨 正在生成图片...',
+            content: `🎨 正在使用 ${imageGenerationModel} 生成图片...`,
             timestamp: new Date(),
             isStreaming: false,
             toolType: 'image-gen',
@@ -400,62 +402,39 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
         setIsStreaming(true);
 
         try {
-            // Build messages for the image model — include attachments as image_url parts
-            const contentParts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-            contentParts.push({ type: 'text', text: text });
-            for (const att of currentAttachments) {
-                let imageUrl = att.dataUrl;
-                if (imageUrl && imageUrl.startsWith('imgref://')) continue;
-                if (imageUrl && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
-                    imageUrl = `data:${att.type || 'image/png'};base64,${imageUrl}`;
-                }
-                contentParts.push({ type: 'image_url', image_url: { url: imageUrl } });
-            }
+            const referenceImages = currentAttachments
+                .map((attachment) => attachment.dataUrl)
+                .filter((image): image is string => typeof image === 'string' && image.trim().length > 0);
 
-            const apiMsg = currentAttachments.length > 0
-                ? [{ role: 'user', content: contentParts }]
-                : [{ role: 'user', content: text }];
-
-            const response = await requestAiChat({
-                messages: apiMsg,
-                model: 'gemini-3.1-flash-image-preview',
-                stream: false,
-                skipSystemMessage: true,
+            const result = await runImageGenerationFlow({
+                prompt: text,
+                model: imageGenerationModel,
+                referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+                preferDirect: false,
+                forceAsync: true,
             });
 
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || data.details || '图片生成失败');
-
-            const content: string = data.content || '';
-
-            const imageUrls = extractGeneratedImageUrls(content);
-
-            if (imageUrls.length > 0) {
-                let cleanContent = removeImageUrlsFromContent(content);
-                if (!cleanContent) cleanContent = '✅ 图片生成完成！';
-
+            if (result.status === 'pending') {
                 setMessages(prev => prev.map(m =>
                     m.id === assistantMsgId ? {
                         ...m,
-                        content: cleanContent,
-                        generatedImage: imageUrls[0],
+                        content: `🎨 ${imageGenerationModel} 图片生成中...`,
+                        taskId: result.taskId,
+                        taskStatus: 'processing' as const,
+                        isStreaming: false,
+                    } : m
+                ));
+                void pollGeneratedTask(result.taskId, assistantMsgId, 'image');
+            } else {
+                setMessages(prev => prev.map(m =>
+                    m.id === assistantMsgId ? {
+                        ...m,
+                        content: `✅ ${imageGenerationModel} 图片生成完成！`,
+                        generatedImage: result.imageUrl,
                         taskStatus: 'completed' as const,
                         isStreaming: false,
                     } : m
                 ));
-            } else if (content) {
-                // No image found in response — show the text content as is
-                setMessages(prev => prev.map(m =>
-                    m.id === assistantMsgId ? {
-                        ...m,
-                        content,
-                        toolType: undefined,
-                        taskStatus: undefined,
-                        isStreaming: false,
-                    } : m
-                ));
-            } else {
-                throw new Error('未收到回复');
             }
         } catch (error: unknown) {
             const errorMsg = error instanceof Error ? error.message : '图片生成失败';

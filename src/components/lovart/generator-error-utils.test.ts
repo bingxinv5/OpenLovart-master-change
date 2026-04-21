@@ -14,6 +14,17 @@ describe('generator-error-utils', () => {
     expect(message).toContain('Gemini 图片通道');
   });
 
+  it('classifies GPT image provider routing errors with model guidance', () => {
+    const message = classifyGenerationError(
+      'image',
+      new Error('no available platform found for model gpt-5-2-image and no fallbacks configured: no usable platform found for model: gpt-5-2-image'),
+    );
+
+    expect(message).toContain('GPT 生图通道暂不可用');
+    expect(message).toContain('gpt-5-2-image / gpt-image-2 图片通道');
+    expect(message).toContain('更换一把已验证支持 GPT 生图的 API Key');
+  });
+
   it('classifies upstream overloaded errors as user-friendly capacity issues', () => {
     const message = classifyGenerationError(
       'image',

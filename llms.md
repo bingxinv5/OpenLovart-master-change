@@ -210,7 +210,9 @@
 - 视频模型 > sdols > 统一格式 [文生视频](https://gpt-best.apifox.cn/api-440239454.md): 统一接口格式
 - 视频模型 > sdols > 统一格式 [多模态参考生视频](https://gpt-best.apifox.cn/api-440239834.md): 统一接口格式
 - 视频模型 > sdols > 统一格式 [查询任务](https://gpt-best.apifox.cn/api-440239576.md): 统一接口格式
-- 视频模型 > sdols > 官方格式 [创建任务-官方格式](https://gpt-best.apifox.cn/api-440251336.md): 仅需将官方 API 地址，更换为我们的地
+- 视频模型 > sdols > 统一格式 [上传素材](https://gpt-best.apifox.cn/api-440932655.md): 需要等待素材状态为 Active 才可以引用素材，
+- 视频模型 > sdols > 统一格式 [查询素材状态](https://gpt-best.apifox.cn/api-441771025.md): 需要等待素材状态为 Active 才可以引用素材
+- 视频模型 > sdols > 官方格式 [创建任务-官方格式](https://gpt-best.apifox.cn/api-440251336.md): 仅需将官方 API 地址，更换为我们的地址
 - 视频模型 > sdols > 官方格式 [查询-官方格式](https://gpt-best.apifox.cn/api-440251337.md): 
 - 绘图模型 > OpenAI Dall-e 格式 [Generations 通用 (图生图&文生图)](https://gpt-best.apifox.cn/api-302915860.md): 如果支持参考图，例如 flux-kontext ，参考图url 放 prompt 中空格隔开
 - 绘图模型 > OpenAI Dall-e 格式 [Edits 通用 (图像编辑)](https://gpt-best.apifox.cn/api-288978020.md): official docs:  

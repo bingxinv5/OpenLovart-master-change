@@ -1,12 +1,17 @@
 "use client";
 
 import { ensureImageRef } from '@/lib/editor-kernel';
-import { getMaxReferenceImagesForImageModel } from '@/lib/image-generation-models';
+import {
+    getMaxReferenceImagesForImageModel,
+    isStandardImageSize,
+    resolveOpenAiGptImageAspectRatio,
+    resolveOpenAiGptImagePixelSize,
+} from '@/lib/image-generation-models';
 import { createLocalCollection } from '@/lib/typed-local-collection';
 
-export type ImageHistoryModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
-export type ImageHistoryAspectRatio = 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9';
-export type ImageHistorySize = '1K' | '2K' | '4K';
+export type ImageHistoryModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
+export type ImageHistoryAspectRatio = 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9' | '9:21';
+export type ImageHistorySize = string;
 export type ImageHistoryGenerateCount = 1 | 2 | 3 | 4;
 
 export interface ImageGenerationHistoryItem {
@@ -147,7 +152,7 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
     if (!isObject(value)) return null;
     if (typeof value.prompt !== 'string' || !value.prompt.trim()) return null;
 
-    const model = value.model === 'nano-banana-2' || value.model === 'grok-4.2-image' || value.model === 'doubao-seedream-5-0-260128'
+    const model = value.model === 'nano-banana-2' || value.model === 'gpt-image-2' || value.model === 'grok-4.2-image' || value.model === 'doubao-seedream-5-0-260128'
         ? value.model
         : 'gemini-3.1-flash-image-preview';
     const aspectRatio = value.aspectRatio === 'auto'
@@ -160,10 +165,15 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
         || value.aspectRatio === '3:2'
         || value.aspectRatio === '4:5'
         || value.aspectRatio === '5:4'
+        || value.aspectRatio === '9:21'
         || value.aspectRatio === '21:9'
         ? value.aspectRatio
         : '21:9';
-    const imageSize = value.imageSize === '1K' || value.imageSize === '2K' || value.imageSize === '4K' ? value.imageSize : '4K';
+    const imageSize = model === 'gpt-image-2'
+        ? resolveOpenAiGptImagePixelSize(value.imageSize, aspectRatio)
+        : isStandardImageSize(value.imageSize)
+            ? value.imageSize
+            : '4K';
     const generateCount = value.generateCount === 1 || value.generateCount === 2 || value.generateCount === 3 || value.generateCount === 4 ? value.generateCount : 1;
     const maxReferenceImages = getMaxReferenceImagesForImageModel(model);
     const referenceImages = Array.isArray(value.referenceImages)
@@ -174,7 +184,11 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
         id: typeof value.id === 'string' && value.id.trim() ? value.id : createHistoryId(),
         prompt: value.prompt.trim(),
         model,
-        aspectRatio,
+        aspectRatio: model === 'gpt-image-2'
+            ? resolveOpenAiGptImageAspectRatio(imageSize, aspectRatio)
+            : aspectRatio === '9:21'
+                ? '9:16'
+                : aspectRatio,
         imageSize,
         generateCount,
         referenceImages,

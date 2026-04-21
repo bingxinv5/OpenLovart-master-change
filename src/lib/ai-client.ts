@@ -4,6 +4,7 @@ import { extractDataUrlBase64, isDataUrl } from './data-url';
 import { resolveImageRequest, resolveVideoRequest } from './generation-defaults';
 import {
   buildUpstreamImageGenerationBody,
+  isOpenAiGptImageModel,
   shouldUseDomesticImageBatching,
 } from './image-generation-models';
 
@@ -133,7 +134,8 @@ export async function requestImageGeneration(
 ): Promise<ImageGenerationResponse> {
   // Resolve defaults once via the settings adapter — ai-client does not read settings itself
   const resolved = resolveImageRequest(request);
-  let forceAsyncForProxy = resolved.forceAsync === true;
+  const forceAsyncForModel = isOpenAiGptImageModel(resolved.model);
+  let forceAsyncForProxy = resolved.forceAsync === true || forceAsyncForModel;
   const requestBody: Record<string, unknown> = {
     prompt: resolved.prompt,
     model: resolved.model,
@@ -145,7 +147,7 @@ export async function requestImageGeneration(
     forceAsync: forceAsyncForProxy,
   };
 
-  if (resolved.preferDirect !== false && resolved.forceAsync !== true) {
+  if (resolved.preferDirect !== false && resolved.forceAsync !== true && !forceAsyncForModel) {
     const directRequestBody = buildDirectImageRequest(resolved);
     const directResult = await directGenerateImage(directRequestBody);
     if (directResult !== null) {

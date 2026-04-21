@@ -172,16 +172,36 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
     const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([]);
     const alignGuidesTimeoutRef = useRef<number | null>(null);
 
+    // Structural-equality guarded setter. High-frequency callers (drag/resize mousemove)
+    // pass freshly constructed AlignGuide arrays on every tick; without this guard each
+    // call forces a re-render that cascades through parent elements state and can trip
+    // React's "Maximum update depth exceeded" safeguard.
+    const setAlignGuidesIfChanged = useCallback((next: AlignGuide[]) => {
+        setAlignGuides((prev) => {
+            if (prev === next) return prev;
+            if (prev.length === 0 && next.length === 0) return prev;
+            if (prev.length !== next.length) return next;
+            for (let i = 0; i < prev.length; i++) {
+                const a = prev[i];
+                const b = next[i];
+                if (a.type !== b.type || a.pos !== b.pos || a.start !== b.start || a.end !== b.end) {
+                    return next;
+                }
+            }
+            return prev;
+        });
+    }, []);
+
     const flashAlignGuides = useCallback((guides: AlignGuide[]) => {
-        setAlignGuides(guides);
+        setAlignGuidesIfChanged(guides);
         if (alignGuidesTimeoutRef.current !== null) {
             window.clearTimeout(alignGuidesTimeoutRef.current);
         }
         alignGuidesTimeoutRef.current = window.setTimeout(() => {
-            setAlignGuides([]);
+            setAlignGuidesIfChanged([]);
             alignGuidesTimeoutRef.current = null;
         }, ALIGN_GUIDE_FLASH_MS);
-    }, [ALIGN_GUIDE_FLASH_MS]);
+    }, [ALIGN_GUIDE_FLASH_MS, setAlignGuidesIfChanged]);
 
     useEffect(() => () => {
         if (alignGuidesTimeoutRef.current !== null) {
@@ -1324,7 +1344,7 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
                 };
             });
 
-            setAlignGuides(newGuides);
+            setAlignGuidesIfChanged(newGuides);
 
             // Detect drop target frame for visual highlight
             const draggedEl = elements.find(e => e.id === draggedElementIdRef.current);
@@ -1579,7 +1599,7 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
             newWidth = Math.max(10, newWidth);
             newHeight = Math.max(10, newHeight);
 
-            setAlignGuides(resizeGuides);
+            setAlignGuidesIfChanged(resizeGuides);
 
             onElementChange(draggedElementIdRef.current, {
                 x: newX,
@@ -1871,7 +1891,7 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
         setIsSelecting(false);
         setIsFrameDrawing(false);
         setDropTargetFrameId(null);
-        setAlignGuides([]);
+        setAlignGuidesIfChanged([]);
         setSelectionBox(null);
         syncSelectionBoxOverlay(null);
         stopSelectionDragListeners();

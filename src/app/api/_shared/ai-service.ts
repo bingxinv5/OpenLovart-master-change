@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DEFAULT_AI_BASE_URL, validateAiGatewayBaseUrl } from '@/lib/network-policy';
+import { fetchRemoteAsset, fetchRemoteAssetPrefix } from './cdn-cache';
 
 type JsonObject = Record<string, unknown>;
+
+export type ImageDimensions = {
+  width: number;
+  height: number;
+  format: 'png' | 'jpeg' | 'webp' | 'gif';
+};
+
+export type InspectedImageDimensions = ImageDimensions & {
+  source: 'data-url' | 'remote-url';
+  url?: string;
+};
+
+const IMAGE_DIMENSION_PREFIX_BYTES = 256 * 1024;
+const IMAGE_DIMENSION_FALLBACK_BYTES = 4 * 1024 * 1024;
 
 export const AI_UPSTREAM_TIMEOUT_MS = {
   submit: 45_000,
@@ -244,6 +259,181 @@ export function extractImageResult(payload: unknown): {
     imageData,
     images: imageUrls,
   };
+}
+
+function readUInt24LE(buffer: Buffer, offset: number): number {
+  return buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
+}
+
+function extractPngDimensions(buffer: Buffer): ImageDimensions | null {
+  if (buffer.length < 24 || buffer.readUInt32BE(0) !== 0x89504e47) {
+    return null;
+  }
+
+  const width = buffer.readUInt32BE(16);
+  const height = buffer.readUInt32BE(20);
+  return width > 0 && height > 0 ? { width, height, format: 'png' } : null;
+}
+
+function extractGifDimensions(buffer: Buffer): ImageDimensions | null {
+  if (buffer.length < 10 || buffer.toString('ascii', 0, 3) !== 'GIF') {
+    return null;
+  }
+
+  const width = buffer.readUInt16LE(6);
+  const height = buffer.readUInt16LE(8);
+  return width > 0 && height > 0 ? { width, height, format: 'gif' } : null;
+}
+
+function extractJpegDimensions(buffer: Buffer): ImageDimensions | null {
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+    return null;
+  }
+
+  let offset = 2;
+  while (offset + 8 < buffer.length) {
+    while (offset < buffer.length && buffer[offset] === 0xff) {
+      offset += 1;
+    }
+
+    if (offset >= buffer.length) {
+      break;
+    }
+
+    const marker = buffer[offset];
+    offset += 1;
+
+    if (marker === 0xd8 || marker === 0x01) {
+      continue;
+    }
+
+    if (marker === 0xd9 || marker === 0xda || offset + 1 >= buffer.length) {
+      break;
+    }
+
+    const segmentLength = buffer.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > buffer.length) {
+      break;
+    }
+
+    if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+      const height = buffer.readUInt16BE(offset + 3);
+      const width = buffer.readUInt16BE(offset + 5);
+      return width > 0 && height > 0 ? { width, height, format: 'jpeg' } : null;
+    }
+
+    offset += segmentLength;
+  }
+
+  return null;
+}
+
+function extractWebpDimensions(buffer: Buffer): ImageDimensions | null {
+  if (buffer.length < 30 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') {
+    return null;
+  }
+
+  const chunkType = buffer.toString('ascii', 12, 16);
+
+  if (chunkType === 'VP8X' && buffer.length >= 30) {
+    const width = 1 + readUInt24LE(buffer, 24);
+    const height = 1 + readUInt24LE(buffer, 27);
+    return width > 0 && height > 0 ? { width, height, format: 'webp' } : null;
+  }
+
+  if (chunkType === 'VP8 ' && buffer.length >= 30 && buffer[23] === 0x9d && buffer[24] === 0x01 && buffer[25] === 0x2a) {
+    const width = buffer.readUInt16LE(26) & 0x3fff;
+    const height = buffer.readUInt16LE(28) & 0x3fff;
+    return width > 0 && height > 0 ? { width, height, format: 'webp' } : null;
+  }
+
+  if (chunkType === 'VP8L' && buffer.length >= 25) {
+    const width = 1 + (((buffer[22] & 0x3f) << 8) | buffer[21]);
+    const height = 1 + (((buffer[24] & 0x0f) << 10) | (buffer[23] << 2) | ((buffer[22] & 0xc0) >> 6));
+    return width > 0 && height > 0 ? { width, height, format: 'webp' } : null;
+  }
+
+  return null;
+}
+
+export function detectImageDimensions(buffer: Buffer): ImageDimensions | null {
+  return extractPngDimensions(buffer)
+    ?? extractJpegDimensions(buffer)
+    ?? extractWebpDimensions(buffer)
+    ?? extractGifDimensions(buffer)
+    ?? null;
+}
+
+function decodeImageData(imageData: string): Buffer | null {
+  try {
+    const commaIndex = imageData.indexOf(',');
+    const payload = commaIndex >= 0 ? imageData.slice(commaIndex + 1) : imageData;
+    return Buffer.from(payload, 'base64');
+  } catch {
+    return null;
+  }
+}
+
+export async function inspectImageResultDimensions(
+  imageResult: {
+    imageUrl: string | null;
+    imageData: string | null;
+    images: string[];
+  },
+): Promise<InspectedImageDimensions | null> {
+  if (typeof imageResult.imageData === 'string' && imageResult.imageData.trim().length > 0) {
+    const buffer = decodeImageData(imageResult.imageData.trim());
+    const dimensions = buffer ? detectImageDimensions(buffer) : null;
+    if (dimensions) {
+      return {
+        ...dimensions,
+        source: 'data-url',
+      };
+    }
+  }
+
+  const imageUrl = imageResult.imageUrl ?? imageResult.images[0] ?? null;
+  if (!isHttpUrl(imageUrl)) {
+    return null;
+  }
+
+  try {
+    const { buffer } = await fetchRemoteAssetPrefix(imageUrl, {
+      timeoutMs: 10_000,
+      maxBytes: IMAGE_DIMENSION_PREFIX_BYTES,
+      allowedContentTypePrefixes: ['image/'],
+    });
+    const dimensions = detectImageDimensions(buffer);
+    if (dimensions) {
+      return {
+        ...dimensions,
+        source: 'remote-url',
+        url: imageUrl,
+      };
+    }
+  } catch {
+    // Fall through to a larger best-effort fetch when prefix probing fails.
+  }
+
+  try {
+    const { buffer } = await fetchRemoteAsset(imageUrl, {
+      timeoutMs: 10_000,
+      maxBytes: IMAGE_DIMENSION_FALLBACK_BYTES,
+      allowedContentTypePrefixes: ['image/'],
+    });
+    const dimensions = detectImageDimensions(buffer);
+    if (!dimensions) {
+      return null;
+    }
+
+    return {
+      ...dimensions,
+      source: 'remote-url',
+      url: imageUrl,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function isHttpUrl(value: unknown): value is string {

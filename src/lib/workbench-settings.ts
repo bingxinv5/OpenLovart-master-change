@@ -1,5 +1,14 @@
 'use client';
 
+import {
+  isOpenAiGptImageModel,
+  isStandardImageSize,
+  isSelectableOpenAiGptImageAspectRatio,
+  resolveOpenAiGptImageAspectRatio,
+  resolveOpenAiGptImagePixelSize,
+} from './image-generation-models';
+import type { OpenAiGptImagePixelSize, StandardImageSize } from './image-generation-models';
+
 export interface WorkbenchSettings {
   autoSaveGenerated: boolean;
   warnOnHighStorage: boolean;
@@ -13,9 +22,9 @@ export const VIDEO_DURATION_OPTIONS = ['4s', '5s', '6s', '7s', '8s', '9s', '10s'
 export type VideoDuration = typeof VIDEO_DURATION_OPTIONS[number];
 
 export interface ImageGenerationDefaults {
-  model: 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
-  aspectRatio: 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9';
-  imageSize: '1K' | '2K' | '4K';
+  model: 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
+  aspectRatio: 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9' | '9:21';
+  imageSize: string;
   generateCount: 1 | 2 | 3 | 4;
 }
 
@@ -106,10 +115,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function sanitizeImageDefaults(value: unknown): ImageGenerationDefaults {
   const parsed = isObject(value) ? value : {};
-  const model = parsed.model === 'nano-banana-2' || parsed.model === 'grok-4.2-image' || parsed.model === 'doubao-seedream-5-0-260128'
+  const model = parsed.model === 'nano-banana-2' || parsed.model === 'gpt-image-2' || parsed.model === 'grok-4.2-image' || parsed.model === 'doubao-seedream-5-0-260128'
     ? parsed.model
     : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.model;
-  const aspectRatio = parsed.aspectRatio === 'auto'
+  const parsedAspectRatio = parsed.aspectRatio === 'auto'
     || parsed.aspectRatio === '1:1'
     || parsed.aspectRatio === '4:3'
     || parsed.aspectRatio === '3:4'
@@ -119,12 +128,20 @@ function sanitizeImageDefaults(value: unknown): ImageGenerationDefaults {
     || parsed.aspectRatio === '3:2'
     || parsed.aspectRatio === '4:5'
     || parsed.aspectRatio === '5:4'
+    || parsed.aspectRatio === '9:21'
     || parsed.aspectRatio === '21:9'
     ? parsed.aspectRatio
     : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.aspectRatio;
-  const imageSize = parsed.imageSize === '1K' || parsed.imageSize === '2K' || parsed.imageSize === '4K'
-    ? parsed.imageSize
-    : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.imageSize;
+  const imageSize = isOpenAiGptImageModel(model)
+    ? resolveOpenAiGptImagePixelSize(parsed.imageSize, parsedAspectRatio)
+    : isStandardImageSize(parsed.imageSize)
+      ? parsed.imageSize
+      : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.imageSize;
+  const aspectRatio = isOpenAiGptImageModel(model)
+    ? resolveOpenAiGptImageAspectRatio(imageSize, parsedAspectRatio)
+    : parsedAspectRatio === '9:21'
+      ? '9:16'
+      : parsedAspectRatio;
   const generateCount = parsed.generateCount === 1 || parsed.generateCount === 2 || parsed.generateCount === 3 || parsed.generateCount === 4
     ? parsed.generateCount
     : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.generateCount;

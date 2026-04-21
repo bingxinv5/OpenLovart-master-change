@@ -34,6 +34,13 @@ import {
     type StorageEstimateInfo,
     type WorkbenchSettings,
 } from '@/lib/workbench-settings';
+import {
+    OPENAI_GPT_IMAGE_PIXEL_SIZES,
+    STANDARD_IMAGE_SIZE_OPTIONS,
+    isStandardImageSize,
+    resolveOpenAiGptImageAspectRatio,
+    resolveOpenAiGptImagePixelSize,
+} from '@/lib/image-generation-models';
 
 type SettingsTab = 'api' | 'workspace' | 'defaults' | 'account';
 
@@ -192,6 +199,13 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
         { key: 'api' as const, label: 'API', icon: SlidersHorizontal },
         { key: 'account' as const, label: '账户', icon: UserIcon },
     ]), []);
+
+    const isOpenAiGptImageDefaultModel = settings.imageDefaults.model === 'gpt-image-2';
+    const imageDefaultAspectRatioOptions = ['auto', '1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '4:5', '5:4', '21:9'];
+    const imageDefaultSizeOptions = isOpenAiGptImageDefaultModel
+        ? [...OPENAI_GPT_IMAGE_PIXEL_SIZES]
+        : [...STANDARD_IMAGE_SIZE_OPTIONS];
+    const derivedOpenAiGptImageDefaultAspectRatio = resolveOpenAiGptImageAspectRatio(settings.imageDefaults.imageSize, settings.imageDefaults.aspectRatio);
 
     const hasCustomSettings = !!baseUrl || !!apiKey || hasCustomWorkbenchSettings(settings) || !!cdnCacheSettings?.isCustomDirectory || !!upscaleServiceSettings?.isCustomBaseUrl;
 
@@ -604,26 +618,68 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                             <SettingsSection title="图片生成默认值" description="新建图片生成器节点时优先套用这里的模型、比例、尺寸和张数。">
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <LabeledField label="默认模型">
-                                        <select title="图片默认模型" data-testid="settings-image-model" className={selectClassName()} value={settings.imageDefaults.model} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, model: event.target.value as WorkbenchSettings['imageDefaults']['model'] } }))}>
+                                        <select title="图片默认模型" data-testid="settings-image-model" className={selectClassName()} value={settings.imageDefaults.model} onChange={(event) => setSettings((prev) => {
+                                            const nextModel = event.target.value as WorkbenchSettings['imageDefaults']['model'];
+                                            const nextImageSize = nextModel === 'gpt-image-2'
+                                                ? resolveOpenAiGptImagePixelSize(prev.imageDefaults.imageSize, prev.imageDefaults.aspectRatio)
+                                                : isStandardImageSize(prev.imageDefaults.imageSize)
+                                                    ? prev.imageDefaults.imageSize
+                                                    : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.imageSize;
+                                            const nextAspectRatio = nextModel === 'gpt-image-2'
+                                                ? resolveOpenAiGptImageAspectRatio(nextImageSize, prev.imageDefaults.aspectRatio)
+                                                : prev.imageDefaults.aspectRatio === '9:21'
+                                                    ? '9:16'
+                                                    : prev.imageDefaults.aspectRatio;
+
+                                            return {
+                                                ...prev,
+                                                imageDefaults: {
+                                                    ...prev.imageDefaults,
+                                                    model: nextModel,
+                                                    imageSize: nextImageSize,
+                                                    aspectRatio: nextAspectRatio,
+                                                },
+                                            };
+                                        })}>
                                             <option value="gemini-3.1-flash-image-preview">gemini-3.1-flash-image-preview</option>
                                             <option value="nano-banana-2">nano-banana-2</option>
+                                            <option value="gpt-image-2">gpt-image-2</option>
                                             <option value="grok-4.2-image">grok-4.2-image</option>
                                             <option value="doubao-seedream-5-0-260128">doubao-seedream-5-0-260128</option>
                                         </select>
                                     </LabeledField>
-                                    <LabeledField label="默认宽高比">
-                                        <select title="图片默认宽高比" data-testid="settings-image-aspect-ratio" className={selectClassName()} value={settings.imageDefaults.aspectRatio} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, aspectRatio: event.target.value as WorkbenchSettings['imageDefaults']['aspectRatio'] } }))}>
-                                            {['auto', '1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '4:5', '5:4', '21:9'].map((value) => (
+                                    <LabeledField label="默认图片尺寸">
+                                        <select title="图片默认尺寸" data-testid="settings-image-size" className={selectClassName()} value={settings.imageDefaults.imageSize} onChange={(event) => setSettings((prev) => {
+                                            const nextImageSize = event.target.value as WorkbenchSettings['imageDefaults']['imageSize'];
+                                            return {
+                                                ...prev,
+                                                imageDefaults: {
+                                                    ...prev.imageDefaults,
+                                                    imageSize: nextImageSize,
+                                                    aspectRatio: prev.imageDefaults.model === 'gpt-image-2'
+                                                        ? resolveOpenAiGptImageAspectRatio(nextImageSize, prev.imageDefaults.aspectRatio)
+                                                        : prev.imageDefaults.aspectRatio,
+                                                },
+                                            };
+                                        })}>
+                                            {imageDefaultSizeOptions.map((value) => (
                                                 <option key={value} value={value}>{value}</option>
                                             ))}
                                         </select>
                                     </LabeledField>
-                                    <LabeledField label="默认图片尺寸">
-                                        <select title="图片默认尺寸" data-testid="settings-image-size" className={selectClassName()} value={settings.imageDefaults.imageSize} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, imageSize: event.target.value as WorkbenchSettings['imageDefaults']['imageSize'] } }))}>
-                                            {['1K', '2K', '4K'].map((value) => (
-                                                <option key={value} value={value}>{value}</option>
-                                            ))}
-                                        </select>
+                                    <LabeledField label={isOpenAiGptImageDefaultModel ? '派生宽高比' : '默认宽高比'}>
+                                        {isOpenAiGptImageDefaultModel ? (
+                                            <div className={`${selectClassName()} flex items-center justify-between`}>
+                                                <span>{derivedOpenAiGptImageDefaultAspectRatio}</span>
+                                                <span className="text-[11px] text-gray-400">由尺寸自动推导</span>
+                                            </div>
+                                        ) : (
+                                            <select title="图片默认宽高比" data-testid="settings-image-aspect-ratio" className={selectClassName()} value={settings.imageDefaults.aspectRatio} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, aspectRatio: event.target.value as WorkbenchSettings['imageDefaults']['aspectRatio'] } }))}>
+                                                {imageDefaultAspectRatioOptions.map((value) => (
+                                                    <option key={value} value={value}>{value}</option>
+                                                ))}
+                                            </select>
+                                        )}
                                     </LabeledField>
                                     <LabeledField label="默认生成张数">
                                         <select title="图片默认生成张数" data-testid="settings-image-generate-count" className={selectClassName()} value={settings.imageDefaults.generateCount} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, generateCount: Number(event.target.value) as WorkbenchSettings['imageDefaults']['generateCount'] } }))}>
@@ -633,6 +689,11 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                         </select>
                                     </LabeledField>
                                 </div>
+                                {isOpenAiGptImageDefaultModel && (
+                                    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 text-[11px] leading-4 text-gray-500">
+                                        gpt-image-2 当前按比例优先生成，像素尺寸作为期望输入；更细的像素控制建议在生成器里使用实验尺寸。
+                                    </div>
+                                )}
                             </SettingsSection>
 
                             <SettingsSection title="视频生成默认值" description="新建视频生成器节点时默认带入模型、比例、时长与提示增强选项。">

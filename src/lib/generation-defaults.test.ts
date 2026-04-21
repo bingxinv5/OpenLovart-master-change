@@ -59,6 +59,15 @@ describe('generation-defaults adapter', () => {
         expect(resolved.imageSize).toBe('2K');
     });
 
+    it('resolveImageRequest preserves the explicit gpt-image-2 alias', () => {
+        const resolved = resolveImageRequest({
+            prompt: 'portrait',
+            model: 'gpt-image-2',
+        });
+
+        expect(resolved.model).toBe('gpt-image-2');
+    });
+
     // ── Video request resolver ──────────────────────────────
 
     it('resolveVideoRequest fills missing fields from defaults', () => {

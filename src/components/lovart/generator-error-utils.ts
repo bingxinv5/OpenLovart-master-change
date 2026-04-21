@@ -6,6 +6,15 @@ function isGeminiImageProviderRoutingError(lowerMessage: string): boolean {
   return lowerMessage.includes('no provider for') && lowerMessage.includes('gemini_native');
 }
 
+function isOpenAiGptImageProviderRoutingError(lowerMessage: string): boolean {
+  const mentionsGptImageModel = lowerMessage.includes('gpt-5-2-image') || lowerMessage.includes('gpt-image-2');
+  const isProviderRoutingFailure = lowerMessage.includes('no provider for')
+    || lowerMessage.includes('no available platform found for model')
+    || lowerMessage.includes('no usable platform found for model');
+
+  return mentionsGptImageModel && isProviderRoutingFailure;
+}
+
 function isUpstreamOverloadedError(lowerMessage: string): boolean {
   return (
     lowerMessage.includes('system cpu overloaded')
@@ -71,6 +80,10 @@ export function classifyGenerationError(
 
   if (kind === 'image' && isGeminiImageProviderRoutingError(lower)) {
     return `🤖 Gemini 生图通道暂不可用\n\n当前不是提示词问题，而是上游没有把这把 API Key 路由到可用的 Gemini 生图通道。\n\n你可以先这样处理：\n• 稍后再试\n• 更换一把已验证可用的 API Key\n• 联系第三方检查 default 组 / Gemini 图片通道\n\n上游原始错误：${msg}`;
+  }
+
+  if (kind === 'image' && isOpenAiGptImageProviderRoutingError(lower)) {
+    return `🤖 GPT 生图通道暂不可用\n\n当前不是提示词或尺寸问题，而是上游没有把这把 API Key 路由到可用的 GPT 生图通道。当前网关会把 gpt-image-2 映射到 gpt-5-2-image；如果该通道未开通，任务会在排队后失败。\n\n你可以先这样处理：\n• 更换一把已验证支持 GPT 生图的 API Key\n• 暂时改用 nano-banana-2、gemini-3.1-flash-image-preview 或 grok-4.2-image\n• 联系第三方检查当前分组是否已启用 gpt-5-2-image / gpt-image-2 图片通道\n\n上游原始错误：${msg}`;
   }
 
   if (isUpstreamOverloadedError(lower)) {
