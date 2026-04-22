@@ -89,4 +89,62 @@ describe('generate-video route', () => {
             },
         ]));
     });
+
+    it('preserves encoded taskId when upstream returns an immediate video result', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            data: {
+                taskId: 'cgt-direct-video-1',
+                output: {
+                    video_url: 'https://example.com/direct-video.mp4',
+                },
+            },
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '直接返回视频并保留 taskId',
+            model: 'doubao-seedance-2-0-260128',
+            aspectRatio: '16:9',
+            duration: '5s',
+        }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        await expect(response.json()).resolves.toMatchObject({
+            status: 'completed',
+            taskId: 'domestic-official:cgt-direct-video-1',
+            videoUrl: 'https://example.com/direct-video.mp4',
+        });
+    });
+
+    it('accepts camelCase taskId when the upstream only returns a pending task', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            data: {
+                taskId: 'task-pending-video-1',
+            },
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '仅返回待轮询视频任务',
+            model: 'veo3.1',
+            aspectRatio: '16:9',
+            duration: '5s',
+        }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'task-pending-video-1',
+        });
+    });
 });

@@ -82,7 +82,16 @@ export interface CanvasSessionRuntimeDeps {
             width: number;
             height: number;
         },
+        taskId?: string | null,
     ) => Promise<void>;
+    /** Record completed media into project-scoped history. */
+    recordProjectMediaItem: (params: {
+        kind: 'image' | 'video';
+        content: string;
+        taskId?: string;
+        sourceElement?: CanvasElement | null;
+        sourceElementId?: string;
+    }) => void;
 
     // ── Image content normalization (for orphan recovery) ──
     normalizeGeneratedImageContent: (rawUrl: string, source: string, blob?: Blob | null) => Promise<string>;
@@ -125,6 +134,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
         setGeneratorSubmittingMap,
         setElementsVersion,
         finalizeAiEditedImageElement,
+        recordProjectMediaItem,
         normalizeGeneratedImageContent,
         resolveImageDisplayMetrics,
         persistGeneratedAssetToDisk,
@@ -344,16 +354,28 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                                 });
                                 showToast('🔄 已恢复之前的生成任务', 'info');
                             } else {
+                                    const normalizedTaskId = typeof data.taskId === 'string' && data.taskId.trim().length > 0
+                                        ? data.taskId.trim()
+                                        : undefined;
                                 const updated = {
                                     ...currentEl,
                                     type: 'video' as const,
                                     content: data.videoUrl,
+                                        sourceGenerationTaskId: normalizedTaskId,
+                                        sourceGenerationTaskType: normalizedTaskId ? 'video' as const : undefined,
                                     ...createGenerationIdlePatch(),
                                 };
                                 map.set(elementId, updated);
                                 setElementsVersion(v => v + 1);
                                 dirtyTrackerRef.current.markModified(elementId);
                                 void persistGeneratedAssetToDisk(data.videoUrl, 'video', 'retry-video');
+                                    recordProjectMediaItem({
+                                        kind: 'video',
+                                        content: data.videoUrl,
+                                        taskId: normalizedTaskId,
+                                        sourceElement: currentEl,
+                                        sourceElementId: elementId,
+                                    });
                                 showToast('✅ 恢复的生成任务已完成', 'info');
                             }
                         }
@@ -408,6 +430,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                                         width: currentEl.width ?? 512,
                                         height: currentEl.height ?? 512,
                                     },
+                                    data.taskId,
                                 );
                                 showToast('✅ 恢复的 AI 编辑任务已完成', 'info');
                             }
@@ -495,6 +518,9 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                         const map = elementsMapRef.current;
                         const currentEl = map.get(elementId);
                         if (currentEl) {
+                            const normalizedTaskId = typeof data.taskId === 'string' && data.taskId.trim().length > 0
+                                ? data.taskId.trim()
+                                : undefined;
                             let retryBlob: Blob | null = null;
                             if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
                                 retryBlob = await fetchRemoteBlob(rawUrl, 'lovart-retry-image');
@@ -507,6 +533,8 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                                 ...currentEl,
                                 type: 'image' as const,
                                 content: finalContent,
+                                sourceGenerationTaskId: normalizedTaskId,
+                                sourceGenerationTaskType: normalizedTaskId ? 'image' as const : undefined,
                                 ...(displayMetrics ? { width: displayMetrics.width, height: displayMetrics.height } : {}),
                                 ...createGenerationIdlePatch(),
                             };
@@ -514,6 +542,13 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                             setElementsVersion(v => v + 1);
                             dirtyTrackerRef.current.markModified(elementId);
                             void persistGeneratedAssetToDisk(finalContent, 'image', 'retry', retryBlob);
+                            recordProjectMediaItem({
+                                kind: 'image',
+                                content: finalContent,
+                                taskId: normalizedTaskId,
+                                sourceElement: currentEl,
+                                sourceElementId: elementId,
+                            });
                         }
                         showToast('✅ 恢复的生成任务已完成', 'info');
                     }

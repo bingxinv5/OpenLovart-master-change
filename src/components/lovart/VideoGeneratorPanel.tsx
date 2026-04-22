@@ -525,7 +525,7 @@ function buildPromptComposerSegments(prompt: string, mentions: PromptMention[]):
 
 interface VideoGeneratorPanelProps {
     elementId: string;
-    onGenerate: (videoUrl: string) => Promise<void>;
+    onGenerate: (result: { videoUrl: string; taskId?: string | null }) => Promise<void>;
     onRecoverTask?: (elementId: string, taskId: string) => Promise<void>;
     isGenerating: boolean;
     style?: React.CSSProperties;
@@ -602,7 +602,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     const [mentionQuery, setMentionQuery] = useState<PromptMentionQuery | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isRecovering, setIsRecovering] = useState(false);
-    const [recoveryTaskId, setRecoveryTaskId] = useState(currentElement?.generatingTaskId || '');
+    const [recoveryTaskId, setRecoveryTaskId] = useState(currentElement?.generatingTaskId || currentElement?.sourceGenerationTaskId || '');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [uploadingReferenceKind, setUploadingReferenceKind] = useState<ReferenceMediaKind | null>(null);
 
@@ -857,10 +857,10 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     }, [videoDefaults, currentElement?.selectedAspectRatio, currentElement?.selectedDuration, currentElement?.selectedEnhancePrompt, currentElement?.selectedModel]);
 
     useEffect(() => {
-        if (currentElement?.generatingTaskId && !isRecovering) {
-            setRecoveryTaskId(currentElement.generatingTaskId);
+        if (!isRecovering) {
+            setRecoveryTaskId(currentElement?.generatingTaskId || currentElement?.sourceGenerationTaskId || '');
         }
-    }, [currentElement?.generatingTaskId, isRecovering]);
+    }, [currentElement?.generatingTaskId, currentElement?.sourceGenerationTaskId, isRecovering]);
 
     useEffect(() => {
         setPromptMentionBindings((prev) => {
@@ -1270,7 +1270,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 onElementChange?.(elementId, createGeneratorTaskUpdate(data.taskId, 'video'));
             } else {
                 submissionAccepted = true;
-                await onGenerate(data.videoUrl);
+                await onGenerate({ videoUrl: data.videoUrl, taskId: data.taskId });
             }
 
             submissionOutcome = 'succeeded';

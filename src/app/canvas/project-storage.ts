@@ -1,4 +1,7 @@
 import { elementStore, type LocalDbClient, cleanupUnusedImages } from '@/lib/editor-kernel';
+import { collectRetainedLocalImageRefs } from '@/lib/local-image-ref-usage';
+import { clearProjectMediaHistory } from '@/lib/project-media-history';
+import { clearProjectReferenceLibrary } from '@/lib/project-reference-library';
 import { clearProjectGenerations, clearProjectSubmissions } from './generation-persistence';
 import { clearViewportState } from './viewport-persistence';
 
@@ -264,13 +267,18 @@ export async function deleteCanvasProjects(params: {
       'delete-project',
       database.from('projects').delete().eq('id', projectId),
     );
+    clearProjectMediaHistory(projectId);
+    clearProjectReferenceLibrary(projectId);
     clearViewportState(projectId);
     clearProjectGenerations(projectId);
     clearProjectSubmissions(projectId);
   }
 
   const remainingRefs = await elementStore.collectAllImageRefs();
-  await cleanupUnusedImages(remainingRefs);
+  await cleanupUnusedImages([
+    ...remainingRefs,
+    ...collectRetainedLocalImageRefs(),
+  ]);
 }
 
 export async function loadCanvasProjectBundle<TElement>(

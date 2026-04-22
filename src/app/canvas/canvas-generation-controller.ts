@@ -34,6 +34,7 @@ export interface GenerationPollingCallbacks {
     recordProjectMediaItem: (params: {
         kind: 'image' | 'video';
         content: string;
+        taskId?: string;
         sourceElement?: CanvasElement | null;
         sourceElementId?: string;
     }) => void;
@@ -238,10 +239,11 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
                                     callbacksRef.current.announceCompletedResult(el.id, '✅ 图片生成完成，已显示在生成器当前位置');
                                 } else {
                                     void callbacksRef.current.persistGeneratedAssetToDisk(resultUrl, el.generatingTaskType, 'poll');
-                                    setElements(prev => applyVideoGenerationSuccess(prev, el.id, resultUrl));
+                                    setElements(prev => applyVideoGenerationSuccess(prev, el.id, resultUrl, el.generatingTaskId));
                                     callbacksRef.current.recordProjectMediaItem({
                                         kind: 'video',
                                         content: resultUrl,
+                                        taskId: el.generatingTaskId,
                                         sourceElement: el,
                                         sourceElementId: el.id,
                                     });

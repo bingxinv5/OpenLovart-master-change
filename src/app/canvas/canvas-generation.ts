@@ -362,13 +362,20 @@ export function applyVideoGenerationSuccess(
     elements: CanvasElement[],
     elementId: string,
     videoUrl: string,
+    taskId?: string | null,
 ): CanvasElement[] {
+    const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
+        ? taskId.trim()
+        : null;
+
     return elements.map((element) =>
         element.id === elementId
             ? {
                 ...element,
                 type: 'video',
                 content: videoUrl,
+                sourceGenerationTaskId: normalizedTaskId ?? element.sourceGenerationTaskId,
+                sourceGenerationTaskType: (normalizedTaskId ?? element.sourceGenerationTaskId) ? 'video' : undefined,
                 ...createGenerationIdlePatch(),
             }
             : element,

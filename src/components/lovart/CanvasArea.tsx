@@ -239,27 +239,41 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
 
     // Alignment guides state
     const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([]);
+    const alignGuidesRef = useRef<AlignGuide[]>([]);
     const alignGuidesTimeoutRef = useRef<number | null>(null);
+
+    const areAlignGuidesEqual = useCallback((left: AlignGuide[], right: AlignGuide[]) => {
+        if (left === right) return true;
+        if (left.length !== right.length) return false;
+
+        for (let i = 0; i < left.length; i += 1) {
+            const a = left[i];
+            const b = right[i];
+            if (
+                a.type !== b.type
+                || !Object.is(a.pos, b.pos)
+                || !Object.is(a.start, b.start)
+                || !Object.is(a.end, b.end)
+            ) {
+                return false;
+            }
+        }
+
+        return true;
+    }, []);
 
     // Structural-equality guarded setter. High-frequency callers (drag/resize mousemove)
     // pass freshly constructed AlignGuide arrays on every tick; without this guard each
     // call forces a re-render that cascades through parent elements state and can trip
     // React's "Maximum update depth exceeded" safeguard.
     const setAlignGuidesIfChanged = useCallback((next: AlignGuide[]) => {
-        setAlignGuides((prev) => {
-            if (prev === next) return prev;
-            if (prev.length === 0 && next.length === 0) return prev;
-            if (prev.length !== next.length) return next;
-            for (let i = 0; i < prev.length; i++) {
-                const a = prev[i];
-                const b = next[i];
-                if (a.type !== b.type || a.pos !== b.pos || a.start !== b.start || a.end !== b.end) {
-                    return next;
-                }
-            }
-            return prev;
-        });
-    }, []);
+        if (areAlignGuidesEqual(alignGuidesRef.current, next)) {
+            return;
+        }
+
+        alignGuidesRef.current = next;
+        setAlignGuides(next);
+    }, [areAlignGuidesEqual]);
 
     const flashAlignGuides = useCallback((guides: AlignGuide[]) => {
         setAlignGuidesIfChanged(guides);

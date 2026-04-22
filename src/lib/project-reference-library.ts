@@ -4,6 +4,7 @@ import {
     type ProjectAssetStoreConfig,
     isPlainObject,
     createTimestampId,
+    normalizeItems,
     optionalString,
     safeTimestamp,
     readItems,
@@ -118,6 +119,16 @@ export function saveProjectReferenceImage(draft: ProjectReferenceImageDraft): Pr
         }, ...current].slice(0, MAX_ITEMS);
 
     writeItems(referenceLibraryStoreConfig, draft.projectId, next);
+    return next;
+}
+
+export function replaceProjectReferenceLibrary(projectId: string, items: ProjectReferenceImageItem[]): ProjectReferenceImageItem[] {
+    if (typeof window === 'undefined' || !projectId) {
+        return [];
+    }
+
+    const next = normalizeItems(referenceLibraryStoreConfig, projectId, items);
+    writeItems(referenceLibraryStoreConfig, projectId, next);
     return next;
 }
 

@@ -57,7 +57,7 @@ export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
   imageDefaults: {
     model: 'gemini-3.1-flash-image-preview',
     aspectRatio: '21:9',
-    imageSize: '4K',
+    imageSize: '2K',
     generateCount: 1,
   },
   videoDefaults: {

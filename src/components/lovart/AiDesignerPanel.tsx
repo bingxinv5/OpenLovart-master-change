@@ -364,7 +364,7 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
                 void pollGeneratedTask(data.taskId, assistantMsgId, 'video');
             } else {
                 setMessages(prev => prev.map(m =>
-                    m.id === assistantMsgId ? { ...m, content: '✅ 视频生成完成！', generatedVideo: data.videoUrl, taskStatus: 'completed' as const } : m
+                    m.id === assistantMsgId ? { ...m, content: '✅ 视频生成完成！', generatedVideo: data.videoUrl, taskId: typeof data.taskId === 'string' ? data.taskId : undefined, taskStatus: 'completed' as const } : m
                 ));
             }
         } catch (error: unknown) {
@@ -431,6 +431,7 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
                         ...m,
                         content: `✅ ${imageGenerationModel} 图片生成完成！`,
                         generatedImage: result.imageUrl,
+                        taskId: typeof result.taskId === 'string' ? result.taskId : undefined,
                         taskStatus: 'completed' as const,
                         isStreaming: false,
                     } : m

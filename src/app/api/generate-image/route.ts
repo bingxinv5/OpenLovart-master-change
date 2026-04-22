@@ -141,11 +141,13 @@ export async function POST(request: NextRequest) {
 
         console.log('[generate-image] Response:', JSON.stringify(data).substring(0, 300));
 
-        // The API may return task_id either at the root level or under data.task_id
-        const taskId = getNestedValue(data, 'data', 'task_id') || getNestedValue(data, 'task_id');
-        if (typeof taskId === 'string' && taskId.length > 0) {
-            return NextResponse.json({ taskId, status: 'pending' });
-        }
+        // The API may return taskId in either snake_case or camelCase, and some
+        // models complete immediately while still returning a reusable taskId.
+        const rawTaskId = getNestedValue(data, 'data', 'task_id')
+            || getNestedValue(data, 'task_id')
+            || getNestedValue(data, 'data', 'taskId')
+            || getNestedValue(data, 'taskId');
+        const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0 ? rawTaskId : null;
 
         // Some models may return results directly
         const rawImageResult = extractImageResult(data);
@@ -153,10 +155,14 @@ export async function POST(request: NextRequest) {
             filenamePrefix: 'lovart-generate-image',
         });
         if (imageResult.imageUrl) {
-            return NextResponse.json({ status: 'completed', imageUrl: imageResult.imageUrl, images: imageResult.images });
+            return NextResponse.json({ status: 'completed', taskId, imageUrl: imageResult.imageUrl, images: imageResult.images });
         }
         if (imageResult.imageData) {
-            return NextResponse.json({ status: 'completed', imageData: imageResult.imageData, images: imageResult.images });
+            return NextResponse.json({ status: 'completed', taskId, imageData: imageResult.imageData, images: imageResult.images });
+        }
+
+        if (taskId) {
+            return NextResponse.json({ taskId, status: 'pending' });
         }
 
         return NextResponse.json({ taskId: null, status: 'unknown', raw: data });

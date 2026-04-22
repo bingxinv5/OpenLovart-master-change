@@ -111,10 +111,11 @@ function translateApiError(msg: string): string {
 // ── Response normalization ───────────────────────────────────
 
 function normalizeGenerateResponse(raw: Record<string, unknown>): Record<string, unknown> {
-    const taskId = getNestedProp(raw, 'data', 'task_id') ?? getNestedProp(raw, 'task_id');
-    if (typeof taskId === 'string' && taskId.length > 0) {
-        return { taskId, status: 'pending' };
-    }
+    const rawTaskId = getNestedProp(raw, 'data', 'task_id')
+        ?? getNestedProp(raw, 'task_id')
+        ?? getNestedProp(raw, 'data', 'taskId')
+        ?? getNestedProp(raw, 'taskId');
+    const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0 ? rawTaskId : null;
 
     const nestedImages = getNestedProp(raw, 'data', 'data');
     const topLevelImages = getNestedProp(raw, 'data');
@@ -130,11 +131,15 @@ function normalizeGenerateResponse(raw: Record<string, unknown>): Record<string,
             .filter((value): value is string => typeof value === 'string' && value.length > 0);
         const first = images[0] as Record<string, unknown> | undefined;
         if (first?.url && typeof first.url === 'string') {
-            return { status: 'completed', imageUrl: first.url, images: imageUrls };
+            return { status: 'completed', taskId, imageUrl: first.url, images: imageUrls };
         }
         if (first?.b64_json && typeof first.b64_json === 'string') {
-            return { status: 'completed', imageData: `data:image/png;base64,${first.b64_json}`, images: imageUrls };
+            return { status: 'completed', taskId, imageData: `data:image/png;base64,${first.b64_json}`, images: imageUrls };
         }
+    }
+
+    if (taskId) {
+        return { taskId, status: 'pending' };
     }
 
     return { taskId: null, status: 'unknown', raw };

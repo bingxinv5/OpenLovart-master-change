@@ -128,23 +128,26 @@ export async function POST(request: NextRequest) {
 
         console.log('[generate-video] Full response:', JSON.stringify(data));
 
-        // Try multiple possible paths for task_id in the response
-        const taskId = getNestedValue(data, 'data', 'task_id')
+        // Try multiple possible paths for task_id in the response.
+        const rawTaskId = getNestedValue(data, 'data', 'task_id')
             || getNestedValue(data, 'task_id')
             || getNestedValue(data, 'data', 'id')
             || getNestedValue(data, 'id')
             || getNestedValue(data, 'data', 'taskId')
             || getNestedValue(data, 'taskId');
-
-        if (typeof taskId === 'string' && taskId.length > 0) {
-            return NextResponse.json({ taskId: encodeVideoTaskId(taskId, transport), status: 'pending' });
-        }
+        const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0
+            ? encodeVideoTaskId(rawTaskId, transport)
+            : null;
 
         // If the API returned video data directly (unlikely but handle it)
         const videoUrl = extractVideoUrl(data);
 
         if (videoUrl) {
-            return NextResponse.json({ status: 'completed', videoUrl });
+            return NextResponse.json({ status: 'completed', taskId, videoUrl });
+        }
+
+        if (taskId) {
+            return NextResponse.json({ taskId, status: 'pending' });
         }
 
         console.error('[generate-video] Could not extract task_id from response:', JSON.stringify(data));

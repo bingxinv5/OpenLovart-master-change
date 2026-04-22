@@ -56,6 +56,7 @@ import {
     type CanvasChunkStats,
 } from './project-storage';
 import { clearCanvasBenchmarkResults, generateBenchmarkSeeds, getCanvasBenchmarkResults, saveCanvasBenchmarkResult, type CanvasBenchmarkResult } from '@/lib/canvas-benchmark';
+import { collectRetainedLocalImageRefs } from '@/lib/local-image-ref-usage';
 import { DEFAULT_WORKBENCH_SETTINGS, getWorkbenchSettings, hasDirectoryPickerSupport, requestAutoSaveDirectoryHandle, requestPersistentStorage, saveBlobToAutoSaveDirectory, saveWorkbenchSettings, subscribeWorkbenchSettingsChange, type StorageEstimateInfo, type WorkbenchSettings, getStorageEstimateInfo } from '@/lib/workbench-settings';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -147,8 +148,8 @@ function isLikelyClipboardImageFile(file: File) {
     return /\.(png|jpe?g|webp|gif|bmp|svg|avif|heic|heif)$/i.test(file.name);
 }
 import { cancelActiveWorkerJobs, isWorkerCancelledError } from '@/lib/image-worker-bridge';
-import { appendProjectMediaHistory, clearProjectMediaHistory, readProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
-import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, saveProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
+import { appendProjectMediaHistory, clearProjectMediaHistory, readProjectMediaHistory, replaceProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
+import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, replaceProjectReferenceLibrary, saveProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
 
 function areCanvasRenderMetricsEqual(left: CanvasRenderMetrics | null, right: CanvasRenderMetrics) {
     return !!left
@@ -716,6 +717,36 @@ function LovartCanvasContent() {
     }, [currentProjectId]);
 
     useEffect(() => {
+        if (!currentProjectId || projectMediaItems.length === 0) {
+            return;
+        }
+
+        const reconciledItems = projectMediaItems.map((item) => {
+            if (item.taskId || !item.sourceElementId) {
+                return item;
+            }
+
+            const sourceElement = elementsMapRef.current.get(item.sourceElementId);
+            const recoveredTaskId = sourceElement?.sourceGenerationTaskId ?? sourceElement?.generatingTaskId;
+            if (!recoveredTaskId) {
+                return item;
+            }
+
+            return {
+                ...item,
+                taskId: recoveredTaskId,
+            };
+        });
+
+        const hasChanges = reconciledItems.some((item, index) => item !== projectMediaItems[index]);
+        if (!hasChanges) {
+            return;
+        }
+
+        replaceProjectMediaHistory(currentProjectId, reconciledItems);
+    }, [currentProjectId, elementsVersion, projectMediaItems]);
+
+    useEffect(() => {
         setProjectReferenceItems(readProjectReferenceLibrary(currentProjectId));
         return subscribeProjectReferenceLibrary(currentProjectId, () => {
             setProjectReferenceItems(readProjectReferenceLibrary(currentProjectId));
@@ -740,7 +771,7 @@ function LovartCanvasContent() {
             projectId,
             kind: params.kind,
             content: params.content,
-            taskId: params.taskId ?? source?.sourceGenerationTaskId,
+            taskId: params.taskId ?? source?.sourceGenerationTaskId ?? source?.generatingTaskId,
             prompt: params.prompt ?? source?.savedPrompt,
             model: source?.selectedModel,
             aspectRatio: source?.selectedAspectRatio,
@@ -769,23 +800,6 @@ function LovartCanvasContent() {
         setPan,
         setSelectedIds,
     });
-
-    const saveProjectReferenceFromMediaItem = useCallback((item: ProjectMediaHistoryItem) => {
-        const projectId = currentProjectIdRef.current;
-        if (!projectId || item.kind !== 'image') {
-            return;
-        }
-
-        saveProjectReferenceImage({
-            projectId,
-            image: item.content,
-            label: item.prompt,
-            prompt: item.prompt,
-            sourceMediaId: item.id,
-            sourceElementId: item.sourceElementId,
-        });
-        showToast('已加入项目参考库', 'success');
-    }, [showToast]);
 
     const saveProjectReferenceFromElement = useCallback((element: CanvasElement) => {
         const projectId = currentProjectIdRef.current;
@@ -1723,6 +1737,7 @@ function LovartCanvasContent() {
             const liveRefs = new Set<string>([
                 ...persistedRefs,
                 ...collectImageRefsFromElements(currentElements),
+                ...collectRetainedLocalImageRefs(),
             ]);
             const removedCount = await cleanupUnusedImages(liveRefs);
             if (removedCount > 0) {
@@ -2286,6 +2301,7 @@ function LovartCanvasContent() {
         setGeneratorSubmittingMap,
         setElementsVersion,
         finalizeAiEditedImageElement,
+        recordProjectMediaItem,
         normalizeGeneratedImageContent,
         resolveImageDisplayMetrics,
         persistGeneratedAssetToDisk,
@@ -3508,33 +3524,36 @@ function LovartCanvasContent() {
         })();
     }, [addElementsWithOptionalAutoGroup, buildImageElement, getPlacementPosition, normalizeGeneratedImageContent, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model]);
 
-    const handleGenerateVideo = useCallback(async (videoUrl: string) => {
+    const handleGenerateVideo = useCallback(async ({ videoUrl, taskId }: { videoUrl: string; taskId?: string | null }) => {
+        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
+            ? taskId.trim()
+            : undefined;
         const generatorElement = selectedIds
             .map((id) => elements.find((element) => element.id === id))
             .find((element): element is CanvasElement => !!element && element.type === 'video-generator') || null;
         void persistGeneratedAssetToDisk(videoUrl, 'video', 'generate');
         const generatorElementId = selectedIds.find(id => elements.find(el => el.id === id)?.type === 'video-generator');
+        let insertedElement: CanvasElement | null = null;
 
         if (generatorElementId) {
-            setElements(prev => prev.map(el => {
-                if (el.id === generatorElementId) {
-                    return { ...el, type: 'video', content: videoUrl };
-                }
-                return el;
-            }));
+            setElements(prev => applyVideoGenerationSuccess(prev, generatorElementId, videoUrl, normalizedTaskId));
         } else {
             const center = getPlacementPosition();
             const newElement = buildVideoElement({
                 ...buildCenteredElementBounds(center, 400, 300),
                 content: videoUrl,
+                sourceGenerationTaskId: normalizedTaskId,
+                sourceGenerationTaskType: normalizedTaskId ? 'video' : undefined,
             });
+            insertedElement = newElement;
             addAndSelectElement(newElement);
         }
         recordProjectMediaItem({
             kind: 'video',
             content: videoUrl,
-            sourceElement: generatorElement,
-            sourceElementId: generatorElementId,
+            taskId: normalizedTaskId,
+            sourceElement: generatorElement || insertedElement,
+            sourceElementId: generatorElementId || insertedElement?.id,
         });
     }, [selectedIds, elements, getPlacementPosition, setElements, persistGeneratedAssetToDisk, buildCenteredElementBounds, buildVideoElement, addAndSelectElement, recordProjectMediaItem]);
 
@@ -3562,7 +3581,7 @@ function LovartCanvasContent() {
                 }
 
                 void persistGeneratedAssetToDisk(resultUrl, 'video', 'manual-recover');
-                setElements((prev) => applyVideoGenerationSuccess(prev, elementId, resultUrl));
+                setElements((prev) => applyVideoGenerationSuccess(prev, elementId, resultUrl, taskId));
                 dirtyTrackerRef.current.markModified(elementId);
                 if (projectId) {
                     clearSubmission(projectId, elementId);
@@ -3571,6 +3590,7 @@ function LovartCanvasContent() {
                 recordProjectMediaItem({
                     kind: 'video',
                     content: resultUrl,
+                    taskId,
                     sourceElement: currentElement,
                     sourceElementId: elementId,
                 });
@@ -4207,16 +4227,7 @@ function LovartCanvasContent() {
             const videoUrl = data.videoUrl;
 
             void persistGeneratedAssetToDisk(videoUrl, 'video', 'storyboard-batch-video');
-            setElements((prev) => prev.map((item) => (
-                item.id === elementId
-                    ? {
-                        ...item,
-                        type: 'video',
-                        content: videoUrl,
-                        ...createGenerationIdlePatch(),
-                    }
-                    : item
-            )));
+            setElements((prev) => applyVideoGenerationSuccess(prev, elementId, videoUrl, data.taskId));
             dirtyTrackerRef.current.markModified(elementId);
             if (projectId) {
                 removeGeneration(projectId, elementId);
@@ -4224,6 +4235,7 @@ function LovartCanvasContent() {
             recordProjectMediaItem({
                 kind: 'video',
                 content: videoUrl,
+                taskId: typeof data.taskId === 'string' ? data.taskId : undefined,
                 sourceElement: currentElement,
                 sourceElementId: elementId,
             });
@@ -5308,6 +5320,138 @@ function LovartCanvasContent() {
         return normalizedElement;
     }, [addElement, normalizeGeneratedImageContent, primeRuntimeImageRenderSrc, recordProjectMediaItem, resolveImageDisplayMetrics, setSelectedIds, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
+    const updateProjectMediaItemContent = useCallback((itemId: string, content: string) => {
+        const projectId = currentProjectIdRef.current;
+        if (!projectId || !content) {
+            return;
+        }
+
+        const currentItems = readProjectMediaHistory(projectId);
+        let hasChanges = false;
+        const nextItems = currentItems.map((item) => {
+            if (item.id !== itemId || item.content === content) {
+                return item;
+            }
+
+            hasChanges = true;
+            return {
+                ...item,
+                content,
+            };
+        });
+
+        if (hasChanges) {
+            replaceProjectMediaHistory(projectId, nextItems);
+        }
+    }, []);
+
+    const updateProjectReferenceItemImage = useCallback((itemId: string, image: string) => {
+        const projectId = currentProjectIdRef.current;
+        if (!projectId || !image) {
+            return;
+        }
+
+        const currentItems = readProjectReferenceLibrary(projectId);
+        let hasChanges = false;
+        const nextItems = currentItems.map((item) => {
+            if (item.id !== itemId || item.image === image) {
+                return item;
+            }
+
+            hasChanges = true;
+            return {
+                ...item,
+                image,
+            };
+        });
+
+        if (hasChanges) {
+            replaceProjectReferenceLibrary(projectId, nextItems);
+        }
+    }, []);
+
+    const resolveProjectMediaImageInsertContent = useCallback(async (item: ProjectMediaHistoryItem) => {
+        if (!item.content || !isImageRef(item.content)) {
+            return item.content;
+        }
+
+        const existingBlob = await getImageBlob(item.content);
+        if (existingBlob) {
+            return item.content;
+        }
+
+        if (!item.taskId) {
+            throw new Error('图片素材已失效，且缺少 task_id，无法恢复');
+        }
+
+        const result = await pollGenerationTask(item.taskId, 'image');
+        if (result.status !== 'completed') {
+            throw new Error('task_id 尚未返回可恢复的图片结果');
+        }
+
+        const resultUrl = typeof result.resultUrl === 'string' && result.resultUrl.trim().length > 0
+            ? result.resultUrl
+            : Array.isArray(result.resultUrls)
+                ? result.resultUrls.find((url: string) => typeof url === 'string' && url.trim().length > 0) ?? null
+                : null;
+
+        if (!resultUrl) {
+            throw new Error('task_id 未返回可用图片结果');
+        }
+
+        const recoveredContent = await normalizeGeneratedImageContent(resultUrl, 'media-history-recover');
+        updateProjectMediaItemContent(item.id, recoveredContent);
+        return recoveredContent;
+    }, [normalizeGeneratedImageContent, updateProjectMediaItemContent]);
+
+    const resolveProjectReferenceImageInsertContent = useCallback(async (item: ProjectReferenceImageItem) => {
+        if (!item.image || !isImageRef(item.image)) {
+            return item.image;
+        }
+
+        const existingBlob = await getImageBlob(item.image);
+        if (existingBlob) {
+            return item.image;
+        }
+
+        const projectId = currentProjectIdRef.current;
+        if (!projectId || !item.sourceMediaId) {
+            throw new Error('参考图素材已失效，且缺少可恢复来源');
+        }
+
+        const sourceMediaItem = readProjectMediaHistory(projectId).find((mediaItem) => mediaItem.id === item.sourceMediaId && mediaItem.kind === 'image');
+        if (!sourceMediaItem) {
+            throw new Error('参考图来源媒体记录不存在，无法恢复');
+        }
+
+        const recoveredContent = await resolveProjectMediaImageInsertContent(sourceMediaItem);
+        updateProjectReferenceItemImage(item.id, recoveredContent);
+        return recoveredContent;
+    }, [resolveProjectMediaImageInsertContent, updateProjectReferenceItemImage]);
+
+    const saveProjectReferenceFromMediaItem = useCallback((item: ProjectMediaHistoryItem) => {
+        const projectId = currentProjectIdRef.current;
+        if (!projectId || item.kind !== 'image') {
+            return;
+        }
+
+        void (async () => {
+            const resolvedContent = await resolveProjectMediaImageInsertContent(item);
+            saveProjectReferenceImage({
+                projectId,
+                image: resolvedContent,
+                label: item.prompt,
+                prompt: item.prompt,
+                sourceMediaId: item.id,
+                sourceElementId: item.sourceElementId,
+            });
+            showToast('已加入项目参考库', 'success');
+        })().catch((error) => {
+            console.error('Save project reference from media failed:', error);
+            showToast(`加入参考库失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
+        });
+    }, [resolveProjectMediaImageInsertContent, showToast]);
+
     const handleAddGeneratedBatchImageElement = useCallback((element: {
         id: string;
         type: string;
@@ -5792,21 +5936,23 @@ function LovartCanvasContent() {
 
                             const center = getPlacementPosition();
                             if (item.kind === 'image') {
-                                const newElement = buildImageElement({
-                                    ...buildCenteredElementBounds(center, 400, 300),
-                                    content: item.content,
-                                    savedPrompt: item.prompt,
-                                    selectedModel: item.model,
-                                    selectedAspectRatio: item.aspectRatio,
-                                    selectedImageSize: item.imageSize,
-                                    sourceGenerationTaskId: item.taskId,
-                                    sourceGenerationTaskType: item.taskId ? 'image' : undefined,
-                                });
-                                void addGeneratedImageElementToCanvas(newElement, {
-                                    selectAfterAdd: true,
-                                }).then(() => {
+                                void (async () => {
+                                    const resolvedContent = await resolveProjectMediaImageInsertContent(item);
+                                    const newElement = buildImageElement({
+                                        ...buildCenteredElementBounds(center, 400, 300),
+                                        content: resolvedContent,
+                                        savedPrompt: item.prompt,
+                                        selectedModel: item.model,
+                                        selectedAspectRatio: item.aspectRatio,
+                                        selectedImageSize: item.imageSize,
+                                        sourceGenerationTaskId: item.taskId,
+                                        sourceGenerationTaskType: item.taskId ? 'image' : undefined,
+                                    });
+                                    await addGeneratedImageElementToCanvas(newElement, {
+                                        selectAfterAdd: true,
+                                    });
                                     showToast('已将项目图片回流到画布', 'success');
-                                }).catch((error) => {
+                                })().catch((error) => {
                                     console.error('Reinsert project image failed:', error);
                                     showToast(`项目图片回流失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
                                 });
@@ -5820,6 +5966,8 @@ function LovartCanvasContent() {
                                 selectedModel: item.model,
                                 selectedAspectRatio: item.aspectRatio,
                                 selectedDuration: item.duration,
+                                sourceGenerationTaskId: item.taskId,
+                                sourceGenerationTaskType: item.taskId ? 'video' : undefined,
                             });
                             addAndSelectElement(newElement);
                             showToast('已将项目视频回流到画布', 'success');
@@ -5858,31 +6006,44 @@ function LovartCanvasContent() {
                         }}
                         onInsertItem={(item) => {
                             const center = getPlacementPosition();
-                            const newElement = buildImageElement({
-                                ...buildCenteredElementBounds(center, 400, 300),
-                                content: item.image,
-                                displayName: item.label,
-                                savedPrompt: item.prompt,
+                            void (async () => {
+                                const resolvedContent = await resolveProjectReferenceImageInsertContent(item);
+                                const newElement = buildImageElement({
+                                    ...buildCenteredElementBounds(center, 400, 300),
+                                    content: resolvedContent,
+                                    displayName: item.label,
+                                    savedPrompt: item.prompt,
+                                });
+                                await addGeneratedImageElementToCanvas(newElement, {
+                                    selectAfterAdd: true,
+                                });
+                                touchProjectReferenceImage(currentProjectIdRef.current!, item.id);
+                                showToast('已将项目参考图回流到画布', 'success');
+                            })().catch((error) => {
+                                console.error('Reinsert project reference failed:', error);
+                                showToast(`项目参考图回流失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
                             });
-                            addAndSelectElement(newElement);
-                            touchProjectReferenceImage(currentProjectIdRef.current!, item.id);
-                            showToast('已将项目参考图回流到画布', 'success');
                         }}
                         onInsertItems={(items) => {
                             if (items.length === 0) return;
                             const center = getPlacementPosition();
                             const gapX = 36;
                             const gapY = 28;
-                            const newElements = items.map((item, index) => buildImageElement({
-                                ...buildCenteredElementBounds({ x: center.x + (index * gapX), y: center.y + (index * gapY) }, 400, 300),
-                                content: item.image,
-                                displayName: item.label,
-                                savedPrompt: item.prompt,
-                            }));
-                            newElements.forEach((element) => addElement(element));
-                            setSelectedIds(newElements.map((element) => element.id));
-                            items.forEach((item) => touchProjectReferenceImage(currentProjectIdRef.current!, item.id));
-                            showToast(`已批量回流 ${items.length} 张项目参考图`, 'success');
+                            void (async () => {
+                                const newElements = await Promise.all(items.map(async (item, index) => buildImageElement({
+                                    ...buildCenteredElementBounds({ x: center.x + (index * gapX), y: center.y + (index * gapY) }, 400, 300),
+                                    content: await resolveProjectReferenceImageInsertContent(item),
+                                    displayName: item.label,
+                                    savedPrompt: item.prompt,
+                                })));
+                                newElements.forEach((element) => addElement(element));
+                                setSelectedIds(newElements.map((element) => element.id));
+                                items.forEach((item) => touchProjectReferenceImage(currentProjectIdRef.current!, item.id));
+                                showToast(`已批量回流 ${items.length} 张项目参考图`, 'success');
+                            })().catch((error) => {
+                                console.error('Batch reinsert project references failed:', error);
+                                showToast(`批量回流项目参考图失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
+                            });
                         }}
                     />
                 </div>

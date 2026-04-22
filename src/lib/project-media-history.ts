@@ -4,6 +4,7 @@ import {
     type ProjectAssetStoreConfig,
     isPlainObject,
     createTimestampId,
+    normalizeItems,
     optionalString,
     safeTimestamp,
     readItems,
@@ -110,6 +111,16 @@ export function appendProjectMediaHistory(draft: ProjectMediaHistoryDraft): Proj
     const deduped = current.filter((item) => !(item.kind === nextItem.kind && item.content === nextItem.content));
     const next = [nextItem, ...deduped].slice(0, MAX_ITEMS);
     writeItems(mediaHistoryStoreConfig, draft.projectId, next);
+    return next;
+}
+
+export function replaceProjectMediaHistory(projectId: string, items: ProjectMediaHistoryItem[]): ProjectMediaHistoryItem[] {
+    if (typeof window === 'undefined' || !projectId) {
+        return [];
+    }
+
+    const next = normalizeItems(mediaHistoryStoreConfig, projectId, items);
+    writeItems(mediaHistoryStoreConfig, projectId, next);
     return next;
 }
 
