@@ -163,6 +163,34 @@ function areCanvasRenderMetricsEqual(left: CanvasRenderMetrics | null, right: Ca
         && left.partitionTileSize === right.partitionTileSize;
 }
 
+function areOrderedStringArraysEqual(left: string[], right: string[]) {
+    if (left === right) {
+        return true;
+    }
+
+    if (left.length !== right.length) {
+        return false;
+    }
+
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function areChunkResidencyStatesEqual(left: ChunkResidencyState, right: ChunkResidencyState) {
+    return left.phase === right.phase
+        && areOrderedStringArraysEqual(left.residentChunkIds, right.residentChunkIds)
+        && areOrderedStringArraysEqual(left.unloadedChunkIds, right.unloadedChunkIds)
+        && left.residentElementCount === right.residentElementCount
+        && left.unloadedElementCount === right.unloadedElementCount
+        && left.lastActivatedChunkLabel === right.lastActivatedChunkLabel
+        && left.lastReleasedChunkLabel === right.lastReleasedChunkLabel;
+}
+
 type AiCanvasPlanAction =
     | {
         type: 'create-image-generator';
@@ -697,6 +725,7 @@ function LovartCanvasContent() {
     const recordProjectMediaItem = useCallback((params: {
         kind: 'image' | 'video' | 'audio';
         content: string;
+        taskId?: string;
         prompt?: string;
         sourceElement?: CanvasElement | null;
         sourceElementId?: string;
@@ -711,6 +740,7 @@ function LovartCanvasContent() {
             projectId,
             kind: params.kind,
             content: params.content,
+            taskId: params.taskId ?? source?.sourceGenerationTaskId,
             prompt: params.prompt ?? source?.savedPrompt,
             model: source?.selectedModel,
             aspectRatio: source?.selectedAspectRatio,
@@ -1003,12 +1033,15 @@ function LovartCanvasContent() {
         }
 
         if (chunkManifest.length === 0) {
-            setChunkResidency({
-                phase: 'idle',
-                residentChunkIds: [],
-                unloadedChunkIds: [],
-                residentElementCount: elements.length,
-                unloadedElementCount: 0,
+            setChunkResidency((prev) => {
+                const next = {
+                    phase: 'idle',
+                    residentChunkIds: [],
+                    unloadedChunkIds: [],
+                    residentElementCount: elements.length,
+                    unloadedElementCount: 0,
+                } satisfies ChunkResidencyState;
+                return areChunkResidencyStatesEqual(prev, next) ? prev : next;
             });
             return;
         }
@@ -1022,18 +1055,17 @@ function LovartCanvasContent() {
             const toHydrate = targetChunkIds.filter((chunkId) => !residentSet.has(chunkId));
             const toRelease = currentResident.filter((chunkId) => !targetSet.has(chunkId));
 
-            if (toHydrate.length === 0 && toRelease.length === 0) {
-                return buildChunkResidencyState(currentResident, 'idle', {
+            const next = toHydrate.length === 0 && toRelease.length === 0
+                ? buildChunkResidencyState(currentResident, 'idle', {
                     lastActivatedChunkLabel: prev.lastActivatedChunkLabel,
                     lastReleasedChunkLabel: prev.lastReleasedChunkLabel,
+                })
+                : buildChunkResidencyState(Array.from(new Set([...currentResident, ...toHydrate])), toHydrate.length > 0 ? 'hydrating' : 'releasing', {
+                    lastActivatedChunkLabel: toHydrate.length > 0 ? chunkMetaById.get(toHydrate[0])?.label || prev.lastActivatedChunkLabel : prev.lastActivatedChunkLabel,
+                    lastReleasedChunkLabel: toRelease.length > 0 ? chunkMetaById.get(toRelease[0])?.label || prev.lastReleasedChunkLabel : prev.lastReleasedChunkLabel,
                 });
-            }
 
-            const nextResident = Array.from(new Set([...currentResident, ...toHydrate]));
-            return buildChunkResidencyState(nextResident, toHydrate.length > 0 ? 'hydrating' : 'releasing', {
-                lastActivatedChunkLabel: toHydrate.length > 0 ? chunkMetaById.get(toHydrate[0])?.label || prev.lastActivatedChunkLabel : prev.lastActivatedChunkLabel,
-                lastReleasedChunkLabel: toRelease.length > 0 ? chunkMetaById.get(toRelease[0])?.label || prev.lastReleasedChunkLabel : prev.lastReleasedChunkLabel,
-            });
+            return areChunkResidencyStatesEqual(prev, next) ? prev : next;
         });
 
         chunkReleaseTimerRef.current = window.setTimeout(() => {
@@ -1041,10 +1073,11 @@ function LovartCanvasContent() {
                 const currentResident = prev.residentChunkIds.length > 0 ? prev.residentChunkIds : targetChunkIds;
                 const releasedChunkIds = currentResident.filter((chunkId) => !targetSet.has(chunkId));
                 const keptChunkIds = currentResident.filter((chunkId) => targetSet.has(chunkId));
-                return buildChunkResidencyState(keptChunkIds, 'idle', {
+                const next = buildChunkResidencyState(keptChunkIds, 'idle', {
                     lastActivatedChunkLabel: prev.lastActivatedChunkLabel,
                     lastReleasedChunkLabel: releasedChunkIds.length > 0 ? chunkMetaById.get(releasedChunkIds[0])?.label || prev.lastReleasedChunkLabel : prev.lastReleasedChunkLabel,
                 });
+                return areChunkResidencyStatesEqual(prev, next) ? prev : next;
             });
             chunkReleaseTimerRef.current = null;
         }, CHUNK_RELEASE_GRACE_MS);
@@ -1394,7 +1427,11 @@ function LovartCanvasContent() {
             width: number;
             height: number;
         },
+        taskId?: string | null,
     ) => {
+        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
+            ? taskId.trim()
+            : undefined;
         let prefetchedBlob: Blob | null = null;
         if (resultUrl.startsWith('http://') || resultUrl.startsWith('https://')) {
             prefetchedBlob = await fetchRemoteBlob(resultUrl, `lovart-${source}-image`);
@@ -1435,6 +1472,8 @@ function LovartCanvasContent() {
                 height: imageMetrics?.height ?? item.height,
                 x: imageMetrics?.x ?? item.x,
                 y: imageMetrics?.y ?? item.y,
+                sourceGenerationTaskId: normalizedTaskId,
+                sourceGenerationTaskType: normalizedTaskId ? 'image' : undefined,
                 ...createGenerationIdlePatch(),
             };
         }));
@@ -1449,7 +1488,11 @@ function LovartCanvasContent() {
     const replaceGeneratorWithPendingImage = useCallback((
         elementId: string,
         imageUrl: string,
+        taskId?: string | null,
     ) => {
+        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
+            ? taskId.trim()
+            : undefined;
         setElements(prev => prev.map((item) => {
             if (item.id !== elementId) {
                 return item;
@@ -1481,6 +1524,8 @@ function LovartCanvasContent() {
                 height: previewMetrics?.height ?? item.height,
                 x: previewMetrics?.x ?? item.x,
                 y: previewMetrics?.y ?? item.y,
+                sourceGenerationTaskId: normalizedTaskId,
+                sourceGenerationTaskType: normalizedTaskId ? 'image' : undefined,
                 ...createGenerationIdlePatch(),
             };
         }));
@@ -1500,8 +1545,12 @@ function LovartCanvasContent() {
             width: number;
             height: number;
         },
+        taskId?: string | null,
     ) => {
         const previousElement = elementsMapRef.current.get(elementId) || null;
+        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
+            ? taskId.trim()
+            : undefined;
         // ── 优化：只下载一次，blob 贯穿整个流程 ──────────────
         let prefetchedBlob: Blob | null = null;
         if (resultUrl.startsWith('http://') || resultUrl.startsWith('https://')) {
@@ -1556,6 +1605,8 @@ function LovartCanvasContent() {
                 height: effectiveMetrics?.height ?? item.height,
                 x: effectiveMetrics?.x ?? item.x,
                 y: effectiveMetrics?.y ?? item.y,
+                sourceGenerationTaskId: normalizedTaskId,
+                sourceGenerationTaskType: normalizedTaskId ? 'image' : undefined,
                 ...createGenerationIdlePatch(),
             };
         }));
@@ -1566,6 +1617,7 @@ function LovartCanvasContent() {
         recordProjectMediaItem({
             kind: 'image',
             content: finalContent,
+            taskId: normalizedTaskId,
             sourceElement: previousElement,
             sourceElementId: elementId,
         });
@@ -1586,12 +1638,13 @@ function LovartCanvasContent() {
                     width: element.width || 400,
                     height: element.height || 400,
                 },
+                element.generatingTaskId,
             );
             return;
         }
 
         // 立即展示图片预览（cover 填充，不会留白），让用户立刻看到生成结果位置
-        replaceGeneratorWithPendingImage(element.id, resultUrl);
+        replaceGeneratorWithPendingImage(element.id, resultUrl, element.generatingTaskId);
 
         // 后台异步归一化图片并校正尺寸
         await finalizeGeneratedImageElement(
@@ -1604,6 +1657,7 @@ function LovartCanvasContent() {
                 width: element.width || 400,
                 height: element.height || 400,
             },
+            element.generatingTaskId,
         );
     }, [finalizeAiEditedImageElement, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage]);
 
@@ -3577,7 +3631,7 @@ function LovartCanvasContent() {
                     throw new Error('任务已完成，但未获取到图片结果链接');
                 }
 
-                replaceGeneratorWithPendingImage(elementId, resultUrl);
+                replaceGeneratorWithPendingImage(elementId, resultUrl, taskId);
                 await finalizeGeneratedImageElement(
                     elementId,
                     resultUrl,
@@ -3588,6 +3642,7 @@ function LovartCanvasContent() {
                         width: currentElement.width || 400,
                         height: currentElement.height || 400,
                     },
+                    taskId,
                 );
                 if (projectId) {
                     clearSubmission(projectId, elementId);
@@ -4047,7 +4102,7 @@ function LovartCanvasContent() {
 
             const resultUrl = data.imageUrl;
 
-            replaceGeneratorWithPendingImage(elementId, resultUrl);
+            replaceGeneratorWithPendingImage(elementId, resultUrl, data.taskId);
             await finalizeGeneratedImageElement(
                 elementId,
                 resultUrl,
@@ -4058,6 +4113,7 @@ function LovartCanvasContent() {
                     width: currentElement.width || 400,
                     height: currentElement.height || 300,
                 },
+                data.taskId,
             );
             announcePassiveCompletedResult(elementId, '✅ 分镜图片生成完成，已回填到当前卡片');
             return true;
@@ -4536,6 +4592,7 @@ function LovartCanvasContent() {
                         width: element.width || 400,
                         height: element.height || 400,
                     },
+                    data.taskId,
                 );
                 announceCompletedResult(element.id, '✅ AI 编辑完成，结果已更新到画布');
             }
@@ -4573,7 +4630,7 @@ function LovartCanvasContent() {
 
         const currentElement = elementsMapRef.current.get(elementId);
         if (!currentElement || currentElement.type !== 'image' || !currentElement.content) {
-            throw new Error('当前图片不存在，无法恢复 AI 编辑任务');
+            throw new Error('当前图片不存在，无法查询 task_id 对应结果');
         }
 
         const projectId = currentProjectIdRef.current;
@@ -4598,12 +4655,13 @@ function LovartCanvasContent() {
                         width: currentElement.width || 400,
                         height: currentElement.height || 400,
                     },
+                    taskId,
                 );
                 if (projectId) {
                     clearSubmission(projectId, elementId);
                     removeGeneration(projectId, elementId);
                 }
-                announceCompletedResult(elementId, '✅ 已通过 task_id 找回 AI 编辑结果');
+                announceCompletedResult(elementId, '✅ 已通过 task_id 查询并更新当前图片');
                 return;
             }
 
@@ -4631,7 +4689,7 @@ function LovartCanvasContent() {
                     savedPrompt: currentElement.savedPrompt,
                 });
             }
-            showToast('已接管 AI 编辑任务，后续将继续自动轮询', 'success');
+            showToast('已接管图片任务，后续将继续自动轮询', 'success');
         } finally {
             setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
         }
@@ -5128,10 +5186,14 @@ function LovartCanvasContent() {
         showToast,
     ]);
 
-    const handleGenerateImage = useCallback(async (imageUrl: string) => {
+    const handleGenerateImage = useCallback(async (result: { imageUrl: string; taskId?: string | null }) => {
         // ImageGeneratorPanel now handles API calls and polling internally
         // This callback receives the final image URL. Show a placeholder immediately,
         // then localize/cache/measure in the background.
+        const { imageUrl, taskId } = result;
+        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
+            ? taskId.trim()
+            : undefined;
         // 使用 elementsMapRef 而非闭包中的 elements，避免并发生成时读取到过时的元素状态
         const map = elementsMapRef.current;
         const generatorElementId = selectedIds.find(id => {
@@ -5142,7 +5204,7 @@ function LovartCanvasContent() {
 
         if (generatorElementId && generatorElement) {
             // 立即展示图片预览（cover 填充），让用户立刻看到生成结果位置
-            replaceGeneratorWithPendingImage(generatorElementId, imageUrl);
+            replaceGeneratorWithPendingImage(generatorElementId, imageUrl, normalizedTaskId);
             announceCompletedResult(generatorElementId, '✅ 图片生成完成，已显示在生成器当前位置');
             // 后台异步校正尺寸
             void finalizeGeneratedImageElement(
@@ -5155,6 +5217,7 @@ function LovartCanvasContent() {
                     width: generatorElement.width || 400,
                     height: generatorElement.height || 400,
                 },
+                normalizedTaskId,
             );
             return;
         }
@@ -5163,6 +5226,8 @@ function LovartCanvasContent() {
         const newElement = buildImageElement({
             ...buildCenteredElementBounds(center, 400, 400),
             content: imageUrl,
+            sourceGenerationTaskId: normalizedTaskId,
+            sourceGenerationTaskType: normalizedTaskId ? 'image' : undefined,
         });
         addAndSelectElement(newElement);
         announceCompletedResult(newElement.id, '✅ 图片生成完成，已添加到画布');
@@ -5176,8 +5241,72 @@ function LovartCanvasContent() {
                 width: newElement.width || 400,
                 height: newElement.height || 400,
             },
+            normalizedTaskId,
         );
     }, [selectedIds, getPlacementPosition, announceCompletedResult, buildImageElement, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, buildCenteredElementBounds, addAndSelectElement]);
+
+    const addGeneratedImageElementToCanvas = useCallback(async (
+        element: CanvasElement,
+        options: {
+            selectAfterAdd?: boolean;
+            recordMediaHistory?: boolean;
+        } = {},
+    ) => {
+        const normalizedElement = { ...element } as CanvasElement;
+
+        if (normalizedElement.type === 'image' && normalizedElement.content) {
+            let batchBlob: Blob | null = null;
+            if (normalizedElement.content.startsWith('http://') || normalizedElement.content.startsWith('https://')) {
+                batchBlob = await fetchRemoteBlob(normalizedElement.content, 'lovart-batch-image');
+                if (batchBlob) {
+                    primeRuntimeImageRenderSrc(normalizedElement.id, batchBlob);
+                }
+            }
+
+            normalizedElement.content = await normalizeGeneratedImageContent(normalizedElement.content, 'generate-batch', batchBlob);
+            normalizedElement.imageFit = normalizedElement.imageFit || workbenchSettings.defaultImageFit;
+            normalizedElement.imageSurface = normalizedElement.imageSurface || workbenchSettings.defaultImageSurface;
+            const displayMetrics = await resolveImageDisplayMetrics(normalizedElement.content, 'generate-batch', {
+                maxWidth: normalizedElement.width || 400,
+                maxHeight: normalizedElement.height || 400,
+                anchor: {
+                    x: normalizedElement.x,
+                    y: normalizedElement.y,
+                    width: normalizedElement.width || 400,
+                    height: normalizedElement.height || 400,
+                },
+            });
+            if (displayMetrics) {
+                normalizedElement.width = displayMetrics.width;
+                normalizedElement.height = displayMetrics.height;
+                normalizedElement.x = displayMetrics.x ?? normalizedElement.x;
+                normalizedElement.y = displayMetrics.y ?? normalizedElement.y;
+                normalizedElement.selectedAspectRatio = displayMetrics.aspectRatio ?? normalizedElement.selectedAspectRatio;
+            }
+
+            normalizedElement.flowReferenceImages = normalizedElement.savedReferenceImages || normalizedElement.flowReferenceImages;
+            normalizedElement.referenceImageId = undefined;
+            normalizedElement.savedReferenceImages = undefined;
+            normalizedElement.savedReferenceImage = undefined;
+        }
+
+        addElement(normalizedElement);
+        if (options.selectAfterAdd) {
+            setSelectedIds([normalizedElement.id]);
+        }
+
+        if (options.recordMediaHistory && normalizedElement.type === 'image' && normalizedElement.content) {
+            recordProjectMediaItem({
+                kind: 'image',
+                content: normalizedElement.content,
+                taskId: normalizedElement.sourceGenerationTaskId,
+                sourceElement: normalizedElement,
+                sourceElementId: normalizedElement.id,
+            });
+        }
+
+        return normalizedElement;
+    }, [addElement, normalizeGeneratedImageContent, primeRuntimeImageRenderSrc, recordProjectMediaItem, resolveImageDisplayMetrics, setSelectedIds, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
     const handleAddGeneratedBatchImageElement = useCallback((element: {
         id: string;
@@ -5197,46 +5326,15 @@ function LovartCanvasContent() {
         selectedGenerateCount?: number;
         generationResultIndex?: number;
         savedReferenceImages?: string;
+        sourceGenerationTaskId?: string;
+        sourceGenerationTaskType?: 'image' | 'video';
     }) => {
         void (async () => {
-            const normalizedElement = { ...element } as CanvasElement;
-            if (normalizedElement.type === 'image' && normalizedElement.content) {
-                let batchBlob: Blob | null = null;
-                if (normalizedElement.content.startsWith('http://') || normalizedElement.content.startsWith('https://')) {
-                    batchBlob = await fetchRemoteBlob(normalizedElement.content, 'lovart-batch-image');
-                    if (batchBlob) {
-                        primeRuntimeImageRenderSrc(normalizedElement.id, batchBlob);
-                    }
-                }
-                normalizedElement.content = await normalizeGeneratedImageContent(normalizedElement.content, 'generate-batch', batchBlob);
-                normalizedElement.imageFit = normalizedElement.imageFit || workbenchSettings.defaultImageFit;
-                normalizedElement.imageSurface = normalizedElement.imageSurface || workbenchSettings.defaultImageSurface;
-                const displayMetrics = await resolveImageDisplayMetrics(normalizedElement.content, 'generate-batch', {
-                    maxWidth: normalizedElement.width || 400,
-                    maxHeight: normalizedElement.height || 400,
-                    anchor: {
-                        x: normalizedElement.x,
-                        y: normalizedElement.y,
-                        width: normalizedElement.width || 400,
-                        height: normalizedElement.height || 400,
-                    },
-                });
-                if (displayMetrics) {
-                    normalizedElement.width = displayMetrics.width;
-                    normalizedElement.height = displayMetrics.height;
-                    normalizedElement.x = displayMetrics.x ?? normalizedElement.x;
-                    normalizedElement.y = displayMetrics.y ?? normalizedElement.y;
-                    normalizedElement.selectedAspectRatio = displayMetrics.aspectRatio ?? normalizedElement.selectedAspectRatio;
-                }
-
-                normalizedElement.flowReferenceImages = normalizedElement.savedReferenceImages || normalizedElement.flowReferenceImages;
-                normalizedElement.referenceImageId = undefined;
-                normalizedElement.savedReferenceImages = undefined;
-                normalizedElement.savedReferenceImage = undefined;
-            }
-            addElement(normalizedElement);
+            await addGeneratedImageElementToCanvas({ ...element } as CanvasElement, {
+                recordMediaHistory: true,
+            });
         })();
-    }, [addElement, normalizeGeneratedImageContent, primeRuntimeImageRenderSrc, resolveImageDisplayMetrics, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
+    }, [addGeneratedImageElementToCanvas]);
 
     // ── Stable inline callbacks (extracted from JSX to preserve referential identity) ──
     const handleDragStart = useCallback(() => setIsDraggingElement(true), []);
@@ -5701,9 +5799,17 @@ function LovartCanvasContent() {
                                     selectedModel: item.model,
                                     selectedAspectRatio: item.aspectRatio,
                                     selectedImageSize: item.imageSize,
+                                    sourceGenerationTaskId: item.taskId,
+                                    sourceGenerationTaskType: item.taskId ? 'image' : undefined,
                                 });
-                                addAndSelectElement(newElement);
-                                showToast('已将项目图片回流到画布', 'success');
+                                void addGeneratedImageElementToCanvas(newElement, {
+                                    selectAfterAdd: true,
+                                }).then(() => {
+                                    showToast('已将项目图片回流到画布', 'success');
+                                }).catch((error) => {
+                                    console.error('Reinsert project image failed:', error);
+                                    showToast(`项目图片回流失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
+                                });
                                 return;
                             }
 

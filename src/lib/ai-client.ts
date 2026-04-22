@@ -1,10 +1,6 @@
 import { apiSettingsHeaders } from './api-settings';
-import { directGenerateImage } from './direct-ai-client';
-import { extractDataUrlBase64, isDataUrl } from './data-url';
 import { resolveImageRequest, resolveVideoRequest } from './generation-defaults';
 import {
-  buildUpstreamImageGenerationBody,
-  isOpenAiGptImageModel,
   shouldUseDomesticImageBatching,
 } from './image-generation-models';
 
@@ -132,10 +128,10 @@ export type StoryboardPlanResponse = {
 export async function requestImageGeneration(
   request: ImageGenerationRequest,
 ): Promise<ImageGenerationResponse> {
-  // Resolve defaults once via the settings adapter — ai-client does not read settings itself
+  // Resolve defaults once via the settings adapter — ai-client does not read settings itself.
+  // Always use async proxy submission so every image model follows the same
+  // task-based polling/recovery flow and can persist taskId when the upstream provides one.
   const resolved = resolveImageRequest(request);
-  const forceAsyncForModel = isOpenAiGptImageModel(resolved.model);
-  let forceAsyncForProxy = resolved.forceAsync === true || forceAsyncForModel;
   const requestBody: Record<string, unknown> = {
     prompt: resolved.prompt,
     model: resolved.model,
@@ -144,22 +140,8 @@ export async function requestImageGeneration(
     generateCount: resolved.generateCount,
     referenceImages: resolved.referenceImages,
     referenceImage: resolved.referenceImage,
-    forceAsync: forceAsyncForProxy,
+    forceAsync: true,
   };
-
-  if (resolved.preferDirect !== false && resolved.forceAsync !== true && !forceAsyncForModel) {
-    const directRequestBody = buildDirectImageRequest(resolved);
-    const directResult = await directGenerateImage(directRequestBody);
-    if (directResult !== null) {
-      return directResult as ImageGenerationResponse;
-    }
-
-    // When browser direct transport is unavailable, switch the server proxy to
-    // async submission so large or slow image generations do not hang until the
-    // upstream sync timeout elapses.
-    forceAsyncForProxy = true;
-    requestBody.forceAsync = true;
-  }
 
   const response = await requestJsonResponse('/api/generate-image', requestBody);
   return await readJsonResponse<ImageGenerationResponse>(response, '图片生成请求失败');
@@ -381,25 +363,6 @@ async function readJsonResponse<T>(
 
 async function parseResponseJson(response: Response): Promise<Record<string, unknown>> {
   return await response.json().catch(() => ({})) as Record<string, unknown>;
-}
-
-function buildDirectImageRequest(request: ImageGenerationRequest): Record<string, unknown> {
-  // Expects a pre-resolved request — no defaults applied here
-  const referenceImages = request.referenceImages
-    ?? (request.referenceImage ? [request.referenceImage] : []);
-  const normalizedReferenceImages = referenceImages.map((image) =>
-    isDataUrl(image) ? extractDataUrlBase64(image) : image,
-  );
-
-  return buildUpstreamImageGenerationBody({
-    model: request.model || '',
-    prompt: request.prompt,
-    aspectRatio: request.aspectRatio,
-    imageSize: request.imageSize,
-    generateCount: request.generateCount,
-    referenceImages: normalizedReferenceImages,
-    responseFormat: 'url',
-  });
 }
 
 export { shouldUseDomesticImageBatching };

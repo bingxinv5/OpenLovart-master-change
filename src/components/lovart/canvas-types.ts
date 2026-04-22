@@ -67,6 +67,8 @@ export interface CanvasElement {
     generatingTaskType?: 'image' | 'video';
     generatingProgress?: number;
     generatingError?: string;
+    sourceGenerationTaskId?: string;
+    sourceGenerationTaskType?: 'image' | 'video';
     savedReferenceImage?: string;
     savedFrameImages?: string;
     savedReferenceVideos?: string;

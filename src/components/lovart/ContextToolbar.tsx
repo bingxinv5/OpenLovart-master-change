@@ -49,6 +49,7 @@ export function ContextToolbar({ element, onUpdate, onStoryboardSaved, storyboar
         element.savedPrompt || '',
         element.savedReferenceImages || '',
         element.generatingTaskId || '',
+        element.sourceGenerationTaskId || '',
         element.generatingError || '',
         element.storyboardShotCode || '',
         element.storyboardSceneType || '',
@@ -92,7 +93,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
     const [showStoryboardMenu, setShowStoryboardMenu] = useState(false);
     const [showEditInput, setShowEditInput] = useState(false);
     const [editPrompt, setEditPrompt] = useState(() => element.savedPrompt || '');
-    const [recoveryTaskId, setRecoveryTaskId] = useState(() => element.generatingTaskId || '');
+    const [recoveryTaskId, setRecoveryTaskId] = useState(() => element.generatingTaskId || element.sourceGenerationTaskId || '');
     const [recoverError, setRecoverError] = useState<string | null>(null);
     const [isRecovering, setIsRecovering] = useState(false);
     const [storyboardFields, setStoryboardFields] = useState(() => ({
@@ -138,9 +139,9 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
     useEffect(() => {
         if (!isRecovering) {
-            setRecoveryTaskId(element.generatingTaskId || '');
+            setRecoveryTaskId(element.generatingTaskId || element.sourceGenerationTaskId || '');
         }
-    }, [element.generatingTaskId, isRecovering]);
+    }, [element.generatingTaskId, element.sourceGenerationTaskId, isRecovering]);
 
     if (!element) return null;
 
@@ -312,14 +313,14 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                                 执行
                             </button>
                         </div>
-                        {onRecoverTask && (
+                        {element.type === 'image' && onRecoverTask && (
                             <div className="mt-2 flex gap-2">
                                 <input
                                     type="text"
                                     value={recoveryTaskId}
                                     onChange={(e) => { setRecoveryTaskId(e.target.value); setRecoverError(null); }}
                                     onKeyDown={(e) => { if (e.key === 'Enter') void handleRecoverTask(); }}
-                                    placeholder="输入 task_id 以恢复当前 AI 编辑"
+                                    placeholder="输入 task_id 查询当前图片结果"
                                     className="flex-1 text-sm border border-slate-200/60 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-slate-100 focus:border-slate-300"
                                 />
                                 <button
@@ -328,8 +329,13 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                                     disabled={!recoveryTaskId.trim() || isRecovering}
                                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${recoveryTaskId.trim() && !isRecovering ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                                 >
-                                    {isRecovering ? '查询中' : '查询并接管'}
+                                    {isRecovering ? '查询中' : '查询 task_id'}
                                 </button>
+                            </div>
+                        )}
+                        {element.type === 'image' && !element.generatingTaskId && element.sourceGenerationTaskId && (
+                            <div className="mt-2 text-[11px] text-slate-500">
+                                已保存来源 task_id，可直接查询并重新应用当前图片结果。
                             </div>
                         )}
                         <div className="mt-3 space-y-3">

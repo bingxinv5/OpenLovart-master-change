@@ -40,6 +40,75 @@ function serializeRenderMetrics(metrics: CanvasRenderMetrics) {
     return JSON.stringify(metrics);
 }
 
+const SCREENSPACE_RESIZE_HANDLE_SIZE = 10;
+const SCREENSPACE_RESIZE_HIT_SIZE = 24;
+const SCREENSPACE_RESIZE_EDGE_THICKNESS = 14;
+
+const SCREENSPACE_RESIZE_HANDLE_SPECS = [
+    { handle: 'nw', cursor: 'nw-resize', style: { left: 0, top: 0, transform: 'translate(-50%, -50%)' } },
+    { handle: 'ne', cursor: 'ne-resize', style: { left: '100%', top: 0, transform: 'translate(-50%, -50%)' } },
+    { handle: 'sw', cursor: 'sw-resize', style: { left: 0, top: '100%', transform: 'translate(-50%, -50%)' } },
+    { handle: 'se', cursor: 'se-resize', style: { left: '100%', top: '100%', transform: 'translate(-50%, -50%)' } },
+    { handle: 'w', cursor: 'w-resize', style: { left: 0, top: '50%', transform: 'translate(-50%, -50%)' } },
+    { handle: 'e', cursor: 'e-resize', style: { left: '100%', top: '50%', transform: 'translate(-50%, -50%)' } },
+    { handle: 'n', cursor: 'n-resize', style: { left: '50%', top: 0, transform: 'translate(-50%, -50%)' } },
+    { handle: 's', cursor: 's-resize', style: { left: '50%', top: '100%', transform: 'translate(-50%, -50%)' } },
+] as const satisfies ReadonlyArray<{ handle: string; cursor: React.CSSProperties['cursor']; style: React.CSSProperties }>;
+
+const SCREENSPACE_RESIZE_EDGE_SPECS = [
+    {
+        handle: 'n',
+        cursor: 'n-resize',
+        style: {
+            left: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            right: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            top: -(SCREENSPACE_RESIZE_EDGE_THICKNESS / 2),
+            height: SCREENSPACE_RESIZE_EDGE_THICKNESS,
+        },
+    },
+    {
+        handle: 's',
+        cursor: 's-resize',
+        style: {
+            left: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            right: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            top: `calc(100% - ${SCREENSPACE_RESIZE_EDGE_THICKNESS / 2}px)`,
+            height: SCREENSPACE_RESIZE_EDGE_THICKNESS,
+        },
+    },
+    {
+        handle: 'w',
+        cursor: 'w-resize',
+        style: {
+            top: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            bottom: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            left: -(SCREENSPACE_RESIZE_EDGE_THICKNESS / 2),
+            width: SCREENSPACE_RESIZE_EDGE_THICKNESS,
+        },
+    },
+    {
+        handle: 'e',
+        cursor: 'e-resize',
+        style: {
+            top: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            bottom: SCREENSPACE_RESIZE_HIT_SIZE / 2,
+            left: `calc(100% - ${SCREENSPACE_RESIZE_EDGE_THICKNESS / 2}px)`,
+            width: SCREENSPACE_RESIZE_EDGE_THICKNESS,
+        },
+    },
+] as const satisfies ReadonlyArray<{ handle: string; cursor: React.CSSProperties['cursor']; style: React.CSSProperties }>;
+
+function canUseScreenSpaceResizeOverlayForElement(element?: CanvasElement | null) {
+    if (!element) {
+        return false;
+    }
+
+    return element.type !== 'connector'
+        && element.type !== 'image-generator'
+        && element.type !== 'video-generator'
+        && element.type !== 'storyboard-planner';
+}
+
 interface CanvasAreaProps {
     scale: number;
     pan: { x: number; y: number };
@@ -1005,13 +1074,17 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
 
     const handleResizeStart = (e: React.MouseEvent, elementId: string, handle: string, element: CanvasElement) => {
         e.stopPropagation();
+        startResizeInteraction(elementId, handle, element, e.clientX, e.clientY);
+    };
+
+    const startResizeInteraction = useCallback((elementId: string, handle: string, element: CanvasElement, clientX: number, clientY: number) => {
         if (isElementLocked(element)) return;
         setIsResizing(true);
         draggedElementIdRef.current = elementId;
         resizeHandleRef.current = handle;
         dragStartRef.current = {
-            x: e.clientX,
-            y: e.clientY,
+            x: clientX,
+            y: clientY,
             elementX: element.x,
             elementY: element.y,
             width: element.width || 0,
@@ -1020,7 +1093,12 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
             panY: 0,
             aspectRatio: (element.width || 1) / (element.height || 1)
         };
-    };
+    }, [isElementLocked]);
+
+    const handleScreenSpaceResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>, handle: string, element: CanvasElement) => {
+        event.stopPropagation();
+        startResizeInteraction(element.id, handle, element, event.clientX, event.clientY);
+    }, [startResizeInteraction]);
 
     function processMouseMove(clientX: number, clientY: number, buttons: number, altKey: boolean, timeStamp?: number) {
         const { x: canvasX, y: canvasY } = toCanvasPoint(clientX, clientY);
@@ -2786,6 +2864,37 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
         elements.filter(el => el.hidden).map(el => el.id)
     ), [elements]);
 
+    const singleSelectionResizeOverlay = useMemo(() => {
+        if (
+            selectedIds.length !== 1
+            || isDrawing
+            || isDragging
+            || isResizing
+            || !selectedElement
+            || selectedElement.hidden
+            || !canUseScreenSpaceResizeOverlayForElement(selectedElement)
+        ) {
+            return null;
+        }
+
+        const width = selectedElement.width ?? (selectedElement.type === 'text' ? 200 : selectedElement.type === 'mark' ? 32 : 0);
+        const height = selectedElement.height ?? (selectedElement.type === 'text' ? 40 : selectedElement.type === 'mark' ? 32 : 0);
+
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+
+        return {
+            element: selectedElement,
+            left: selectedElement.x * scale + pan.x,
+            top: selectedElement.y * scale + pan.y,
+            width: width * scale,
+            height: height * scale,
+        };
+    }, [isDragging, isDrawing, isResizing, pan.x, pan.y, scale, selectedElement, selectedIds.length]);
+
+    const screenSpaceResizeElementId = singleSelectionResizeOverlay?.element.id ?? null;
+
     return (
         <div
             ref={outerRef}
@@ -3240,7 +3349,6 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
                                 resolvedImageSrc={resolvedImageSrcMap?.[el.id]}
                                 isSelected={isSelected}
                                 selectedImageCount={multiReferenceCandidateCount}
-                                showResizeHandles={isSelected && selectedIds.length === 1 && !isDrawing}
                                 showToolbar={isSelected && selectedIds.length === 1 && !isDragging && !isResizing}
                                 isDropTarget={dropTargetFrameId === el.id}
                                 isEditingText={editingTextId === el.id}
@@ -3392,6 +3500,51 @@ export const CanvasArea = React.memo(function CanvasArea({ scale, pan, onPanChan
                 className="pointer-events-none absolute z-[120] border border-blue-500 bg-blue-500/10"
                 style={{ display: 'none' }}
             />
+
+            {singleSelectionResizeOverlay && (
+                <div
+                    className="pointer-events-none absolute z-[118]"
+                    style={{
+                        left: singleSelectionResizeOverlay.left,
+                        top: singleSelectionResizeOverlay.top,
+                        width: singleSelectionResizeOverlay.width,
+                        height: singleSelectionResizeOverlay.height,
+                    }}
+                >
+                    {SCREENSPACE_RESIZE_EDGE_SPECS.map((edge) => (
+                        <div
+                            key={`${singleSelectionResizeOverlay.element.id}-edge-${edge.handle}`}
+                            className="pointer-events-auto absolute bg-transparent"
+                            style={{
+                                ...edge.style,
+                                cursor: edge.cursor,
+                            }}
+                            onMouseDown={(event) => handleScreenSpaceResizeStart(event, edge.handle, singleSelectionResizeOverlay.element)}
+                        />
+                    ))}
+                    {SCREENSPACE_RESIZE_HANDLE_SPECS.map((handle) => (
+                        <div
+                            key={`${singleSelectionResizeOverlay.element.id}-handle-${handle.handle}`}
+                            className="pointer-events-auto absolute flex items-center justify-center rounded-full"
+                            style={{
+                                ...handle.style,
+                                width: SCREENSPACE_RESIZE_HIT_SIZE,
+                                height: SCREENSPACE_RESIZE_HIT_SIZE,
+                                cursor: handle.cursor,
+                            }}
+                            onMouseDown={(event) => handleScreenSpaceResizeStart(event, handle.handle, singleSelectionResizeOverlay.element)}
+                        >
+                            <div
+                                className="rounded-full border border-blue-500 bg-white shadow-[0_1px_4px_rgba(37,99,235,0.28)]"
+                                style={{
+                                    width: SCREENSPACE_RESIZE_HANDLE_SIZE,
+                                    height: SCREENSPACE_RESIZE_HANDLE_SIZE,
+                                }}
+                            />
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Video Overlay Layer - rendered OUTSIDE the CSS transform container */}
             {elements.filter(el => !el.hidden && el.type === 'video' && el.content && activeVideoId === el.id).map(el => {

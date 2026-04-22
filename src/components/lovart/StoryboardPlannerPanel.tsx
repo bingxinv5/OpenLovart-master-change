@@ -384,6 +384,25 @@ export function StoryboardPlannerPanel({
   const activeRunRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storyboardAspectRatio = useMemo(() => getStoryboardCollageAspectRatio(shotCount), [shotCount]);
+  const defaultAspectRatioSeed = imageDefaults.aspectRatio === 'auto' ? storyboardAspectRatio : imageDefaults.aspectRatio;
+  const effectiveDefaultAspectRatio: AspectRatioOption = isOpenAiGptImageModel
+    ? resolveOpenAiGptImageAspectRatio(
+      resolveOpenAiGptImagePixelSize(imageDefaults.imageSize, defaultAspectRatioSeed),
+      defaultAspectRatioSeed,
+    )
+    : isGrokImageModel && !grokAspectRatioOptions.includes(imageDefaults.aspectRatio as AspectRatioOption)
+      ? '1:1'
+      : imageDefaults.aspectRatio === '9:21'
+        ? '9:16'
+        : imageDefaults.aspectRatio;
+  const effectiveDefaultImageSize = isOpenAiGptImageModel
+    ? resolveOpenAiGptImagePixelSize(
+      imageDefaults.imageSize,
+      effectiveDefaultAspectRatio === 'auto' ? storyboardAspectRatio : effectiveDefaultAspectRatio,
+    )
+    : isGrokImageModel && fallbackStandardImageSize === '4K'
+      ? '2K'
+      : fallbackStandardImageSize;
 
   useEffect(() => {
     if (!userModelOverride && userModel !== imageDefaults.model) {
@@ -392,16 +411,16 @@ export function StoryboardPlannerPanel({
   }, [imageDefaults.model, userModel, userModelOverride]);
 
   useEffect(() => {
-    if (!userImageSizeOverride && userImageSize !== imageDefaults.imageSize) {
-      setUserImageSize(imageDefaults.imageSize);
+    if (!userImageSizeOverride && userImageSize !== effectiveDefaultImageSize) {
+      setUserImageSize(effectiveDefaultImageSize);
     }
-  }, [imageDefaults.imageSize, userImageSize, userImageSizeOverride]);
+  }, [effectiveDefaultImageSize, userImageSize, userImageSizeOverride]);
 
   useEffect(() => {
-    if (!userAspectRatioOverride && userAspectRatio !== imageDefaults.aspectRatio) {
-      setUserAspectRatio(imageDefaults.aspectRatio);
+    if (!userAspectRatioOverride && userAspectRatio !== effectiveDefaultAspectRatio) {
+      setUserAspectRatio(effectiveDefaultAspectRatio);
     }
-  }, [imageDefaults.aspectRatio, userAspectRatio, userAspectRatioOverride]);
+  }, [effectiveDefaultAspectRatio, userAspectRatio, userAspectRatioOverride]);
 
   useEffect(() => {
     if (isGrokImageModel && !grokAspectRatioOptions.includes(userAspectRatio)) {

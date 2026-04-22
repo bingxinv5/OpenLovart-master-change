@@ -1497,7 +1497,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     return (
         <div
-            className="absolute z-50 bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
+            className="absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
             style={style}
             ref={panelRef}
             onKeyDown={(e) => {

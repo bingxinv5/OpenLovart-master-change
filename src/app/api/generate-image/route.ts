@@ -11,7 +11,6 @@ import {
     getApiErrorMessage,
     getErrorMessage,
     handleApiRouteError,
-    inspectImageResultDimensions,
     parseJsonResponse,
     proxyImageResultUrls,
     resolveRequestOrigin,
@@ -150,11 +149,6 @@ export async function POST(request: NextRequest) {
 
         // Some models may return results directly
         const rawImageResult = extractImageResult(data);
-        const imageDimensions = await inspectImageResultDimensions(rawImageResult);
-        if (imageDimensions) {
-            console.log(`[generate-image] Immediate image result ${imageDimensions.width}x${imageDimensions.height} (${imageDimensions.format}, ${imageDimensions.source})`);
-        }
-
         const imageResult = proxyImageResultUrls(rawImageResult, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
             filenamePrefix: 'lovart-generate-image',
         });

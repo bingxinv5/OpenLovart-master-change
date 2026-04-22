@@ -166,14 +166,14 @@ function clampPromptReferenceTokens(prompt: string, maxReferenceImages: number) 
 
 interface ImageGeneratorPanelProps {
     elementId: string;
-    onGenerate: (imageUrl: string) => void;
+    onGenerate: (result: { imageUrl: string; taskId?: string | null }) => void;
     onRecoverTask?: (elementId: string, taskId: string) => Promise<void>;
     isGenerating: boolean;
     style?: React.CSSProperties;
     canvasElements?: GeneratorCanvasElement[];
     onElementChange?: (id: string, attrs: Record<string, unknown>) => void;
     onSubmittingChange?: (id: string, isSubmitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => void;
-    onAddElement?: (element: { id: string; type: string; x: number; y: number; width: number; height: number; content?: string; generatingTaskId?: string; generatingTaskType?: string; generatingProgress?: number; savedPrompt?: string; selectedModel?: string; selectedAspectRatio?: string; selectedImageSize?: string; selectedGenerateCount?: number; generationResultIndex?: number; savedReferenceImages?: string }) => void;
+    onAddElement?: (element: { id: string; type: string; x: number; y: number; width: number; height: number; content?: string; generatingTaskId?: string; generatingTaskType?: string; generatingProgress?: number; savedPrompt?: string; selectedModel?: string; selectedAspectRatio?: string; selectedImageSize?: string; selectedGenerateCount?: number; generationResultIndex?: number; savedReferenceImages?: string; sourceGenerationTaskId?: string; sourceGenerationTaskType?: 'image' | 'video' }) => void;
     onRequestCanvasSelect?: () => void;
     projectReferenceImages?: ProjectReferenceImageItem[];
     onUseProjectReferenceImage?: (id: string) => void;
@@ -579,21 +579,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
     }, [currentElement?.savedReferenceImage, currentElement?.savedReferenceImages]);
 
-    useEffect(() => {
-        if (!currentElement?.selectedModel) {
-            setModel(imageDefaults.model);
-        }
-        if (!currentElement?.selectedAspectRatio) {
-            setAspectRatio(imageDefaults.aspectRatio);
-        }
-        if (typeof currentElement?.selectedGenerateCount !== 'number') {
-            setGenerateCount(imageDefaults.generateCount);
-        }
-        if (!currentElement?.selectedImageSize) {
-            setImageSize(imageDefaults.imageSize);
-        }
-    }, [currentElement?.selectedAspectRatio, currentElement?.selectedGenerateCount, currentElement?.selectedImageSize, currentElement?.selectedModel, imageDefaults]);
-
     // Sync with workbench settings changes (reactive via useImageGenerationDefaults)
     useEffect(() => {
         if (!currentElement?.selectedModel) {
@@ -920,7 +905,10 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                     throw new Error('图片生成未返回可用结果');
                 }
 
-                onGenerate(batchResults[0]);
+                onGenerate({
+                    imageUrl: batchResults[0],
+                    taskId: typeof data.taskId === 'string' ? data.taskId : undefined,
+                });
 
                 for (let index = 1; index < batchResults.length; index += 1) {
                     onAddElement?.({
@@ -932,6 +920,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                         height: elH,
                         content: batchResults[index],
                         generationResultIndex: index,
+                        sourceGenerationTaskId: typeof data.taskId === 'string' ? data.taskId : undefined,
+                        sourceGenerationTaskType: typeof data.taskId === 'string' ? 'image' : undefined,
                         ...sharedElementState,
                     });
                 }
@@ -976,7 +966,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                     firstHandled = true;
                     submissionAccepted = true;
                     if (data.status === 'completed') {
-                        onGenerate(data.imageUrl);
+                        onGenerate({ imageUrl: data.imageUrl, taskId: data.taskId });
                     } else {
                         onElementChange?.(elementId, createGeneratorTaskUpdate(data.taskId, 'image'));
                     }
@@ -992,6 +982,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                             width: elW,
                             height: elH,
                             content: data.imageUrl,
+                            sourceGenerationTaskId: typeof data.taskId === 'string' ? data.taskId : undefined,
+                            sourceGenerationTaskType: typeof data.taskId === 'string' ? 'image' : undefined,
                             ...sharedElementState,
                         });
                     } else {
@@ -1062,7 +1054,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     return (
         <div
-            className="absolute z-50 bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
+            className="absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
             style={style}
             ref={panelRef}
             onKeyDown={(e) => {

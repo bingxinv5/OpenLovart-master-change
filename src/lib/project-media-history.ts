@@ -19,6 +19,7 @@ export interface ProjectMediaHistoryItem {
     projectId: string;
     kind: ProjectMediaHistoryKind;
     content: string;
+    taskId?: string;
     prompt?: string;
     model?: string;
     aspectRatio?: string;
@@ -34,6 +35,7 @@ export interface ProjectMediaHistoryDraft {
     projectId: string;
     kind: ProjectMediaHistoryKind;
     content: string;
+    taskId?: string;
     prompt?: string;
     model?: string;
     aspectRatio?: string;
@@ -64,6 +66,7 @@ function sanitizeItem(value: unknown, projectId: string): ProjectMediaHistoryIte
         projectId,
         kind,
         content: value.content,
+        taskId: optionalString(value.taskId),
         prompt: optionalString(value.prompt),
         model: optionalString(value.model),
         aspectRatio: optionalString(value.aspectRatio),

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from 'react';
-import { BookmarkPlus, Copy, Film, Image as ImageIcon, LocateFixed, RefreshCw, Trash2, Volume2 } from 'lucide-react';
+import { BookmarkPlus, Copy, Film, Hash, Image as ImageIcon, LocateFixed, RefreshCw, Trash2, Volume2 } from 'lucide-react';
 import { WorkbenchImage } from './WorkbenchImage';
 import { PanelShell, PanelBadge } from './PanelShell';
 import type { ProjectMediaHistoryItem } from '@/lib/project-media-history';
@@ -137,6 +137,22 @@ export function ProjectMediaPanel({
                                             title="加入参考库"
                                         >
                                             <BookmarkPlus size={12} />
+                                        </button>
+                                    )}
+                                    {item.taskId && (
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    await navigator.clipboard.writeText(item.taskId || '');
+                                                } catch {
+                                                    // Ignore clipboard failures.
+                                                }
+                                            }}
+                                            className="rounded p-1 text-slate-400 hover:text-slate-600"
+                                            title="复制 task_id"
+                                        >
+                                            <Hash size={12} />
                                         </button>
                                     )}
                                     {item.prompt && (

@@ -70,11 +70,15 @@ describe('requestImageGeneration', () => {
     expect(result).toEqual({ taskId: 'task-gpt-image-async', status: 'pending' });
   });
 
-  it('keeps direct generation enabled for other image models', async () => {
+  it('forces other image models through the async proxy path as well', async () => {
     vi.mocked(directGenerateImage).mockResolvedValue({
       status: 'completed',
       imageUrl: 'https://example.com/direct.png',
     });
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ taskId: 'task-gemini-async', status: 'pending' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
 
     const result = await requestImageGeneration({
       prompt: 'studio portrait',
@@ -82,11 +86,16 @@ describe('requestImageGeneration', () => {
       preferDirect: true,
     });
 
-    expect(directGenerateImage).toHaveBeenCalledTimes(1);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      status: 'completed',
-      imageUrl: 'https://example.com/direct.png',
+    expect(directGenerateImage).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/generate-image');
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      prompt: 'studio portrait',
+      model: 'gemini-3.1-flash-image-preview',
+      forceAsync: true,
     });
+    expect(result).toEqual({ taskId: 'task-gemini-async', status: 'pending' });
   });
 });

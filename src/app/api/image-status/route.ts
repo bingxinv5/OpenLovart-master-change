@@ -7,7 +7,6 @@ import {
     inferGenerationTaskKind,
     getNestedValue,
     handleApiRouteError,
-    inspectImageResultDimensions,
     parseJsonResponse,
     parseTaskProgress,
     proxyImageResultUrls,
@@ -50,13 +49,6 @@ export async function GET(request: NextRequest) {
 
         if (status === 'SUCCESS') {
             const rawImageResult = extractImageResult(data);
-            const imageDimensions = await inspectImageResultDimensions(rawImageResult);
-            if (imageDimensions) {
-                console.log(`[image-status] task=${taskId} completed image=${imageDimensions.width}x${imageDimensions.height} (${imageDimensions.format}, ${imageDimensions.source})`);
-            } else {
-                console.log(`[image-status] task=${taskId} completed but image dimensions could not be inspected`);
-            }
-
             const imageResult = proxyImageResultUrls(rawImageResult, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
                 filenamePrefix: 'lovart-image-status',
             });

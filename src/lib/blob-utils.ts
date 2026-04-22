@@ -87,6 +87,7 @@ const _inflightFetches = new Map<string, Promise<Blob | null>>();
 
 /** 已推送过缓存的 URL 集合（避免重复上传 23MB） */
 const _pushedCacheUrls = new Set<string>();
+const LOCAL_PROXY_FETCH_RETRY_DELAYS_MS = [0, 220, 600] as const;
 
 function isLocalProxyOrCacheUrl(url: string): boolean {
   try {
@@ -126,15 +127,23 @@ async function _fetchRemoteBlobImpl(
 
   // 1️⃣ 尝试浏览器端直接下载
   let directBlob: Blob | null = null;
-  try {
-    const direct = await fetch(url, {
-      signal: AbortSignal.timeout(timeout),
-    });
-    if (direct.ok) {
-      directBlob = await direct.blob();
+  const retryDelays = localProxyOrCacheUrl ? LOCAL_PROXY_FETCH_RETRY_DELAYS_MS : [0] as const;
+  for (let attempt = 0; attempt < retryDelays.length; attempt += 1) {
+    if (retryDelays[attempt] > 0) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
     }
-  } catch {
-    // CORS / 网络错误 → 继续走 proxy
+
+    try {
+      const direct = await fetch(url, {
+        signal: AbortSignal.timeout(timeout),
+      });
+      if (direct.ok) {
+        directBlob = await direct.blob();
+        break;
+      }
+    } catch {
+      // CORS / 网络错误 → 继续按当前策略重试或回退
+    }
   }
 
   if (directBlob) {

@@ -218,7 +218,6 @@ export interface CanvasElementRendererProps {
     // Pre-computed boolean flags for efficient shallow comparison
     isSelected: boolean;
     selectedImageCount: number;
-    showResizeHandles: boolean;
     showToolbar: boolean;
     isDropTarget: boolean;
     isEditingText: boolean;
@@ -257,7 +256,6 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
         resolvedImageSrc,
         isSelected,
         selectedImageCount,
-        showResizeHandles,
         showToolbar,
         isDropTarget,
         isEditingText,
@@ -495,20 +493,6 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                 {isSelected && (
                     <>
                         <div className="absolute inset-0 border-2 border-blue-500 pointer-events-none" />
-                        {showResizeHandles && (
-                            <>
-                                {/* Corners */}
-                                <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-blue-500 rounded-full cursor-nw-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 'nw', el)} />
-                                <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-blue-500 rounded-full cursor-ne-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 'ne', el)} />
-                                <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-blue-500 rounded-full cursor-sw-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 'sw', el)} />
-                                <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-blue-500 rounded-full cursor-se-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 'se', el)} />
-                                {/* Sides */}
-                                <div className="absolute top-1/2 -left-1.5 w-3 h-3 -mt-1.5 bg-white border border-blue-500 rounded-full cursor-w-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 'w', el)} />
-                                <div className="absolute top-1/2 -right-1.5 w-3 h-3 -mt-1.5 bg-white border border-blue-500 rounded-full cursor-e-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 'e', el)} />
-                                <div className="absolute -top-1.5 left-1/2 w-3 h-3 -ml-1.5 bg-white border border-blue-500 rounded-full cursor-n-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 'n', el)} />
-                                <div className="absolute -bottom-1.5 left-1/2 w-3 h-3 -ml-1.5 bg-white border border-blue-500 rounded-full cursor-s-resize" onMouseDown={(e) => h.handleResizeStart(e, el.id, 's', el)} />
-                            </>
-                        )}
                     </>
                 )}
 
