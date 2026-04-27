@@ -13,13 +13,16 @@ import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import { useImageGenerationDefaults, type ImageGenerationDefaults } from '@/lib/generation-defaults';
 import {
   describeOpenAiGptImageAspectRatio,
+  getOpenAiGptImagePixelSizeValidationError,
   isOpenAiGptImagePixelSize,
-  OPENAI_GPT_IMAGE_PIXEL_SIZES,
+  OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
+  OPENAI_GPT_IMAGE_SIZE_OPTIONS,
   STANDARD_IMAGE_SIZE_OPTIONS,
   isStandardImageSize,
   normalizeOpenAiGptImagePixelSize,
   resolveOpenAiGptImageAspectRatio,
-  resolveOpenAiGptImagePixelSize,
+  resolveOpenAiGptImageQuality,
+  resolveOpenAiGptImageSize,
 } from '@/lib/image-generation-models';
 import {
   createGenerationIdlePatch,
@@ -50,6 +53,7 @@ type PlannerLiveGenerationParams = {
   model?: string;
   aspectRatio?: string;
   imageSize?: string;
+  quality?: string;
 };
 
 interface StoryboardPlannerPanelProps {
@@ -97,6 +101,8 @@ interface PersistedPlannerState {
   userAspectRatioOverride?: boolean;
   userImageSize?: string;
   userImageSizeOverride?: boolean;
+  userQuality?: ImageGenerationDefaults['quality'];
+  userQualityOverride?: boolean;
 }
 
 function getChineseCombinedPrompt(state: Partial<PersistedPlannerState>) {
@@ -358,19 +364,25 @@ export function StoryboardPlannerPanel({
   const [userImageSize, setUserImageSize] = useState<string>(
     persisted.userImageSizeOverride === true && persisted.userImageSize ? persisted.userImageSize : imageDefaults.imageSize,
   );
+  const [userQualityOverride, setUserQualityOverride] = useState(persisted.userQualityOverride === true);
+  const [userQuality, setUserQuality] = useState<ImageGenerationDefaults['quality']>(
+    persisted.userQualityOverride === true && persisted.userQuality ? resolveOpenAiGptImageQuality(persisted.userQuality) : resolveOpenAiGptImageQuality(imageDefaults.quality),
+  );
   const [experimentalUserImageSizeInput, setExperimentalUserImageSizeInput] = useState('');
   const [experimentalUserImageSizeError, setExperimentalUserImageSizeError] = useState<string | null>(null);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showAspectRatioMenu, setShowAspectRatioMenu] = useState(false);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
+  const [showQualityMenu, setShowQualityMenu] = useState(false);
   const isGrokImageModel = userModel === 'grok-4.2-image';
   const isOpenAiGptImageModel = userModel === 'gpt-image-2';
   const availableAspectRatioOptions = isGrokImageModel ? grokAspectRatioOptions : aspectRatioOptions;
   const availableImageSizeOptions: string[] = isOpenAiGptImageModel
-    ? [...OPENAI_GPT_IMAGE_PIXEL_SIZES]
+    ? [...OPENAI_GPT_IMAGE_SIZE_OPTIONS]
     : isGrokImageModel
       ? (['1K', '2K'] as ImageGenerationDefaults['imageSize'][])
       : imageSizeOptions;
+  const availableImageQualityOptions = [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
   const derivedOpenAiGptAspectRatio = describeOpenAiGptImageAspectRatio(userImageSize, userAspectRatio);
   const isOpenAiGptImageExperimentalSize = !!normalizeOpenAiGptImagePixelSize(userImageSize) && !isOpenAiGptImagePixelSize(userImageSize);
   const fallbackStandardImageSize = isStandardImageSize(imageDefaults.imageSize) ? imageDefaults.imageSize : '4K';
@@ -387,7 +399,7 @@ export function StoryboardPlannerPanel({
   const defaultAspectRatioSeed = imageDefaults.aspectRatio === 'auto' ? storyboardAspectRatio : imageDefaults.aspectRatio;
   const effectiveDefaultAspectRatio: AspectRatioOption = isOpenAiGptImageModel
     ? resolveOpenAiGptImageAspectRatio(
-      resolveOpenAiGptImagePixelSize(imageDefaults.imageSize, defaultAspectRatioSeed),
+      resolveOpenAiGptImageSize(imageDefaults.imageSize, defaultAspectRatioSeed),
       defaultAspectRatioSeed,
     )
     : isGrokImageModel && !grokAspectRatioOptions.includes(imageDefaults.aspectRatio as AspectRatioOption)
@@ -396,13 +408,16 @@ export function StoryboardPlannerPanel({
         ? '9:16'
         : imageDefaults.aspectRatio;
   const effectiveDefaultImageSize = isOpenAiGptImageModel
-    ? resolveOpenAiGptImagePixelSize(
+    ? resolveOpenAiGptImageSize(
       imageDefaults.imageSize,
       effectiveDefaultAspectRatio === 'auto' ? storyboardAspectRatio : effectiveDefaultAspectRatio,
     )
     : isGrokImageModel && fallbackStandardImageSize === '4K'
       ? '2K'
       : fallbackStandardImageSize;
+  const effectiveDefaultQuality: ImageGenerationDefaults['quality'] = isOpenAiGptImageModel
+    ? resolveOpenAiGptImageQuality(imageDefaults.quality)
+    : 'auto';
 
   useEffect(() => {
     if (!userModelOverride && userModel !== imageDefaults.model) {
@@ -423,6 +438,12 @@ export function StoryboardPlannerPanel({
   }, [effectiveDefaultAspectRatio, userAspectRatio, userAspectRatioOverride]);
 
   useEffect(() => {
+    if (!userQualityOverride && userQuality !== effectiveDefaultQuality) {
+      setUserQuality(effectiveDefaultQuality);
+    }
+  }, [effectiveDefaultQuality, userQuality, userQualityOverride]);
+
+  useEffect(() => {
     if (isGrokImageModel && !grokAspectRatioOptions.includes(userAspectRatio)) {
       setUserAspectRatio('1:1');
       return;
@@ -430,7 +451,7 @@ export function StoryboardPlannerPanel({
 
     if (isOpenAiGptImageModel) {
       const aspectRatioSeed = userAspectRatio === 'auto' ? storyboardAspectRatio : userAspectRatio;
-      const nextImageSize = resolveOpenAiGptImagePixelSize(userImageSize, aspectRatioSeed);
+      const nextImageSize = resolveOpenAiGptImageSize(userImageSize, aspectRatioSeed);
       if (userImageSize !== nextImageSize) {
         setUserImageSize(nextImageSize);
         return;
@@ -467,9 +488,15 @@ export function StoryboardPlannerPanel({
   }, [experimentalUserImageSizeInput, isOpenAiGptImageModel, userImageSize]);
 
   const handleApplyExperimentalUserImageSize = useCallback(() => {
+    const validationError = getOpenAiGptImagePixelSizeValidationError(experimentalUserImageSizeInput);
+    if (validationError) {
+      setExperimentalUserImageSizeError(validationError);
+      return;
+    }
+
     const normalizedImageSize = normalizeOpenAiGptImagePixelSize(experimentalUserImageSizeInput);
     if (!normalizedImageSize) {
-      setExperimentalUserImageSizeError('请输入合法像素尺寸，例如 1536x864');
+      setExperimentalUserImageSizeError('请输入合法像素尺寸，例如 2048x1152');
       return;
     }
 
@@ -560,9 +587,11 @@ export function StoryboardPlannerPanel({
         userAspectRatioOverride,
         userImageSize,
         userImageSizeOverride,
+        userQuality,
+        userQualityOverride,
       });
     }, SAVE_DEBOUNCE_MS);
-  }, [mode, shotCount, sceneDescription, storyContext, sourceImages, combinedPrompt, result, generationState.imageUrl, storageKey, userModel, userModelOverride, userAspectRatio, userAspectRatioOverride, userImageSize, userImageSizeOverride]);
+  }, [mode, shotCount, sceneDescription, storyContext, sourceImages, combinedPrompt, result, generationState.imageUrl, storageKey, userModel, userModelOverride, userAspectRatio, userAspectRatioOverride, userImageSize, userImageSizeOverride, userQuality, userQualityOverride]);
 
   // 每次关键 state 变化时触发自动保存
   useEffect(() => {
@@ -616,6 +645,7 @@ export function StoryboardPlannerPanel({
       model: userModel,
       aspectRatio: effectiveAspectRatio,
       imageSize: userImageSize,
+      quality: userQuality,
     });
     syncPlannerElement(createGenerationIdlePatch({ progress: 5 }));
     setIsGeneratingBoard(true);
@@ -653,7 +683,7 @@ export function StoryboardPlannerPanel({
     }, 30_000);
     return () => { clearInterval(interval); clearTimeout(timeout); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearPlannerGenerationState, combinedPrompt, effectiveAspectRatio, persisted.generationImageUrl, persisted.isGeneratingBoardPending, persisted.pendingTaskId, resumePendingBoardTask, storageKey, syncPlannerElement, userImageSize, userModel]);
+  }, [clearPlannerGenerationState, combinedPrompt, effectiveAspectRatio, persisted.generationImageUrl, persisted.isGeneratingBoardPending, persisted.pendingTaskId, resumePendingBoardTask, storageKey, syncPlannerElement, userImageSize, userModel, userQuality]);
 
   // ── 挂载时恢复未完成的生成任务（已有 taskId 的轮询） ──
   useEffect(() => {
@@ -759,11 +789,13 @@ export function StoryboardPlannerPanel({
     setUserAspectRatio(imageDefaults.aspectRatio);
     setUserImageSizeOverride(false);
     setUserImageSize(imageDefaults.imageSize);
+    setUserQualityOverride(false);
+    setUserQuality(resolveOpenAiGptImageQuality(imageDefaults.quality));
     setGenerationState({ status: 'idle', progress: 0, imageUrl: null, error: null });
     setErrorMsg(null);
     clearPlannerGenerationState();
     try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
-  }, [clearPlannerGenerationState, imageDefaults.aspectRatio, imageDefaults.imageSize, imageDefaults.model, storageKey]);
+  }, [clearPlannerGenerationState, imageDefaults.aspectRatio, imageDefaults.imageSize, imageDefaults.model, imageDefaults.quality, storageKey]);
 
   const handleBuildStoryboardPrompt = useCallback(async () => {
     if (sourceImages.length === 0) {
@@ -851,6 +883,7 @@ export function StoryboardPlannerPanel({
       model: userModel,
       aspectRatio: effectiveAspectRatio,
       imageSize: userImageSize,
+      quality: userQuality,
     });
     syncPlannerElement(createGenerationIdlePatch({ progress: 0 }));
 
@@ -864,6 +897,7 @@ export function StoryboardPlannerPanel({
         model: userModel,
         aspectRatio: effectiveAspectRatio,
         imageSize: userImageSize,
+        quality: userQuality,
         referenceImages: resolvedImages,
         preferDirect: false,
         forceAsync: true,
@@ -921,7 +955,7 @@ export function StoryboardPlannerPanel({
         setIsGeneratingBoard(false);
       }
     }
-  }, [clearPlannerGenerationState, combinedPrompt, effectiveAspectRatio, elementId, onCreateDraft, onSubmittingChange, resolveReferenceImage, result, sourceImages, storageKey, syncPlannerElement, userImageSize, userModel]);
+  }, [clearPlannerGenerationState, combinedPrompt, effectiveAspectRatio, elementId, onCreateDraft, onSubmittingChange, resolveReferenceImage, result, sourceImages, storageKey, syncPlannerElement, userImageSize, userModel, userQuality]);
 
   const handleImportStoryboardBoardToCanvas = useCallback(() => {
     if (!result || !generationState.imageUrl) {
@@ -1194,7 +1228,7 @@ export function StoryboardPlannerPanel({
             </div>
           ) : (
             <div className="relative">
-              <button type="button" onClick={() => { setShowAspectRatioMenu(!showAspectRatioMenu); setShowModelMenu(false); setShowSizeMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
+              <button type="button" onClick={() => { setShowAspectRatioMenu(!showAspectRatioMenu); setShowModelMenu(false); setShowSizeMenu(false); setShowQualityMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
                 <span className="text-slate-400">比例</span>
                 <span className="text-slate-700 font-medium">{userAspectRatio === 'auto' ? `自动(${storyboardAspectRatio})` : userAspectRatio}</span>
                 <ChevronDown size={10} className="text-slate-400" />
@@ -1213,7 +1247,7 @@ export function StoryboardPlannerPanel({
 
           {/* 尺寸 */}
           <div className="relative">
-            <button type="button" onClick={() => { setShowSizeMenu(!showSizeMenu); setShowModelMenu(false); setShowAspectRatioMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
+            <button type="button" onClick={() => { setShowSizeMenu(!showSizeMenu); setShowModelMenu(false); setShowAspectRatioMenu(false); setShowQualityMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
               <span className="text-slate-400">尺寸</span>
               <span className="text-slate-700 font-medium">{userImageSize}</span>
               <ChevronDown size={10} className="text-slate-400" />
@@ -1223,10 +1257,10 @@ export function StoryboardPlannerPanel({
                 {isOpenAiGptImageModel && (
                   <div className="border-b border-slate-100 px-2.5 py-2">
                     <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-slate-500">
-                      <span>稳定尺寸</span>
-                      {isOpenAiGptImageExperimentalSize && <span className="text-amber-600">当前为实验尺寸</span>}
+                      <span>尺寸</span>
+                      {isOpenAiGptImageExperimentalSize && <span className="text-amber-600">当前为自定义尺寸</span>}
                     </div>
-                    <div className="text-[10px] text-slate-400">比例优先，像素为期望值</div>
+                    <div className="text-[10px] text-slate-400">支持 auto、官方推荐 preset，也支持输入任意满足约束的尺寸</div>
                   </div>
                 )}
                 <div className={isOpenAiGptImageModel ? 'max-h-[180px] overflow-y-auto' : undefined}>
@@ -1248,7 +1282,7 @@ export function StoryboardPlannerPanel({
                 </div>
                 {isOpenAiGptImageModel && (
                   <div className="border-t border-slate-100 px-2.5 py-2">
-                    <div className="mb-1 text-[10px] font-medium text-slate-500">实验尺寸</div>
+                    <div className="mb-1 text-[10px] font-medium text-slate-500">自定义尺寸</div>
                     <div className="flex gap-1.5">
                       <input
                         type="text"
@@ -1265,7 +1299,7 @@ export function StoryboardPlannerPanel({
                             handleApplyExperimentalUserImageSize();
                           }
                         }}
-                        placeholder="1536x864"
+                        placeholder="2048x1152"
                         className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
                       />
                       <button
@@ -1276,6 +1310,7 @@ export function StoryboardPlannerPanel({
                         应用
                       </button>
                     </div>
+                    <div className="mt-1 text-[10px] leading-4 text-slate-400">约束：最长边不超过 3840，宽高均为 16 的倍数，长短边比不超过 3:1，总像素在 655,360 到 8,294,400 之间</div>
                     {experimentalUserImageSizeError && <div className="mt-1 text-[10px] text-red-600">{experimentalUserImageSizeError}</div>}
                   </div>
                 )}
@@ -1283,9 +1318,36 @@ export function StoryboardPlannerPanel({
             )}
           </div>
 
+          {isOpenAiGptImageModel && (
+            <div className="relative">
+              <button type="button" onClick={() => { setShowQualityMenu(!showQualityMenu); setShowModelMenu(false); setShowAspectRatioMenu(false); setShowSizeMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
+                <span className="text-slate-400">质量</span>
+                <span className="text-slate-700 font-medium">{userQuality}</span>
+                <ChevronDown size={10} className="text-slate-400" />
+              </button>
+              {showQualityMenu && (
+                <div className="absolute bottom-full mb-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg z-10 min-w-[72px]">
+                  {availableImageQualityOptions.map((value) => (
+                    <div
+                      key={value}
+                      onClick={() => {
+                        setUserQuality(value);
+                        setUserQualityOverride(value !== resolveOpenAiGptImageQuality(imageDefaults.quality));
+                        setShowQualityMenu(false);
+                      }}
+                      className={`px-2.5 py-1 text-[11px] cursor-pointer hover:bg-slate-50 rounded mx-0.5 transition-colors ${userQuality === value ? 'text-sky-600 font-semibold bg-sky-50/60' : 'text-slate-700'}`}
+                    >
+                      {value}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 模型 */}
           <div className="relative">
-            <button type="button" onClick={() => { setShowModelMenu(!showModelMenu); setShowAspectRatioMenu(false); setShowSizeMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
+            <button type="button" onClick={() => { setShowModelMenu(!showModelMenu); setShowAspectRatioMenu(false); setShowSizeMenu(false); setShowQualityMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
               <span className="text-slate-400">模型</span>
               <span className="text-slate-700 font-medium truncate max-w-[120px]">{userModel}</span>
               <ChevronDown size={10} className="text-slate-400" />
@@ -1293,7 +1355,19 @@ export function StoryboardPlannerPanel({
             {showModelMenu && (
               <div className="absolute bottom-full mb-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg z-10 min-w-[140px]">
                 {modelOptions.map((m) => (
-                  <div key={m} onClick={() => { setUserModel(m); setUserModelOverride(m !== imageDefaults.model); setShowModelMenu(false); }} className={`px-2.5 py-1 text-[11px] cursor-pointer hover:bg-slate-50 rounded mx-0.5 transition-colors ${userModel === m ? 'text-sky-600 font-semibold bg-sky-50/60' : 'text-slate-700'}`}>
+                  <div key={m} onClick={() => {
+                    setUserModel(m);
+                    setUserModelOverride(m !== imageDefaults.model);
+                    if (m === 'gpt-image-2') {
+                      if (!userQualityOverride) {
+                        setUserQuality(resolveOpenAiGptImageQuality(imageDefaults.quality));
+                      }
+                    } else {
+                      setUserQuality('auto');
+                      setUserQualityOverride(false);
+                    }
+                    setShowModelMenu(false);
+                  }} className={`px-2.5 py-1 text-[11px] cursor-pointer hover:bg-slate-50 rounded mx-0.5 transition-colors ${userModel === m ? 'text-sky-600 font-semibold bg-sky-50/60' : 'text-slate-700'}`}>
                     {m}
                   </div>
                 ))}

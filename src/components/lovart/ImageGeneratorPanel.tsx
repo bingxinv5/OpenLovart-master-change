@@ -46,14 +46,14 @@ import { isDataUrl } from '@/lib/data-url';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import {
     describeOpenAiGptImageAspectRatio,
-    isOpenAiGptImagePixelSize,
-    OPENAI_GPT_IMAGE_PIXEL_SIZES,
+    OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
+    OPENAI_GPT_IMAGE_SIZE_OPTIONS,
     STANDARD_IMAGE_SIZE_OPTIONS,
     getMaxReferenceImagesForImageModel,
     isStandardImageSize,
-    normalizeOpenAiGptImagePixelSize,
     resolveOpenAiGptImageAspectRatio,
-    resolveOpenAiGptImagePixelSize,
+    resolveOpenAiGptImageQuality,
+    resolveOpenAiGptImageSize,
     shouldUseDomesticImageBatching,
 } from '@/lib/image-generation-models';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
@@ -63,6 +63,7 @@ import { useImageGenerationDefaults, type ImageGenerationDefaults } from '@/lib/
 type ImageModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
 type AspectRatio = ImageGenerationDefaults['aspectRatio'];
 type ImageSize = string;
+type ImageQuality = ImageGenerationDefaults['quality'];
 
 const GROK_IMAGE_ASPECT_RATIOS: AspectRatio[] = ['4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
 const GROK_IMAGE_SIZES: ImageSize[] = ['1K', '2K'];
@@ -75,6 +76,13 @@ const MODEL_LABELS: Record<ImageModel, string> = {
     'gpt-image-2': 'gpt-image-2',
     'grok-4.2-image': 'grok-4.2-image',
     'doubao-seedream-5-0-260128': 'doubao-seedream-5-0-260128',
+};
+
+const IMAGE_QUALITY_LABELS: Record<ImageQuality, string> = {
+    auto: '自动',
+    low: '低',
+    medium: '中',
+    high: '高',
 };
 
 type GenerateCount = 1 | 2 | 3 | 4;
@@ -172,8 +180,8 @@ interface ImageGeneratorPanelProps {
     style?: React.CSSProperties;
     canvasElements?: GeneratorCanvasElement[];
     onElementChange?: (id: string, attrs: Record<string, unknown>) => void;
-    onSubmittingChange?: (id: string, isSubmitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => void;
-    onAddElement?: (element: { id: string; type: string; x: number; y: number; width: number; height: number; content?: string; generatingTaskId?: string; generatingTaskType?: string; generatingProgress?: number; savedPrompt?: string; selectedModel?: string; selectedAspectRatio?: string; selectedImageSize?: string; selectedGenerateCount?: number; generationResultIndex?: number; savedReferenceImages?: string; sourceGenerationTaskId?: string; sourceGenerationTaskType?: 'image' | 'video' }) => void;
+    onSubmittingChange?: (id: string, isSubmitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; quality?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => void;
+    onAddElement?: (element: { id: string; type: string; x: number; y: number; width: number; height: number; content?: string; generatingTaskId?: string; generatingTaskType?: string; generatingProgress?: number; savedPrompt?: string; selectedModel?: string; selectedAspectRatio?: string; selectedImageSize?: string; selectedImageQuality?: string; selectedGenerateCount?: number; generationResultIndex?: number; savedReferenceImages?: string; sourceGenerationTaskId?: string; sourceGenerationTaskType?: 'image' | 'video' }) => void;
     onRequestCanvasSelect?: () => void;
     projectReferenceImages?: ProjectReferenceImageItem[];
     onUseProjectReferenceImage?: (id: string) => void;
@@ -190,6 +198,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>((currentElement?.selectedAspectRatio as AspectRatio) || imageDefaults.aspectRatio);
     const [generateCount, setGenerateCount] = useState<GenerateCount>((currentElement?.selectedGenerateCount as GenerateCount) || imageDefaults.generateCount);
     const [imageSize, setImageSize] = useState<ImageSize>((currentElement?.selectedImageSize as ImageSize) || imageDefaults.imageSize);
+    const [quality, setQuality] = useState<ImageQuality>(resolveOpenAiGptImageQuality(currentElement?.selectedImageQuality || imageDefaults.quality));
 
     // Read generation status from element (polling is done by parent)
     const isGeneratingFromElement = !!currentElement?.generatingTaskId;
@@ -214,8 +223,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [isRecovering, setIsRecovering] = useState(false);
     const [recoveryTaskId, setRecoveryTaskId] = useState(currentElement?.generatingTaskId || '');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
-    const [experimentalImageSizeInput, setExperimentalImageSizeInput] = useState('');
-    const [experimentalImageSizeError, setExperimentalImageSizeError] = useState<string | null>(null);
 
     const isSubmittingToApi = isSubmitting || isGeneratingFromParent;
     const isGenerating = isGeneratingFromElement || isSubmittingToApi;
@@ -293,12 +300,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         ? GROK_IMAGE_ASPECT_RATIOS
         : aspectRatios;
     const availableImageSizes: ImageSize[] = isOpenAiGptImageModel
-        ? [...OPENAI_GPT_IMAGE_PIXEL_SIZES]
+        ? [...OPENAI_GPT_IMAGE_SIZE_OPTIONS]
         : isGrokImageModel
             ? GROK_IMAGE_SIZES
             : imageSizes;
+    const availableImageQualities: ImageQuality[] = [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
     const derivedOpenAiGptImageAspectRatio = describeOpenAiGptImageAspectRatio(imageSize, aspectRatio);
-    const isOpenAiGptImageExperimentalSize = !!normalizeOpenAiGptImagePixelSize(imageSize) && !isOpenAiGptImagePixelSize(imageSize);
     const displayedAspectRatio = grokUsesReferenceAspectRatio
         ? '参考图比例'
         : isOpenAiGptImageModel
@@ -307,7 +314,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             ? '自动'
             : aspectRatio;
     const settingsSummary = isOpenAiGptImageModel
-        ? `${imageSize} · ${displayedAspectRatio} · ×${generateCount}`
+        ? `${imageSize} · ${IMAGE_QUALITY_LABELS[quality]} · ${displayedAspectRatio} · ×${generateCount}`
         : `${displayedAspectRatio} · ${imageSize} · ×${generateCount}`;
     const fallbackStandardImageSize = isStandardImageSize(imageDefaults.imageSize) ? imageDefaults.imageSize : '4K';
 
@@ -318,7 +325,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
 
         if (isOpenAiGptImageModel) {
-            const nextImageSize = resolveOpenAiGptImagePixelSize(imageSize, aspectRatio);
+            const nextImageSize = resolveOpenAiGptImageSize(imageSize, aspectRatio);
             if (imageSize !== nextImageSize) {
                 setImageSize(nextImageSize);
                 return;
@@ -341,31 +348,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             setImageSize(isGrokImageModel && fallbackStandardImageSize === '4K' ? '2K' : fallbackStandardImageSize);
         }
     }, [fallbackStandardImageSize, imageSize, isGrokImageModel, isOpenAiGptImageModel]);
-
-    useEffect(() => {
-        if (!isOpenAiGptImageModel) {
-            return;
-        }
-
-        const normalizedImageSize = normalizeOpenAiGptImagePixelSize(imageSize);
-        if (normalizedImageSize && !isOpenAiGptImagePixelSize(normalizedImageSize) && normalizedImageSize !== experimentalImageSizeInput) {
-            setExperimentalImageSizeInput(normalizedImageSize);
-            setExperimentalImageSizeError(null);
-        }
-    }, [experimentalImageSizeInput, imageSize, isOpenAiGptImageModel]);
-
-    const handleApplyExperimentalImageSize = useCallback(() => {
-        const normalizedImageSize = normalizeOpenAiGptImagePixelSize(experimentalImageSizeInput);
-        if (!normalizedImageSize) {
-            setExperimentalImageSizeError('请输入合法像素尺寸，例如 1536x864');
-            return;
-        }
-
-        setImageSize(normalizedImageSize);
-        setExperimentalImageSizeInput(normalizedImageSize);
-        setAspectRatio(resolveOpenAiGptImageAspectRatio(normalizedImageSize, aspectRatio));
-        setExperimentalImageSizeError(null);
-    }, [aspectRatio, experimentalImageSizeInput]);
 
     useEffect(() => {
         if (isGrokImageModel && imageSize === '4K') {
@@ -541,6 +523,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     usePersistGeneratorValue({ elementId, key: 'savedPrompt', value: prompt, onElementChange, skipInitial: true, debounceMs: 160 });
     usePersistGeneratorValue({ elementId, key: 'selectedGenerateCount', value: generateCount, onElementChange, skipInitial: true });
     usePersistGeneratorValue({ elementId, key: 'selectedImageSize', value: imageSize, onElementChange, skipInitial: true });
+    usePersistGeneratorValue({ elementId, key: 'selectedImageQuality', value: quality, onElementChange, skipInitial: true });
     usePersistGeneratorValue({
         elementId,
         key: 'savedReferenceImages',
@@ -593,7 +576,10 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         if (!currentElement?.selectedImageSize) {
             setImageSize(imageDefaults.imageSize);
         }
-    }, [imageDefaults, currentElement?.selectedAspectRatio, currentElement?.selectedGenerateCount, currentElement?.selectedImageSize, currentElement?.selectedModel]);
+        if (!currentElement?.selectedImageQuality) {
+            setQuality(imageDefaults.quality);
+        }
+    }, [imageDefaults, currentElement?.selectedAspectRatio, currentElement?.selectedGenerateCount, currentElement?.selectedImageQuality, currentElement?.selectedImageSize, currentElement?.selectedModel]);
 
     useEffect(() => {
         if (currentElement?.generatingTaskId && !isRecovering) {
@@ -716,6 +702,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setModel(item.model);
         setAspectRatio(item.aspectRatio);
         setImageSize(item.imageSize);
+        setQuality(item.quality);
         setGenerateCount(item.generateCount);
         setReferenceImages(item.referenceImages);
         setMentionQuery(null);
@@ -819,7 +806,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
 
         setIsSubmitting(true);
-        onSubmittingChange?.(elementId, true, { prompt: materializedPrompt, model, aspectRatio, imageSize, generateCount });
+        onSubmittingChange?.(elementId, true, { prompt: materializedPrompt, model, aspectRatio, imageSize, quality, generateCount });
         setErrorMsg(null);
         let submissionAccepted = false;
         let submissionOutcome: 'succeeded' | 'failed' | 'interrupted' = 'failed';
@@ -840,6 +827,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 model,
                 aspectRatio,
                 imageSize,
+                quality,
                 generateCount,
                 referenceImages: referenceImageDataList,
             });
@@ -855,6 +843,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 selectedModel: model,
                 selectedAspectRatio: aspectRatio,
                 selectedImageSize: imageSize,
+                selectedImageQuality: quality,
                 selectedGenerateCount: generateCount,
                 savedReferenceImages: referenceImageDataList.length > 0 ? JSON.stringify(referenceImageDataList) : undefined,
             };
@@ -865,6 +854,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                     model,
                     aspectRatio,
                     imageSize,
+                    quality,
                     generateCount,
                     referenceImages: referenceImageDataList.length > 0 ? referenceImageDataList : undefined,
                     preferDirect: true,
@@ -940,6 +930,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                     model,
                     aspectRatio,
                     imageSize,
+                    quality,
                     referenceImages: referenceImageDataList.length > 0 ? referenceImageDataList : undefined,
                     preferDirect: true,
                     forceAsync: true,
@@ -1335,11 +1326,25 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                             className="flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200/60 bg-slate-50/80 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white hover:text-slate-700 hover:border-slate-300"
                         >
                             <Settings2 size={12} />
-                            <span>{isOpenAiGptImageModel ? imageSize : displayedAspectRatio}</span>
-                            <span className="text-slate-300">·</span>
-                            <span>{isOpenAiGptImageModel ? displayedAspectRatio : imageSize}</span>
-                            <span className="text-slate-300">·</span>
-                            <span>×{generateCount}</span>
+                            {isOpenAiGptImageModel ? (
+                                <>
+                                    <span>{imageSize}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span>{IMAGE_QUALITY_LABELS[quality]}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span>{displayedAspectRatio}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span>×{generateCount}</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span>{displayedAspectRatio}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span>{imageSize}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span>×{generateCount}</span>
+                                </>
+                            )}
                             <ChevronDown size={11} className="text-slate-400 ml-0.5" />
                         </button>
 
@@ -1353,10 +1358,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                                     {isOpenAiGptImageModel ? (
                                         <>
                                             <div className="py-3">
-                                                <div className="mb-2">
-                                                    <div className="text-[11px] font-medium text-slate-500">稳定尺寸</div>
-                                                    <div className="mt-1 text-[10px] text-slate-400">比例优先，像素为期望值</div>
-                                                </div>
+                                                <div className="mb-2 text-[11px] font-medium text-slate-500">尺寸</div>
                                                 <div className="max-h-60 overflow-y-auto pr-1">
                                                     <div className="grid grid-cols-2 gap-1.5">
                                                         {availableImageSizes.map((size) => (
@@ -1366,7 +1368,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                                                                 onClick={() => {
                                                                     setImageSize(size);
                                                                     setAspectRatio(resolveOpenAiGptImageAspectRatio(size, aspectRatio));
-                                                                    setExperimentalImageSizeError(null);
                                                                 }}
                                                                 className={`rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                                                             >
@@ -1378,41 +1379,19 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                                                 </div>
                                             </div>
                                             <div className="py-3 border-t border-slate-100/80">
-                                                {isOpenAiGptImageExperimentalSize && (
-                                                    <div className="mb-2 text-[10px] text-amber-600">当前使用实验尺寸</div>
-                                                )}
-                                                <div className="flex gap-2">
-                                                    <input
-                                                        type="text"
-                                                        value={experimentalImageSizeInput}
-                                                        onChange={(event) => {
-                                                            setExperimentalImageSizeInput(event.target.value);
-                                                            if (experimentalImageSizeError) {
-                                                                setExperimentalImageSizeError(null);
-                                                            }
-                                                        }}
-                                                        onKeyDown={(event) => {
-                                                            if (event.key === 'Enter') {
-                                                                event.preventDefault();
-                                                                handleApplyExperimentalImageSize();
-                                                            }
-                                                        }}
-                                                        placeholder="例如 1536x864"
-                                                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleApplyExperimentalImageSize}
-                                                        className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-700"
-                                                    >
-                                                        应用
-                                                    </button>
+                                                <div className="mb-2 text-[11px] font-medium text-slate-500">质量</div>
+                                                <div className="flex gap-1.5">
+                                                    {availableImageQualities.map((value) => (
+                                                        <button
+                                                            key={value}
+                                                            type="button"
+                                                            onClick={() => setQuality(value)}
+                                                            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${quality === value ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                                        >
+                                                            {IMAGE_QUALITY_LABELS[value]}
+                                                        </button>
+                                                    ))}
                                                 </div>
-                                                {experimentalImageSizeError && <div className="mt-1.5 text-[10px] text-red-600">{experimentalImageSizeError}</div>}
-                                            </div>
-                                            <div className="py-3 border-t border-slate-100/80">
-                                                <div className="mb-1 text-[11px] font-medium text-slate-500">派生比例</div>
-                                                <div className="text-xs font-medium text-slate-700">{displayedAspectRatio}</div>
                                             </div>
                                         </>
                                     ) : (

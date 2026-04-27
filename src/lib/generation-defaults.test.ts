@@ -25,6 +25,7 @@ describe('generation-defaults adapter', () => {
         expect(defaults).toHaveProperty('model');
         expect(defaults).toHaveProperty('aspectRatio');
         expect(defaults).toHaveProperty('imageSize');
+        expect(defaults).toHaveProperty('quality');
         expect(defaults).toHaveProperty('generateCount');
     });
 
@@ -45,6 +46,7 @@ describe('generation-defaults adapter', () => {
         expect(resolved.model).toBe(defaults.model);
         expect(resolved.aspectRatio).toBe(defaults.aspectRatio);
         expect(resolved.imageSize).toBe(defaults.imageSize);
+        expect(resolved.quality).toBe(defaults.quality);
     });
 
     it('resolveImageRequest preserves explicitly provided fields', () => {
@@ -53,10 +55,12 @@ describe('generation-defaults adapter', () => {
             model: 'nano-banana-2',
             aspectRatio: '1:1',
             imageSize: '2K',
+            quality: 'high',
         });
         expect(resolved.model).toBe('nano-banana-2');
         expect(resolved.aspectRatio).toBe('1:1');
         expect(resolved.imageSize).toBe('2K');
+        expect(resolved.quality).toBe('high');
     });
 
     it('resolveImageRequest preserves the explicit gpt-image-2 alias', () => {

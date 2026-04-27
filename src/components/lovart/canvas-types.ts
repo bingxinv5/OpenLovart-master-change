@@ -42,6 +42,7 @@ export interface CanvasElement {
     selectedModel?: string;
     selectedAspectRatio?: string;
     selectedImageSize?: string;
+    selectedImageQuality?: string;
     selectedDuration?: string;
     selectedEnhancePrompt?: boolean;
     selectedDomesticMode?: string;

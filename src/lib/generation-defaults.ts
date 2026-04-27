@@ -46,14 +46,15 @@ export function getVideoGenerationDefaults(): VideoGenerationDefaults {
  */
 export function resolveImageRequest<T extends ImageGenerationRequest>(
     request: T,
-): T & Required<Pick<T, 'model' | 'aspectRatio' | 'imageSize'>> {
+): T & Required<Pick<T, 'model' | 'aspectRatio' | 'imageSize' | 'quality'>> {
     const defaults = getImageGenerationDefaults();
     return {
         ...request,
         model: request.model || defaults.model,
         aspectRatio: request.aspectRatio || defaults.aspectRatio,
         imageSize: request.imageSize || defaults.imageSize,
-    } as T & Required<Pick<T, 'model' | 'aspectRatio' | 'imageSize'>>;
+        quality: request.quality || defaults.quality,
+    } as T & Required<Pick<T, 'model' | 'aspectRatio' | 'imageSize' | 'quality'>>;
 }
 
 /**

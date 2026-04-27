@@ -105,6 +105,9 @@ function buildQueueMetaChips(element: CanvasElement, kind: 'image' | 'video') {
     if (kind === 'image' && element.selectedImageSize?.trim()) {
         chips.push(element.selectedImageSize.trim());
     }
+    if (kind === 'image' && element.selectedImageQuality?.trim() && element.selectedImageQuality.trim() !== 'auto') {
+        chips.push(`质量 ${element.selectedImageQuality.trim()}`);
+    }
     if (kind === 'video' && element.selectedDuration?.trim()) {
         chips.push(element.selectedDuration.trim());
     }

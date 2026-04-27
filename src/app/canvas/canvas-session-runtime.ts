@@ -329,7 +329,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                         : undefined,
                     generateAudio: typeof el.selectedGenerateAudio === 'boolean' ? el.selectedGenerateAudio : undefined,
                 }
-                : { prompt: sub.prompt, model: sub.model, aspectRatio: sub.aspectRatio, imageSize: sub.imageSize, generateCount: recoveredGenerateCount };
+                : { prompt: sub.prompt, model: sub.model, aspectRatio: sub.aspectRatio, imageSize: sub.imageSize, quality: sub.quality, generateCount: recoveredGenerateCount };
 
             void (async () => {
                 try {
@@ -444,6 +444,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                             model?: string;
                             aspectRatio?: string;
                             imageSize?: string;
+                            quality?: string;
                             generateCount?: number;
                         }),
                         preferDirect: false,

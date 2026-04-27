@@ -9,6 +9,7 @@ vi.mock('./generation-defaults', () => ({
     model: 'gemini-3.1-flash-image-preview',
     aspectRatio: '1:1',
     imageSize: '1K',
+    quality: 'auto',
     ...request,
   })),
   resolveVideoRequest: vi.fn(),
@@ -33,6 +34,7 @@ describe('requestImageGeneration', () => {
       model: 'gemini-3.1-flash-image-preview',
       aspectRatio: '1:1',
       imageSize: '1K',
+      quality: 'auto',
       ...request,
     }));
   });
@@ -65,6 +67,7 @@ describe('requestImageGeneration', () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({
       prompt: 'minimalist poster',
       model: 'gpt-image-2',
+      quality: 'auto',
       forceAsync: true,
     });
     expect(result).toEqual({ taskId: 'task-gpt-image-async', status: 'pending' });
@@ -94,8 +97,29 @@ describe('requestImageGeneration', () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({
       prompt: 'studio portrait',
       model: 'gemini-3.1-flash-image-preview',
+      quality: 'auto',
       forceAsync: true,
     });
     expect(result).toEqual({ taskId: 'task-gemini-async', status: 'pending' });
+  });
+
+  it('forwards explicit quality through the proxy request body', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ taskId: 'task-quality-1', status: 'pending' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+
+    await requestImageGeneration({
+      prompt: 'editorial portrait',
+      model: 'gpt-image-2',
+      quality: 'high',
+    });
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      prompt: 'editorial portrait',
+      model: 'gpt-image-2',
+      quality: 'high',
+    });
   });
 });

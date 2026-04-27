@@ -15,6 +15,7 @@ export type GeneratorCanvasElement = {
 	selectedAspectRatio?: string;
 	selectedGenerateCount?: number;
 	selectedImageSize?: string;
+	selectedImageQuality?: string;
 	selectedDuration?: string;
 	selectedEnhancePrompt?: boolean;
 	selectedDomesticMode?: string;

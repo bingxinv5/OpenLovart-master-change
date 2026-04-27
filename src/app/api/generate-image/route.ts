@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
+import { extractDataUrlBase64, isDataUrl, parseDataUrl } from '@/lib/data-url';
 import { fetchRemoteAsset, RemoteFetchError } from '../_shared/cdn-cache';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
@@ -21,14 +21,20 @@ import {
     describeOpenAiGptImageAspectRatio,
     getMaxReferenceImagesForImageModel,
     getOpenAiGptImagePromptCompensation,
+    isOpenAiGptImageAutoSize,
     isOpenAiGptImageModel,
 } from '@/lib/image-generation-models';
 
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 
+type NormalizedReferenceImage = {
+    base64: string;
+    mime: string;
+};
+
 export async function POST(request: NextRequest) {
     try {
-        const { prompt, model, aspectRatio, imageSize, generateCount, referenceImages, referenceImage, forceAsync } = await request.json();
+        const { prompt, model, aspectRatio, imageSize, quality, generateCount, referenceImages, referenceImage, forceAsync } = await request.json();
 
         if (!prompt || typeof prompt !== 'string') {
             return NextResponse.json({ error: '请输入提示词' }, { status: 400 });
@@ -41,7 +47,7 @@ export async function POST(request: NextRequest) {
 
         // Reference images (array of base64 or URL strings)
         const imgList: string[] = referenceImages || (referenceImage ? [referenceImage] : []);
-        const cleanImages: string[] = [];
+        const normalizedImages: NormalizedReferenceImage[] = [];
         if (imgList.length > 0) {
             if (imgList.length > maxReferenceImageCount) {
                 return NextResponse.json({ error: `当前模型的参考图数量不能超过 ${maxReferenceImageCount} 张` }, { status: 400 });
@@ -49,15 +55,17 @@ export async function POST(request: NextRequest) {
 
             for (const img of imgList) {
                 let cleanData = img;
+                let mime = 'image/png';
                 if (img.startsWith('http://') || img.startsWith('https://')) {
                     console.log(`[generate-image] Fetching reference image from URL: ${img.substring(0, 100)}...`);
                     try {
-                        const { buffer } = await fetchRemoteAsset(img, {
+                        const { buffer, contentType } = await fetchRemoteAsset(img, {
                             timeoutMs: 20_000,
                             maxBytes: MAX_REFERENCE_IMAGE_BYTES,
                             allowedContentTypePrefixes: ['image/'],
                         });
                         cleanData = buffer.toString('base64');
+                        mime = contentType || mime;
                     } catch (fetchErr: unknown) {
                         console.error('[generate-image] Failed to fetch reference image:', fetchErr);
                         return NextResponse.json(
@@ -66,6 +74,7 @@ export async function POST(request: NextRequest) {
                         );
                     }
                 } else if (isDataUrl(img)) {
+                    mime = parseDataUrl(img).mime || mime;
                     cleanData = extractDataUrlBase64(img);
                 }
 
@@ -76,15 +85,18 @@ export async function POST(request: NextRequest) {
                     );
                 }
 
-                cleanImages.push(cleanData);
+                normalizedImages.push({ base64: cleanData, mime });
             }
         }
+
+        const cleanImages = normalizedImages.map((image) => image.base64);
 
         const body = buildUpstreamImageGenerationBody({
             model: selectedModel,
             prompt,
             aspectRatio,
             imageSize,
+            quality,
             generateCount: typeof generateCount === 'number' ? generateCount : undefined,
             referenceImages: cleanImages,
             responseFormat: 'url',
@@ -93,26 +105,38 @@ export async function POST(request: NextRequest) {
         if (isOpenAiGptImageModel(selectedModel)) {
             const targetSize = typeof body.size === 'string' ? body.size : 'unknown';
             const targetAspectRatio = describeOpenAiGptImageAspectRatio(targetSize, aspectRatio);
-            const compensation = getOpenAiGptImagePromptCompensation(targetSize, aspectRatio, cleanImages.length > 0);
+            const compensation = isOpenAiGptImageAutoSize(targetSize)
+                ? ''
+                : getOpenAiGptImagePromptCompensation(targetSize, aspectRatio, cleanImages.length > 0);
+            const hasRatioPriorityPrompt = !!compensation && typeof body.prompt === 'string' && body.prompt.includes(compensation);
             console.log(
-                `[generate-image][gpt-image-2] requestedSize=${typeof imageSize === 'string' ? imageSize : '-'}, targetSize=${targetSize}, requestedAspect=${typeof aspectRatio === 'string' ? aspectRatio : '-'}, targetAspect=${targetAspectRatio}, references=${cleanImages.length}, ratioPriorityPrompt=${typeof body.prompt === 'string' && body.prompt.includes(compensation)}`,
+                `[generate-image][gpt-image-2] requestedSize=${typeof imageSize === 'string' ? imageSize : '-'}, targetSize=${targetSize}, requestedAspect=${typeof aspectRatio === 'string' ? aspectRatio : '-'}, targetAspect=${targetAspectRatio}, references=${cleanImages.length}, ratioPriorityPrompt=${hasRatioPriorityPrompt}`,
             );
-            console.log(`[generate-image][gpt-image-2] ratioPriorityInstruction=${compensation}`);
+            if (compensation) {
+                console.log(`[generate-image][gpt-image-2] ratioPriorityInstruction=${compensation}`);
+            }
         }
 
         console.log(`[generate-image] model=${selectedModel}, baseUrl=${baseUrl}, prompt="${prompt.substring(0, 50)}..."`);
 
-        const targetUrl = `${baseUrl}/v1/images/generations${forceAsync === true ? '?async=true' : ''}`;
+        const usesGptImageEdits = isOpenAiGptImageModel(selectedModel) && normalizedImages.length > 0;
+        const targetUrl = `${baseUrl}${usesGptImageEdits ? '/v1/images/edits' : '/v1/images/generations'}${forceAsync === true ? '?async=true' : ''}`;
         let response: Response;
 
         try {
             response = await fetchWithRetry(
                 targetUrl,
-                {
-                    method: 'POST',
-                    headers: createAiHeaders(apiKey, true),
-                    body: JSON.stringify(body),
-                },
+                usesGptImageEdits
+                    ? {
+                        method: 'POST',
+                        headers: createAiHeaders(apiKey),
+                        body: buildGptImageEditsFormData(body, normalizedImages),
+                    }
+                    : {
+                        method: 'POST',
+                        headers: createAiHeaders(apiKey, true),
+                        body: JSON.stringify(body),
+                    },
                 { label: 'generate-image', timeoutMs: AI_UPSTREAM_TIMEOUT_MS.submit },
             );
         } catch (error: unknown) {
@@ -178,5 +202,49 @@ function estimateBase64Bytes(value: string): number {
 
     const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
     return Math.floor((normalized.length * 3) / 4) - padding;
+}
+
+function buildGptImageEditsFormData(
+    body: Record<string, unknown>,
+    referenceImages: NormalizedReferenceImage[],
+): FormData {
+    const formData = new FormData();
+
+    appendFormDataString(formData, 'model', body.model);
+    appendFormDataString(formData, 'prompt', body.prompt);
+    appendFormDataString(formData, 'size', body.size);
+    appendFormDataString(formData, 'quality', body.quality);
+    appendFormDataString(formData, 'response_format', body.response_format);
+
+    referenceImages.forEach((image, index) => {
+        const buffer = Buffer.from(image.base64, 'base64');
+        const blob = new Blob([buffer], { type: image.mime || 'image/png' });
+        formData.append('image', blob, `reference-${index + 1}${getImageExtensionFromMime(image.mime)}`);
+    });
+
+    return formData;
+}
+
+function appendFormDataString(formData: FormData, key: string, value: unknown) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+        formData.append(key, value);
+    }
+}
+
+function getImageExtensionFromMime(mime: string): string {
+    const normalizedMime = mime.toLowerCase();
+    if (normalizedMime === 'image/jpeg' || normalizedMime === 'image/jpg') {
+        return '.jpg';
+    }
+
+    if (normalizedMime === 'image/webp') {
+        return '.webp';
+    }
+
+    if (normalizedMime === 'image/gif') {
+        return '.gif';
+    }
+
+    return '.png';
 }
 

@@ -2,12 +2,13 @@
 
 import {
   isOpenAiGptImageModel,
+  resolveOpenAiGptImageQuality,
   isStandardImageSize,
   isSelectableOpenAiGptImageAspectRatio,
   resolveOpenAiGptImageAspectRatio,
-  resolveOpenAiGptImagePixelSize,
+  resolveOpenAiGptImageSize,
 } from './image-generation-models';
-import type { OpenAiGptImagePixelSize, StandardImageSize } from './image-generation-models';
+import type { OpenAiGptImageQuality, StandardImageSize } from './image-generation-models';
 
 export interface WorkbenchSettings {
   autoSaveGenerated: boolean;
@@ -25,6 +26,7 @@ export interface ImageGenerationDefaults {
   model: 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
   aspectRatio: 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9' | '9:21';
   imageSize: string;
+  quality: OpenAiGptImageQuality;
   generateCount: 1 | 2 | 3 | 4;
 }
 
@@ -58,6 +60,7 @@ export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
     model: 'gemini-3.1-flash-image-preview',
     aspectRatio: '21:9',
     imageSize: '2K',
+    quality: 'auto',
     generateCount: 1,
   },
   videoDefaults: {
@@ -133,10 +136,13 @@ function sanitizeImageDefaults(value: unknown): ImageGenerationDefaults {
     ? parsed.aspectRatio
     : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.aspectRatio;
   const imageSize = isOpenAiGptImageModel(model)
-    ? resolveOpenAiGptImagePixelSize(parsed.imageSize, parsedAspectRatio)
+    ? resolveOpenAiGptImageSize(parsed.imageSize, parsedAspectRatio)
     : isStandardImageSize(parsed.imageSize)
       ? parsed.imageSize
       : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.imageSize;
+  const quality = isOpenAiGptImageModel(model)
+    ? resolveOpenAiGptImageQuality(parsed.quality)
+    : 'auto';
   const aspectRatio = isOpenAiGptImageModel(model)
     ? resolveOpenAiGptImageAspectRatio(imageSize, parsedAspectRatio)
     : parsedAspectRatio === '9:21'
@@ -150,6 +156,7 @@ function sanitizeImageDefaults(value: unknown): ImageGenerationDefaults {
     model,
     aspectRatio,
     imageSize,
+    quality,
     generateCount,
   };
 }

@@ -40,6 +40,7 @@ export type ImageGenerationRequest = {
   model?: string;
   aspectRatio?: string;
   imageSize?: string;
+  quality?: string;
   generateCount?: number;
   referenceImages?: string[];
   referenceImage?: string;
@@ -137,6 +138,7 @@ export async function requestImageGeneration(
     model: resolved.model,
     aspectRatio: resolved.aspectRatio,
     imageSize: resolved.imageSize,
+    quality: resolved.quality,
     generateCount: resolved.generateCount,
     referenceImages: resolved.referenceImages,
     referenceImage: resolved.referenceImage,

@@ -75,4 +75,86 @@ describe('generate-image route', () => {
             taskId: 'task-pending-image-1',
         });
     });
+
+    it('routes gpt-image-2 reference-image requests through edits multipart', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            taskId: 'task-gpt-edits-1',
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '根据参考图生成海报',
+            model: 'gpt-image-2',
+            aspectRatio: '16:9',
+            imageSize: '2048x1152',
+            quality: 'high',
+            referenceImages: ['data:image/png;base64,aGVsbG8='],
+            forceAsync: true,
+        }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/images/edits?async=true');
+        expect(init?.method).toBe('POST');
+        expect(init?.headers).toMatchObject({
+            Authorization: 'Bearer test-key',
+        });
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+        expect(init?.body).toBeInstanceOf(FormData);
+
+        const formData = init?.body as FormData;
+        expect(formData.get('model')).toBe('gpt-image-2');
+        expect(formData.get('size')).toBe('2048x1152');
+        expect(formData.get('quality')).toBe('high');
+        expect(formData.get('response_format')).toBe('url');
+        expect(formData.getAll('image')).toHaveLength(1);
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'task-gpt-edits-1',
+        });
+    });
+
+    it('passes gpt-image-2 auto size through generations without ratio compensation', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            task_id: 'task-gpt-auto-1',
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '自动尺寸构图',
+            model: 'gpt-image-2',
+            aspectRatio: '16:9',
+            imageSize: 'auto',
+            quality: 'low',
+            forceAsync: true,
+        }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/images/generations?async=true');
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
+            model: 'gpt-image-2',
+            prompt: '自动尺寸构图',
+            size: 'auto',
+            quality: 'low',
+        });
+        expect(body.prompt).not.toContain('Composition requirements:');
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'task-gpt-auto-1',
+        });
+    });
 });

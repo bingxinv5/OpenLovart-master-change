@@ -31,7 +31,8 @@ function buildImageMetaChips(element: CanvasElement) {
     }
     if (element.selectedAspectRatio?.trim()) chips.push(element.selectedAspectRatio.trim());
     if (element.selectedImageSize?.trim()) chips.push(element.selectedImageSize.trim());
-    return chips.slice(0, 3);
+    if (element.selectedImageQuality?.trim() && element.selectedImageQuality.trim() !== 'auto') chips.push(`质量 ${element.selectedImageQuality.trim()}`);
+    return chips.slice(0, 4);
 }
 
 function buildStoryboardMetaChips(element: CanvasElement) {

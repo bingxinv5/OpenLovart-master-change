@@ -28,6 +28,7 @@ export interface PendingSubmission {
     model: string;
     aspectRatio: string;
     imageSize: string;
+    quality?: string;
     generateCount?: number;
     taskType: 'image' | 'video';
     duration?: string;

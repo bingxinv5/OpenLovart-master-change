@@ -3,15 +3,17 @@
 import { ensureImageRef } from '@/lib/editor-kernel';
 import {
     getMaxReferenceImagesForImageModel,
+    resolveOpenAiGptImageQuality,
     isStandardImageSize,
     resolveOpenAiGptImageAspectRatio,
-    resolveOpenAiGptImagePixelSize,
+    resolveOpenAiGptImageSize,
 } from '@/lib/image-generation-models';
 import { createLocalCollection } from '@/lib/typed-local-collection';
 
 export type ImageHistoryModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
 export type ImageHistoryAspectRatio = 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9' | '9:21';
 export type ImageHistorySize = string;
+export type ImageHistoryQuality = 'auto' | 'low' | 'medium' | 'high';
 export type ImageHistoryGenerateCount = 1 | 2 | 3 | 4;
 
 export interface ImageGenerationHistoryItem {
@@ -20,6 +22,7 @@ export interface ImageGenerationHistoryItem {
     model: ImageHistoryModel;
     aspectRatio: ImageHistoryAspectRatio;
     imageSize: ImageHistorySize;
+    quality: ImageHistoryQuality;
     generateCount: ImageHistoryGenerateCount;
     referenceImages: string[];
     createdAt: number;
@@ -45,6 +48,7 @@ export interface ImageGenerationHistoryDraft {
     model: ImageHistoryModel;
     aspectRatio: ImageHistoryAspectRatio;
     imageSize: ImageHistorySize;
+    quality: ImageHistoryQuality;
     generateCount: ImageHistoryGenerateCount;
     referenceImages?: string[];
 }
@@ -117,6 +121,7 @@ function areHistoryItemsEqual(left: ImageGenerationHistoryItem[], right: ImageGe
             || leftItem.model !== rightItem.model
             || leftItem.aspectRatio !== rightItem.aspectRatio
             || leftItem.imageSize !== rightItem.imageSize
+            || leftItem.quality !== rightItem.quality
             || leftItem.generateCount !== rightItem.generateCount
             || leftItem.createdAt !== rightItem.createdAt
             || !areStringArraysEqual(leftItem.referenceImages, rightItem.referenceImages)
@@ -170,10 +175,13 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
         ? value.aspectRatio
         : '21:9';
     const imageSize = model === 'gpt-image-2'
-        ? resolveOpenAiGptImagePixelSize(value.imageSize, aspectRatio)
+        ? resolveOpenAiGptImageSize(value.imageSize, aspectRatio)
         : isStandardImageSize(value.imageSize)
             ? value.imageSize
             : '4K';
+    const quality = model === 'gpt-image-2'
+        ? resolveOpenAiGptImageQuality(value.quality)
+        : 'auto';
     const generateCount = value.generateCount === 1 || value.generateCount === 2 || value.generateCount === 3 || value.generateCount === 4 ? value.generateCount : 1;
     const maxReferenceImages = getMaxReferenceImagesForImageModel(model);
     const referenceImages = Array.isArray(value.referenceImages)
@@ -190,6 +198,7 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
                 ? '9:16'
                 : aspectRatio,
         imageSize,
+        quality,
         generateCount,
         referenceImages,
         createdAt: typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),
@@ -276,6 +285,7 @@ export async function appendImageGenerationHistory(draft: ImageGenerationHistory
         model: draft.model,
         aspectRatio: draft.aspectRatio,
         imageSize: draft.imageSize,
+        quality: draft.quality,
         generateCount: draft.generateCount,
         referenceImages: draft.referenceImages ?? [],
         createdAt: Date.now(),
@@ -293,6 +303,7 @@ export async function appendImageGenerationHistory(draft: ImageGenerationHistory
             && item.model === nextItem.model
             && item.aspectRatio === nextItem.aspectRatio
             && item.imageSize === nextItem.imageSize
+                && item.quality === nextItem.quality
             && item.generateCount === nextItem.generateCount);
     });
     const nextHistory = [nextItem, ...deduped].slice(0, MAX_ITEMS);

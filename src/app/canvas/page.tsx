@@ -1152,7 +1152,7 @@ function LovartCanvasContent() {
         : sideChatWidth;
     const benchmarkPanelRightOffset = rightWorkbenchOffset + 16;
 
-    const handleGeneratorSubmittingChange = useCallback((elementId: string, submitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; duration?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => {
+    const handleGeneratorSubmittingChange = useCallback((elementId: string, submitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; quality?: string; duration?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => {
         setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, submitting));
         const pid = currentProjectIdRef.current;
         if (!pid) return;
@@ -1164,6 +1164,7 @@ function LovartCanvasContent() {
                 const actualModel = liveParams?.model || el.selectedModel || '';
                 const actualAspectRatio = liveParams?.aspectRatio || el.selectedAspectRatio || '21:9';
                 const actualImageSize = liveParams?.imageSize || el.selectedImageSize || '';
+                const actualQuality = liveParams?.quality || el.selectedImageQuality || 'auto';
                 const actualDuration = liveParams?.duration || el.selectedDuration || '';
                 const actualGenerateCount = liveParams?.generateCount || el.selectedGenerateCount || 1;
 
@@ -1171,13 +1172,14 @@ function LovartCanvasContent() {
                 // 避免 usePersistGeneratorValue 异步延迟导致 savedPrompt 是旧值。
                 // 这样在 finalizeGeneratedImageElement 用 ...item 展开时，
                 // 图片元素上的 savedPrompt 始终为实际生成所用的提示词。
-                if (actualPrompt !== el.savedPrompt || actualModel !== el.selectedModel || actualAspectRatio !== el.selectedAspectRatio || actualImageSize !== (el.selectedImageSize || '') || actualDuration !== (el.selectedDuration || '') || actualGenerateCount !== (el.selectedGenerateCount || 1)) {
+                if (actualPrompt !== el.savedPrompt || actualModel !== el.selectedModel || actualAspectRatio !== el.selectedAspectRatio || actualImageSize !== (el.selectedImageSize || '') || actualQuality !== (el.selectedImageQuality || 'auto') || actualDuration !== (el.selectedDuration || '') || actualGenerateCount !== (el.selectedGenerateCount || 1)) {
                     const synced = {
                         ...el,
                         savedPrompt: actualPrompt,
                         selectedModel: actualModel,
                         selectedAspectRatio: actualAspectRatio,
                         selectedImageSize: actualImageSize || undefined,
+                        selectedImageQuality: actualQuality,
                         selectedDuration: actualDuration || undefined,
                         selectedGenerateCount: actualGenerateCount,
                     };
@@ -1190,6 +1192,7 @@ function LovartCanvasContent() {
                     model: actualModel,
                     aspectRatio: actualAspectRatio,
                     imageSize: liveParams?.imageSize || '4K',
+                    quality: actualQuality,
                     generateCount: actualGenerateCount,
                     taskType: el.type === 'video-generator' || el.type === 'video' ? 'video' : 'image',
                     duration: liveParams?.duration,
@@ -3461,6 +3464,7 @@ function LovartCanvasContent() {
                     selectedModel: workbenchSettings.imageDefaults.model,
                     selectedAspectRatio: workbenchSettings.imageDefaults.aspectRatio,
                     selectedImageSize: workbenchSettings.imageDefaults.imageSize,
+                    selectedImageQuality: workbenchSettings.imageDefaults.quality,
                 });
 
                 addElementsWithOptionalAutoGroup([boardElement], groupName);
@@ -3512,6 +3516,7 @@ function LovartCanvasContent() {
                     selectedModel: workbenchSettings.imageDefaults.model,
                     selectedAspectRatio: workbenchSettings.imageDefaults.aspectRatio,
                     selectedImageSize: workbenchSettings.imageDefaults.imageSize,
+                    selectedImageQuality: workbenchSettings.imageDefaults.quality,
                 });
             });
 
@@ -3522,7 +3527,7 @@ function LovartCanvasContent() {
                 'success',
             );
         })();
-    }, [addElementsWithOptionalAutoGroup, buildImageElement, getPlacementPosition, normalizeGeneratedImageContent, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model]);
+    }, [addElementsWithOptionalAutoGroup, buildImageElement, getPlacementPosition, normalizeGeneratedImageContent, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
 
     const handleGenerateVideo = useCallback(async ({ videoUrl, taskId }: { videoUrl: string; taskId?: string | null }) => {
         const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
@@ -4068,6 +4073,7 @@ function LovartCanvasContent() {
         const model = currentElement.selectedModel || workbenchSettings.imageDefaults.model;
         const aspectRatio = currentElement.selectedAspectRatio || workbenchSettings.imageDefaults.aspectRatio;
         const imageSize = currentElement.selectedImageSize || workbenchSettings.imageDefaults.imageSize;
+        const quality = currentElement.selectedImageQuality || workbenchSettings.imageDefaults.quality;
         const referenceImages = await resolveElementReferenceImages(currentElement);
         const projectId = currentProjectIdRef.current;
 
@@ -4078,6 +4084,7 @@ function LovartCanvasContent() {
                 model,
                 aspectRatio,
                 imageSize,
+                quality,
                 taskType: 'image',
                 timestamp: Date.now(),
             });
@@ -4096,6 +4103,7 @@ function LovartCanvasContent() {
                 model,
                 aspectRatio,
                 imageSize,
+                quality,
                 referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
                 preferDirect: true,
                 forceAsync: true,
@@ -4153,7 +4161,7 @@ function LovartCanvasContent() {
         } finally {
             setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
         }
-    }, [announcePassiveCompletedResult, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, resolveElementReferenceImages, setElements, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model]);
+    }, [announcePassiveCompletedResult, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, resolveElementReferenceImages, setElements, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
 
     const submitStoryboardVideoGeneratorElement = useCallback(async (elementId: string, snapshot?: CanvasElement) => {
         const currentElement = snapshot || elementsMapRef.current.get(elementId);
@@ -4535,8 +4543,9 @@ function LovartCanvasContent() {
         const model = element.selectedModel || workbenchSettings.imageDefaults.model;
         const aspectRatio = element.selectedAspectRatio || workbenchSettings.imageDefaults.aspectRatio;
         const imageSize = element.selectedImageSize || workbenchSettings.imageDefaults.imageSize;
+        const quality = element.selectedImageQuality || workbenchSettings.imageDefaults.quality;
 
-        handleGeneratorSubmittingChange(element.id, true, { prompt, model, aspectRatio, imageSize });
+        handleGeneratorSubmittingChange(element.id, true, { prompt, model, aspectRatio, imageSize, quality });
         showToast('✨ AI 正在处理中，请稍候...', 'info');
 
         // 解析 imgref 为实际数据用于 API 发送
@@ -4553,6 +4562,7 @@ function LovartCanvasContent() {
                     selectedModel: model,
                     selectedAspectRatio: aspectRatio,
                     selectedImageSize: imageSize,
+                    selectedImageQuality: quality,
                     ...createGenerationTaskPatch('ai-editing', 'image'),
                 }
                 : item
@@ -4568,6 +4578,7 @@ function LovartCanvasContent() {
                 model,
                 aspectRatio,
                 imageSize,
+                quality,
                 referenceImages: scopedReferenceImages.length > 0 ? scopedReferenceImages : undefined,
                 referenceImage: resolvedContent,
                 preferDirect: false,
@@ -4629,10 +4640,10 @@ function LovartCanvasContent() {
                 isInterrupted ? 'info' : 'error',
             );
         } finally {
-            handleGeneratorSubmittingChange(element.id, false, { prompt, model, aspectRatio, imageSize }, { outcome: submissionOutcome });
+            handleGeneratorSubmittingChange(element.id, false, { prompt, model, aspectRatio, imageSize, quality }, { outcome: submissionOutcome });
         }
 
-    }, [announceCompletedResult, finalizeAiEditedImageElement, handleGeneratorSubmittingChange, resolveElementReferenceImages, setElements, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model]);
+    }, [announceCompletedResult, finalizeAiEditedImageElement, handleGeneratorSubmittingChange, resolveElementReferenceImages, setElements, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
 
     const handleRecoverEditedImageTask = useCallback(async (elementId: string, rawTaskId: string) => {
         const taskId = rawTaskId.trim();
@@ -5467,6 +5478,7 @@ function LovartCanvasContent() {
         selectedModel?: string;
         selectedAspectRatio?: string;
         selectedImageSize?: string;
+        selectedImageQuality?: string;
         selectedGenerateCount?: number;
         generationResultIndex?: number;
         savedReferenceImages?: string;
