@@ -17,6 +17,8 @@ import { createSelectionBox, getSelectionBoxScreenRect, resolveSelectionBoxSelec
 import { getDragDescendantIds, resolveDragFrameAdoptions } from './canvas-drag-adoption';
 import { calculateResizeBounds } from './canvas-resize-state';
 import { useCanvasPanController } from './use-canvas-pan-controller';
+import { collectDragInitialPositions, createFrameElementFromDrawBox, createMarkElementAtPoint, createPathElementFromPoints, getDragSelectionAnchor } from './canvas-pointer-element-factories';
+import { useCanvasToolbarSelectionProbe } from './use-canvas-toolbar-selection-probe';
 
 // ── Internal types (mirrors private types in CanvasArea) ──────────────────────
 
@@ -208,10 +210,6 @@ export function useCanvasPointerInteraction(
     const processMouseMoveRef = useRef<typeof processMouseMove>(() => { /* init */ });
     const handleMouseUpRef = useRef<() => void>(() => { /* init */ });
 
-    // ── Toolbar selection probe refs ───────────────────────────────────────────
-    const toolbarSelectionProbeRef = useRef<(() => void) | null>(null);
-    const toolbarSuppressClickRef = useRef(false);
-
     const {
         cancelInertia,
         commitPanChange,
@@ -285,86 +283,14 @@ export function useCanvasPointerInteraction(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setIsSelecting, setSelectionBox, syncSelectionBoxOverlay, setActiveVideoId, setEditingTextId]);
 
-    // ── Toolbar selection probe ────────────────────────────────────────────────
-
-    const stopToolbarSelectionProbe = useCallback(() => {
-        toolbarSelectionProbeRef.current?.();
-        toolbarSelectionProbeRef.current = null;
-    }, []);
-
-    const handleToolbarSelectionPressStart = useCallback((e: {
-        button: number;
-        target: EventTarget | null;
-        stopPropagation: () => void;
-        clientX: number;
-        clientY: number;
-        shiftKey: boolean;
-        ctrlKey: boolean;
-        metaKey: boolean;
-    }) => {
-        if (e.button !== 0) return;
-        const target = e.target as HTMLElement;
-        if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
-        e.stopPropagation();
-        toolbarSuppressClickRef.current = false;
-        stopToolbarSelectionProbe();
-
-        const startClientX = e.clientX;
-        const startClientY = e.clientY;
-        const additiveSelection = e.shiftKey || e.ctrlKey || e.metaKey;
-
-        const handleMove = (event: MouseEvent | PointerEvent) => {
-            if ((event.buttons & 1) !== 1) {
-                stopToolbarSelectionProbe();
-                return;
-            }
-            const movedX = Math.abs(event.clientX - startClientX);
-            const movedY = Math.abs(event.clientY - startClientY);
-            if (Math.max(movedX, movedY) < DRAG_START_THRESHOLD) return;
-            toolbarSuppressClickRef.current = true;
-            beginSelectionBoxFromClient(startClientX, startClientY, event.clientX, event.clientY, additiveSelection);
-            stopToolbarSelectionProbe();
-        };
-
-        const handleUp = () => {
-            stopToolbarSelectionProbe();
-        };
-
-        const handlePointerCancel = (event: PointerEvent) => {
-            if (event.pointerType === 'mouse') return;
-            stopToolbarSelectionProbe();
-        };
-
-        window.addEventListener('mousemove', handleMove, true);
-        window.addEventListener('pointermove', handleMove, true);
-        window.addEventListener('mouseup', handleUp, true);
-        window.addEventListener('pointerup', handleUp, true);
-        window.addEventListener('pointercancel', handlePointerCancel, true);
-
-        toolbarSelectionProbeRef.current = () => {
-            window.removeEventListener('mousemove', handleMove, true);
-            window.removeEventListener('pointermove', handleMove, true);
-            window.removeEventListener('mouseup', handleUp, true);
-            window.removeEventListener('pointerup', handleUp, true);
-            window.removeEventListener('pointercancel', handlePointerCancel, true);
-        };
-    }, [DRAG_START_THRESHOLD, beginSelectionBoxFromClient, stopToolbarSelectionProbe]);
-
-    const handleToolbarSelectionMouseDownCapture = useCallback((e: ReactMouseEvent) => {
-        handleToolbarSelectionPressStart(e);
-    }, [handleToolbarSelectionPressStart]);
-
-    const handleToolbarSelectionPointerDownCapture = useCallback((e: ReactPointerEvent) => {
-        if (e.pointerType && e.pointerType !== 'mouse') return;
-        handleToolbarSelectionPressStart(e);
-    }, [handleToolbarSelectionPressStart]);
-
-    const handleToolbarSelectionClickCapture = useCallback((e: ReactMouseEvent) => {
-        if (!toolbarSuppressClickRef.current) return;
-        toolbarSuppressClickRef.current = false;
-        e.preventDefault();
-        e.stopPropagation();
-    }, []);
+    const {
+        handleToolbarSelectionMouseDownCapture,
+        handleToolbarSelectionPointerDownCapture,
+        handleToolbarSelectionClickCapture,
+    } = useCanvasToolbarSelectionProbe({
+        dragStartThreshold: DRAG_START_THRESHOLD,
+        beginSelectionBoxFromClient,
+    });
 
     // ── Resize interaction ─────────────────────────────────────────────────────
 
@@ -461,29 +387,11 @@ export function useCanvasPointerInteraction(
 
         if (activeTool === 'mark') {
             const { x: canvasX, y: canvasY } = toCanvasPoint(e.clientX, e.clientY);
-            const existingMarks = elements.filter(el => el.type === 'mark');
-            const markNumber = existingMarks.length > 0
-                ? Math.max(...existingMarks.map(m => m.markNumber || 0)) + 1
-                : 1;
-            const targetElement = [...elements].reverse().find(el => {
-                if (el.type !== 'image' && el.type !== 'video') return false;
-                if (!el.content) return false;
-                const elRight = el.x + (el.width || 0);
-                const elBottom = el.y + (el.height || 0);
-                return canvasX >= el.x && canvasX <= elRight && canvasY >= el.y && canvasY <= elBottom;
+            const { element: newMark, targetElement } = createMarkElementAtPoint({
+                point: { x: canvasX, y: canvasY },
+                elements,
+                nextId: uuidv4,
             });
-            const newMark: CanvasElement = {
-                id: uuidv4(),
-                type: 'mark',
-                x: canvasX - 16,
-                y: canvasY - 30,
-                width: 32,
-                height: 32,
-                markNumber,
-                markText: '',
-                color: '#EF4444',
-                markTargetId: targetElement?.id,
-            };
             onAddElement(newMark);
             onSelect([newMark.id]);
             if (targetElement) {
@@ -551,29 +459,7 @@ export function useCanvasPointerInteraction(
 
         draggedElementIdRef.current = elementId;
 
-        // Store initial positions of ALL selected elements for group dragging,
-        // recursively including descendants of selected frames.
-        const frameChildIds = new Set<string>();
-        const collectDescendants = (parentId: string) => {
-            elements.forEach(child => {
-                if (
-                    child.parentFrameId === parentId &&
-                    !dragSelectedIds.includes(child.id) &&
-                    !frameChildIds.has(child.id)
-                ) {
-                    frameChildIds.add(child.id);
-                    if (child.type === 'frame') collectDescendants(child.id);
-                }
-            });
-        };
-        dragSelectedIds.forEach(selId => {
-            const el = elements.find(e => e.id === selId);
-            if (el?.type === 'frame') collectDescendants(selId);
-        });
-        const allDragIds = [...new Set([...dragSelectedIds, ...frameChildIds])];
-        const initialPositions = elements
-            .filter(el => allDragIds.includes(el.id))
-            .map(el => ({ id: el.id, x: el.x, y: el.y }));
+        const initialPositions = collectDragInitialPositions(elements, dragSelectedIds);
 
         dragStartRef.current = {
             x: e.clientX,
@@ -663,13 +549,9 @@ export function useCanvasPointerInteraction(
                 dragStartRef.current.selectionIds.length > 0 &&
                 onDuplicateSelection
             ) {
-                const sourceSelection = elements.filter(
-                    element => dragStartRef.current?.selectionIds?.includes(element.id),
-                );
-                if (sourceSelection.length > 0) {
-                    const minX = Math.min(...sourceSelection.map(element => element.x));
-                    const minY = Math.min(...sourceSelection.map(element => element.y));
-                    const duplicateResult = onDuplicateSelection(dragStartRef.current.selectionIds, { x: minX, y: minY });
+                const anchor = getDragSelectionAnchor(elements, dragStartRef.current.selectionIds);
+                if (anchor) {
+                    const duplicateResult = onDuplicateSelection(dragStartRef.current.selectionIds, anchor);
 
                     if (duplicateResult?.copies.length) {
                         const nextDraggedElementId = draggedElementIdRef.current
@@ -813,37 +695,13 @@ export function useCanvasPointerInteraction(
 
         // Frame drawing completion
         if (isFrameDrawing && frameDrawBox) {
-            const x = Math.min(frameDrawBox.startX, frameDrawBox.currentX);
-            const y = Math.min(frameDrawBox.startY, frameDrawBox.currentY);
-            const w = Math.abs(frameDrawBox.currentX - frameDrawBox.startX);
-            const h = Math.abs(frameDrawBox.currentY - frameDrawBox.startY);
-            if (w >= 20 && h >= 20) {
-                const frameId = uuidv4();
-                const newFrame: CanvasElement = {
-                    id: frameId,
-                    type: 'frame',
-                    x,
-                    y,
-                    width: Math.round(w),
-                    height: Math.round(h),
-                    framePreset: 'Custom',
-                    frameBgColor: '#FFFFFF',
-                    frameClip: true,
-                    frameName: 'Frame',
-                };
-                onAddElement(newFrame);
-                elements.forEach(el => {
-                    if (el.type === 'connector') return;
-                    const elCenterX = el.x + (el.width || 0) / 2;
-                    const elCenterY = el.y + (el.height || 0) / 2;
-                    if (
-                        elCenterX >= x && elCenterX <= x + Math.round(w) &&
-                        elCenterY >= y && elCenterY <= y + Math.round(h)
-                    ) {
-                        if (!el.parentFrameId) onElementChange(el.id, { parentFrameId: frameId });
-                    }
+            const result = createFrameElementFromDrawBox({ box: frameDrawBox, elements, nextId: uuidv4 });
+            if (result) {
+                onAddElement(result.frame);
+                result.containedElementIds.forEach(elementId => {
+                    onElementChange(elementId, { parentFrameId: result.frame.id });
                 });
-                onSelect([frameId]);
+                onSelect([result.frame.id]);
             }
             setIsFrameDrawing(false);
             setFrameDrawBox(null);
@@ -862,28 +720,8 @@ export function useCanvasPointerInteraction(
 
         // Free-draw path completion
         if (isDrawing && currentPath) {
-            const points = currentPath.points;
-            if (points.length > 1) {
-                const xs = points.map(p => p.x);
-                const ys = points.map(p => p.y);
-                const minX = Math.min(...xs);
-                const minY = Math.min(...ys);
-                const maxX = Math.max(...xs);
-                const maxY = Math.max(...ys);
-                const width = maxX - minX;
-                const height = maxY - minY;
-                const newPoints = points.map(p => ({ x: p.x - minX, y: p.y - minY }));
-                const newElement: CanvasElement = {
-                    id: uuidv4(),
-                    type: 'path',
-                    x: minX,
-                    y: minY,
-                    width: Math.max(width, 1),
-                    height: Math.max(height, 1),
-                    points: newPoints,
-                    color: '#000000',
-                    strokeWidth: 3,
-                };
+            const newElement = createPathElementFromPoints({ points: currentPath.points, nextId: uuidv4 });
+            if (newElement) {
                 onAddElement(newElement);
                 onSelect([newElement.id]);
             }

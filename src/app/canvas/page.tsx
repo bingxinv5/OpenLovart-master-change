@@ -22,17 +22,9 @@ import { LayersPanel } from '@/components/lovart/LayersPanel';
 import { ProjectMediaPanel } from '@/components/lovart/ProjectMediaPanel';
 import { ProjectReferencePanel } from '@/components/lovart/ProjectReferencePanel';
 import { GenerationQueuePanel, type GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
-import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from '@/components/lovart/generator-error-utils';
-import { runImageGenerationFlow } from '@/components/lovart/image-generation-flow';
-import { runVideoGenerationFlow } from '@/components/lovart/video-generation-flow';
 import { hasCurrentCanvasLegacyMigration, markCanvasLegacyMigrationApplied, type CanvasElement } from '@/components/lovart/canvas-types';
-import { type StoryboardPlanResponse } from '@/lib/ai-client';
-import {
-    createGenerationIdlePatch,
-    createGenerationTaskPatch,
-} from '@/lib/generation-task-state';
 import { useLocalDb } from '@/hooks/useLocalDb';
-import { elementStore, migrateElementsToImageStore, isImageRef, getImageBlob, getImageDataUrl, saveImageBlob, cleanupUnusedImages } from '@/lib/editor-kernel';
+import { elementStore, isImageRef, getImageBlob, getImageDataUrl, cleanupUnusedImages } from '@/lib/editor-kernel';
 import { useCanvasFeedback } from './canvas-feedback';
 import { CanvasBenchmarkPanel } from './CanvasBenchmarkPanel';
 import { CanvasHeader } from './CanvasHeader';
@@ -53,16 +45,10 @@ import {
     resolveImageDisplayMetrics as getImageDisplayMetrics,
     type ResolveImageDisplayMetricsOptions,
 } from './canvas-image-assets';
-import {
-    resolveProjectMediaImageInsertContent as resolveBackflowMediaImageInsertContent,
-    resolveProjectReferenceImageInsertContent as resolveBackflowReferenceImageInsertContent,
-    saveProjectReferenceFromMediaItem as saveBackflowProjectReferenceFromMediaItem,
-} from './canvas-project-backflow';
-import { createSingleImageToolResultElement } from './image-tool-result';
 import { getElementPanelStyle } from './canvas-panel-style-utils';
 import { getViewportSize } from './canvas-focus';
 import { getGeneratorOverlayStyle, getSelectedGeneratorElement } from './canvas-generator-overlay';
-import { applyElementGenerationPatch, applyGenerationFailure, applyVideoGenerationSuccess, setElementGenerationTask, updateGeneratorSubmittingMap } from './canvas-generation';
+import { applyElementGenerationPatch, updateGeneratorSubmittingMap } from './canvas-generation';
 import { buildActiveChunkSummary, buildCanvasRuntimeElements, buildChunkPanelEntries, buildChunkResidencyState as buildRuntimeChunkResidencyState } from './canvas-chunk-runtime';
 import { useCanvasKeyboardShortcuts } from './canvas-keyboard-shortcuts';
 import { useCanvasSelectionBridge } from './canvas-selection-bridge';
@@ -79,8 +65,10 @@ import { useGenerationPollingController } from './canvas-generation-controller';
 import { useImageFinalizer } from './use-image-finalizer';
 import { useCanvasProjectReferenceActions } from './use-canvas-project-reference-actions';
 import { useCanvasBenchmarkActions } from './use-canvas-benchmark-actions';
-import { pollGenerationTask } from './generation-polling';
-import { persistGeneration, removeGeneration, persistSubmission, clearSubmission } from './generation-persistence';
+import { useCanvasProjectBackflowActions } from './use-canvas-project-backflow-actions';
+import { useCanvasStoryboardActions } from './use-canvas-storyboard-actions';
+import { useCanvasImageToolActions } from './use-canvas-image-tool-actions';
+import { persistSubmission, clearSubmission } from './generation-persistence';
 import { saveViewportState } from './viewport-persistence';
 import {
     buildCanvasChunkManifest,
@@ -96,17 +84,9 @@ import {
     STORAGE_WARN_THRESHOLD,
     STORAGE_CRITICAL_THRESHOLD,
     CHUNK_RELEASE_GRACE_MS,
-    buildStoryboardPlaceholderDataUrl,
-    getStoryboardAuditState,
-    hasStoryboardGenerationSeed,
-    sortStoryboardElements,
     loadPinnedChunkIds,
     persistPinnedChunkIds,
-    mapStoryboardFilterToScope,
     resolveElementChunkId,
-    getCanvasDisplaySize,
-    readImageDimensions,
-    deriveProjectThumbnail,
     mapWithConcurrency,
     triggerBrowserDownload,
     saveBlobToLocalFile,
@@ -119,18 +99,12 @@ import {
     getDefaultImagePresentation,
     getViewportBounds,
     getElementViewportPriority,
-    chooseSplitLayoutOrigin,
     cloneCanvasElement,
-    sanitizeToolName,
     sanitizeFilenameStem,
     getElementBaseName,
-    resolveToolResultNaming,
     type ChunkPreheatState,
-    type HistorySummary,
     type ActiveChunkSummary,
     type ChunkResidencyState,
-    type StoryboardNavigationScope,
-    type StoryboardAuditFilter,
     type ElementExportFormat,
 } from './canvas-page-utils';
 import { fetchRemoteBlob } from '@/lib/blob-utils';
@@ -144,15 +118,9 @@ import {
 } from './canvas-element-ops';
 import { useCanvasActions } from './canvas-actions';
 import { buildGeneratorCanvasImages, buildSelectedCanvasImageIds } from './canvas-generator-panel-view-model';
-import { annotateImageBlob, type AnnotateImageOptions } from '@/lib/image-annotate';
-import { cropImageBlob, type CropImageOptions } from '@/lib/image-crop';
-import { buildStoryboardExportBlob, type StoryboardExportOptions } from '@/lib/storyboard-export';
-import { splitImageBlobIntoFrames, type StoryboardSplitFrame, type StoryboardSplitOptions } from '@/lib/storyboard-split';
-import { upscaleImageBlob, type UpscaleModelId } from '@/lib/upscale-api';
-
-import { cancelActiveWorkerJobs, isWorkerCancelledError } from '@/lib/image-worker-bridge';
-import { appendProjectMediaHistory, clearProjectMediaHistory, readProjectMediaHistory, replaceProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
-import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
+import { cancelActiveWorkerJobs } from '@/lib/image-worker-bridge';
+import { appendProjectMediaHistory, readProjectMediaHistory, replaceProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
+import { readProjectReferenceLibrary, subscribeProjectReferenceLibrary, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
 
 function isEditableOverlayTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
@@ -1718,117 +1686,6 @@ function LovartCanvasContent() {
         addAndFocusElement(newElement);
     }, [addAndFocusElement, buildGeneratorElement, getPlacementPosition]);
 
-    const handleStoryboardPlanFromImage = useCallback((element: CanvasElement) => {
-        if (element.type !== 'image' || !element.content) {
-            return;
-        }
-
-        setStoryboardPlannerSourceElementId(element.id);
-        setSelectedIds([element.id]);
-    }, []);
-
-    const handleCreateStoryboardDraft = useCallback((plan: StoryboardPlanResponse, referenceImages: string[], generatedStoryboardImage?: string | null, combinedPrompt?: string) => {
-        if (plan.shots.length === 0) {
-            showToast('分镜结果为空，无法导入画布', 'error');
-            return;
-        }
-
-        void (async () => {
-            const center = getPlacementPosition();
-            const groupName = plan.title?.trim() || `${plan.mode === 'story' ? '故事' : '分镜'}规划草稿`;
-            const columns = plan.shots.length === 4
-                ? 2
-                : plan.shots.length === 6
-                    ? 3
-                    : plan.shots.length === 9
-                        ? 3
-                        : plan.shots.length === 12
-                            ? 4
-                            : plan.shots.length === 16
-                                ? 4
-                                : plan.shots.length <= 8
-                                    ? 3
-                                    : 4;
-            const rows = Math.ceil(plan.shots.length / columns);
-
-            if (generatedStoryboardImage) {
-                const boardWidth = Math.min(1280, columns * 260);
-                const boardHeight = Math.round(boardWidth * rows / columns);
-                const localizedBoardContent = await normalizeGeneratedImageContent(generatedStoryboardImage, 'storyboard-board');
-                const boardElement = buildImageElement({
-                    ...buildCenteredElementBounds(center, boardWidth, boardHeight),
-                    displayName: `${groupName} · 宫格总图`,
-                    content: localizedBoardContent,
-                    savedPrompt: combinedPrompt?.trim() || plan.summary,
-                    savedReferenceImages: referenceImages.length > 0 ? JSON.stringify(referenceImages) : undefined,
-                    selectedModel: workbenchSettings.imageDefaults.model,
-                    selectedAspectRatio: workbenchSettings.imageDefaults.aspectRatio,
-                    selectedImageSize: workbenchSettings.imageDefaults.imageSize,
-                    selectedImageQuality: workbenchSettings.imageDefaults.quality,
-                });
-
-                addElementsWithOptionalAutoGroup([boardElement], groupName);
-                setStoryboardPlannerSourceElementId(null);
-                showToast(`已导入 1 张 ${plan.shots.length} 格分镜宫格图到画布`, 'success');
-                return;
-            }
-
-            const cellWidth = 360;
-            const cellHeight = 270;
-            const gap = 48;
-            const totalWidth = columns * cellWidth + Math.max(0, columns - 1) * gap;
-            const totalHeight = rows * cellHeight + Math.max(0, rows - 1) * gap;
-            const originX = center.x - totalWidth / 2;
-            const originY = center.y - totalHeight / 2;
-
-            const draftElements = plan.shots.map((shot, index) => {
-                const row = Math.floor(index / columns);
-                const col = index % columns;
-                const scopedReferenceImages = shot.referenceImageIndexes.length > 0
-                    ? shot.referenceImageIndexes
-                        .map((item) => referenceImages[item - 1])
-                        .filter((item): item is string => typeof item === 'string' && item.length > 0)
-                    : referenceImages;
-
-                const placeholderContent = buildStoryboardPlaceholderDataUrl({
-                    shotCode: shot.shotCode,
-                    sceneType: shot.sceneType,
-                    cameraMove: shot.cameraMove,
-                    duration: shot.duration,
-                    note: shot.note,
-                    prompt: shot.promptZh?.trim() || shot.note,
-                });
-
-                return buildImageElement({
-                    x: originX + col * (cellWidth + gap),
-                    y: originY + row * (cellHeight + gap),
-                    width: cellWidth,
-                    height: cellHeight,
-                    displayName: [shot.shotCode, shot.sceneType].filter(Boolean).join(' · '),
-                    content: placeholderContent,
-                    savedPrompt: shot.promptZh?.trim() || shot.note,
-                    savedReferenceImages: scopedReferenceImages.length > 0 ? JSON.stringify(scopedReferenceImages) : undefined,
-                    storyboardShotCode: shot.shotCode,
-                    storyboardSceneType: shot.sceneType,
-                    storyboardCameraMove: shot.cameraMove,
-                    storyboardDuration: shot.duration,
-                    storyboardNote: shot.note,
-                    selectedModel: workbenchSettings.imageDefaults.model,
-                    selectedAspectRatio: workbenchSettings.imageDefaults.aspectRatio,
-                    selectedImageSize: workbenchSettings.imageDefaults.imageSize,
-                    selectedImageQuality: workbenchSettings.imageDefaults.quality,
-                });
-            });
-
-            addElementsWithOptionalAutoGroup(draftElements, groupName);
-            setStoryboardPlannerSourceElementId(null);
-            showToast(
-                `宫格总图生成失败，已导入 ${draftElements.length} 个可编辑分镜卡片到画布`,
-                'success',
-            );
-        })();
-    }, [addElementsWithOptionalAutoGroup, buildImageElement, getPlacementPosition, normalizeGeneratedImageContent, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
-
     const {
         handleGenerateVideo,
         handleRecoverVideoTask,
@@ -2203,366 +2060,56 @@ function LovartCanvasContent() {
         return _resolveElementFrameImages(element);
     }, []);
 
-    const submitStoryboardGeneratorElement = useCallback(async (elementId: string, snapshot?: CanvasElement) => {
-        const currentElement = snapshot || elementsMapRef.current.get(elementId);
-        if (!currentElement || currentElement.type !== 'image-generator') {
-            return false;
-        }
-
-        const prompt = currentElement.savedPrompt?.trim() || currentElement.storyboardNote?.trim();
-        if (!prompt) {
-            setElements((prev) => applyGenerationFailure(prev, elementId, '分镜卡片缺少提示词，无法提交生成'));
-            dirtyTrackerRef.current.markModified(elementId);
-            return false;
-        }
-
-        const model = currentElement.selectedModel || workbenchSettings.imageDefaults.model;
-        const aspectRatio = currentElement.selectedAspectRatio || workbenchSettings.imageDefaults.aspectRatio;
-        const imageSize = currentElement.selectedImageSize || workbenchSettings.imageDefaults.imageSize;
-        const quality = currentElement.selectedImageQuality || workbenchSettings.imageDefaults.quality;
-        const referenceImages = await resolveElementReferenceImages(currentElement);
-        const projectId = currentProjectIdRef.current;
-
-        setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, true));
-        if (projectId) {
-            persistSubmission(projectId, elementId, {
-                prompt,
-                model,
-                aspectRatio,
-                imageSize,
-                quality,
-                taskType: 'image',
-                timestamp: Date.now(),
-            });
-        }
-
-        setElements((prev) => applyElementGenerationPatch(
-            prev,
-            elementId,
-            createGenerationIdlePatch({ progress: 0 }),
-        ));
-        dirtyTrackerRef.current.markModified(elementId);
-
-        try {
-            const data = await runImageGenerationFlow({
-                prompt,
-                model,
-                aspectRatio,
-                imageSize,
-                quality,
-                referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-                preferDirect: true,
-                forceAsync: true,
-            });
-
-            if (projectId) {
-                clearSubmission(projectId, elementId);
-            }
-
-            if (data.status === 'pending') {
-                const taskId = data.taskId;
-                setElements((prev) => applyElementGenerationPatch(prev, elementId, createGenerationTaskPatch(taskId, 'image')));
-                dirtyTrackerRef.current.markModified(elementId);
-                if (projectId) {
-                    persistGeneration(projectId, elementId, {
-                        taskId,
-                        taskType: 'image',
-                        progress: 0,
-                        savedPrompt: prompt,
-                    });
-                }
-                return true;
-            }
-
-            const resultUrl = data.imageUrl;
-
-            replaceGeneratorWithPendingImage(elementId, resultUrl, data.taskId);
-            await finalizeGeneratedImageElement(
-                elementId,
-                resultUrl,
-                'storyboard-batch',
-                {
-                    x: currentElement.x,
-                    y: currentElement.y,
-                    width: currentElement.width || 400,
-                    height: currentElement.height || 300,
-                },
-                data.taskId,
-            );
-            announcePassiveCompletedResult(elementId, '✅ 分镜图片生成完成，已回填到当前卡片');
-            return true;
-        } catch (error) {
-            const interrupted = isRecoverableGenerationSubmissionError(error);
-            const errorMessage = classifyGenerationError('image', error);
-            const displayError = interrupted ? withSubmissionRecoveryHint(errorMessage) : errorMessage;
-            setElements((prev) => applyGenerationFailure(prev, elementId, displayError));
-            dirtyTrackerRef.current.markModified(elementId);
-            if (projectId) {
-                if (!interrupted) {
-                    clearSubmission(projectId, elementId);
-                }
-                removeGeneration(projectId, elementId);
-            }
-            return false;
-        } finally {
-            setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
-        }
-    }, [announcePassiveCompletedResult, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, resolveElementReferenceImages, setElements, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
-
-    const submitStoryboardVideoGeneratorElement = useCallback(async (elementId: string, snapshot?: CanvasElement) => {
-        const currentElement = snapshot || elementsMapRef.current.get(elementId);
-        if (!currentElement || currentElement.type !== 'video-generator') {
-            return false;
-        }
-
-        const prompt = currentElement.savedPrompt?.trim() || currentElement.storyboardNote?.trim();
-        if (!prompt) {
-            setElements((prev) => applyGenerationFailure(prev, elementId, '分镜卡片缺少视频提示词，无法提交生成'));
-            dirtyTrackerRef.current.markModified(elementId);
-            return false;
-        }
-
-        const model = currentElement.selectedModel || workbenchSettings.videoDefaults.model;
-        const aspectRatio = currentElement.selectedAspectRatio || workbenchSettings.videoDefaults.aspectRatio;
-        const duration = currentElement.selectedDuration || workbenchSettings.videoDefaults.duration;
-        const enhancePrompt = currentElement.selectedEnhancePrompt ?? workbenchSettings.videoDefaults.enhancePrompt;
-        const images = await resolveElementFrameImages(currentElement);
-        const projectId = currentProjectIdRef.current;
-
-        setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, true));
-        if (projectId) {
-            persistSubmission(projectId, elementId, {
-                prompt,
-                model,
-                aspectRatio,
-                imageSize: '',
-                duration,
-                taskType: 'video',
-                timestamp: Date.now(),
-            });
-        }
-
-        setElements((prev) => applyElementGenerationPatch(
-            prev,
-            elementId,
-            createGenerationIdlePatch({ progress: 0 }),
-        ));
-        dirtyTrackerRef.current.markModified(elementId);
-
-        try {
-            const data = await runVideoGenerationFlow({
-                prompt,
-                model,
-                aspectRatio,
-                duration,
-                enhancePrompt,
-                images: images.length > 0 ? images : undefined,
-            });
-
-            if (projectId) {
-                clearSubmission(projectId, elementId);
-            }
-
-            if (data.status === 'pending') {
-                const taskId = data.taskId;
-                setElements((prev) => applyElementGenerationPatch(prev, elementId, createGenerationTaskPatch(taskId, 'video')));
-                dirtyTrackerRef.current.markModified(elementId);
-                if (projectId) {
-                    persistGeneration(projectId, elementId, {
-                        taskId,
-                        taskType: 'video',
-                        progress: 0,
-                        savedPrompt: prompt,
-                    });
-                }
-                return true;
-            }
-
-            const videoUrl = data.videoUrl;
-
-            void persistGeneratedAssetToDisk(videoUrl, 'video', 'storyboard-batch-video');
-            setElements((prev) => applyVideoGenerationSuccess(prev, elementId, videoUrl, data.taskId));
-            dirtyTrackerRef.current.markModified(elementId);
-            if (projectId) {
-                removeGeneration(projectId, elementId);
-            }
-            recordProjectMediaItem({
-                kind: 'video',
-                content: videoUrl,
-                taskId: typeof data.taskId === 'string' ? data.taskId : undefined,
-                sourceElement: currentElement,
-                sourceElementId: elementId,
-            });
-            announcePassiveCompletedResult(elementId, '✅ 分镜视频生成完成，已回填到当前批次');
-            return true;
-        } catch (error) {
-            const interrupted = isRecoverableGenerationSubmissionError(error);
-            const errorMessage = classifyGenerationError('video', error);
-            const displayError = interrupted ? withSubmissionRecoveryHint(errorMessage) : errorMessage;
-            setElements((prev) => applyGenerationFailure(prev, elementId, displayError));
-            dirtyTrackerRef.current.markModified(elementId);
-            if (projectId) {
-                if (!interrupted) {
-                    clearSubmission(projectId, elementId);
-                }
-                removeGeneration(projectId, elementId);
-            }
-            return false;
-        } finally {
-            setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
-        }
-    }, [announcePassiveCompletedResult, persistGeneratedAssetToDisk, recordProjectMediaItem, resolveElementFrameImages, setElements, workbenchSettings.videoDefaults.aspectRatio, workbenchSettings.videoDefaults.duration, workbenchSettings.videoDefaults.enhancePrompt, workbenchSettings.videoDefaults.model]);
-
-    const handleGenerateStoryboardSelection = useCallback((ids: string[]) => {
-        const targets = ids
-            .map((id) => elementsMapRef.current.get(id))
-            .filter((element): element is CanvasElement => !!element && hasStoryboardGenerationSeed(element));
-        const orderedTargets = sortStoryboardElements(targets);
-
-        if (orderedTargets.length === 0) {
-            showToast('所选内容里没有可批量出图的分镜卡片', 'error');
-            return;
-        }
-
-        const frameNames = Array.from(new Set(orderedTargets
-            .map((element) => element.parentFrameId ? elementsMapRef.current.get(element.parentFrameId)?.frameName : null)
-            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)));
-        const batchId = uuidv4();
-        const batchTitle = frameNames.length === 1
-            ? `${frameNames[0]} · 批量出图`
-            : `${orderedTargets.length} 张分镜 · 批量出图`;
-        const targetIdSet = new Set(orderedTargets.map((element) => element.id));
-        const generatorSnapshots = orderedTargets.map((element) => ({
-            ...element,
-            type: 'image-generator' as const,
-            sourceStoryboardId: element.sourceStoryboardId || element.id,
-            generationBatchId: batchId,
-            generationBatchTitle: batchTitle,
-            ...createGenerationIdlePatch({ progress: 0 }),
-        }));
-        const snapshotById = new Map(generatorSnapshots.map((element) => [element.id, element]));
-
-        setElements((prev) => prev.map((item) => {
-            if (!targetIdSet.has(item.id)) {
-                return item;
-            }
-
-            return snapshotById.get(item.id) || item;
-        }));
-
-        targets.forEach((element) => {
-            dirtyTrackerRef.current.markModified(element.id);
-        });
-
-        setSelectedIds(orderedTargets.map((element) => element.id));
-        showToast(`已创建 ${orderedTargets.length} 个分镜出图任务，正在提交`, 'info');
-
-        void (async () => {
-            const results = await Promise.allSettled(generatorSnapshots.map((element) => submitStoryboardGeneratorElement(element.id, element)));
-            const successCount = results.filter((result) => result.status === 'fulfilled' && result.value).length;
-            const failedCount = orderedTargets.length - successCount;
-
-            if (successCount > 0 && failedCount === 0) {
-                showToast(`分镜批量出图已提交 ${successCount} 项`, 'success');
-                return;
-            }
-
-            if (successCount > 0) {
-                showToast(`分镜批量出图已提交 ${successCount} 项，${failedCount} 项提交失败`, 'info');
-                return;
-            }
-
-            showToast('分镜批量出图提交失败，请检查参数后重试', 'error');
-        })();
-    }, [setElements, showToast, submitStoryboardGeneratorElement]);
-
-    const handleGenerateStoryboardVideoSelection = useCallback((ids: string[]) => {
-        const targets = ids
-            .map((id) => elementsMapRef.current.get(id))
-            .filter((element): element is CanvasElement => !!element && hasStoryboardGenerationSeed(element));
-        const orderedTargets = sortStoryboardElements(targets);
-
-        if (orderedTargets.length === 0) {
-            showToast('所选内容里没有可批量出视频的分镜卡片', 'error');
-            return;
-        }
-
-        const ys = orderedTargets.map((element) => element.y);
-        const ye = orderedTargets.map((element) => element.y + (element.height || 0));
-        const sourceHeight = Math.max(...ye) - Math.min(...ys);
-        const offsetY = sourceHeight + 80;
-        const frameNames = Array.from(new Set(orderedTargets
-            .map((element) => element.parentFrameId ? elementsMapRef.current.get(element.parentFrameId)?.frameName : null)
-            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)));
-        const batchId = uuidv4();
-        const batchTitle = frameNames.length === 1
-            ? `${frameNames[0]} · 批量出视频`
-            : `${orderedTargets.length} 张分镜 · 批量出视频`;
-        const generatorSnapshots = orderedTargets.map((element, index) => {
-            const nextElement = orderedTargets[index + 1];
-            const frameImages = [
-                {
-                    id: uuidv4(),
-                    image: element.content || '',
-                    imageType: 'first_frame',
-                    name: element.displayName || element.storyboardShotCode || `分镜 ${index + 1}`,
-                },
-                ...(nextElement?.content
-                    ? [{
-                        id: uuidv4(),
-                        image: nextElement.content,
-                        imageType: 'last_frame',
-                        name: nextElement.displayName || nextElement.storyboardShotCode || `分镜 ${index + 2}`,
-                    }]
-                    : []),
-            ];
-
-            return buildGeneratorElement('video-generator', {
-                x: element.x,
-                y: element.y + offsetY,
-                width: element.width || 400,
-                height: element.height || 300,
-                displayName: `${element.displayName || element.storyboardShotCode || '分镜'} · 视频`,
-                referenceImageId: element.id,
-                parentFrameId: element.parentFrameId,
-                savedPrompt: element.savedPrompt,
-                selectedModel: workbenchSettings.videoDefaults.model,
-                selectedAspectRatio: workbenchSettings.videoDefaults.aspectRatio,
-                selectedDuration: workbenchSettings.videoDefaults.duration,
-                selectedEnhancePrompt: workbenchSettings.videoDefaults.enhancePrompt,
-                savedFrameImages: JSON.stringify(frameImages),
-                generationBatchId: batchId,
-                generationBatchTitle: batchTitle,
-                sourceStoryboardId: element.id,
-                storyboardShotCode: element.storyboardShotCode,
-                storyboardSceneType: element.storyboardSceneType,
-                storyboardCameraMove: element.storyboardCameraMove,
-                storyboardDuration: element.storyboardDuration,
-                storyboardNote: element.storyboardNote,
-            });
-        });
-
-        addElementsWithOptionalAutoGroup(generatorSnapshots, batchTitle);
-        showToast(`已创建 ${generatorSnapshots.length} 个分镜视频任务，正在提交`, 'info');
-
-        void (async () => {
-            const results = await Promise.allSettled(generatorSnapshots.map((element) => submitStoryboardVideoGeneratorElement(element.id, element)));
-            const successCount = results.filter((result) => result.status === 'fulfilled' && result.value).length;
-            const failedCount = generatorSnapshots.length - successCount;
-
-            if (successCount > 0 && failedCount === 0) {
-                showToast(`分镜批量出视频已提交 ${successCount} 项`, 'success');
-                return;
-            }
-
-            if (successCount > 0) {
-                showToast(`分镜批量出视频已提交 ${successCount} 项，${failedCount} 项提交失败`, 'info');
-                return;
-            }
-
-            showToast('分镜批量出视频提交失败，请检查参数后重试', 'error');
-        })();
-    }, [addElementsWithOptionalAutoGroup, buildGeneratorElement, showToast, submitStoryboardVideoGeneratorElement, workbenchSettings.videoDefaults.aspectRatio, workbenchSettings.videoDefaults.duration, workbenchSettings.videoDefaults.enhancePrompt, workbenchSettings.videoDefaults.model]);
+    const {
+        handleCreateStoryboardDraft,
+        handleExportStoryboard,
+        handleExportStoryboardSelection,
+        handleGenerateStoryboardSelection,
+        handleGenerateStoryboardVideoSelection,
+        handleStoryboardAuditFilterChange,
+        handleStoryboardExportItemsChange,
+        handleStoryboardFieldsSaved,
+        handleStoryboardPlanFromImage,
+        submitStoryboardGeneratorElement,
+        submitStoryboardVideoGeneratorElement,
+    } = useCanvasStoryboardActions({
+        elementsMapRef,
+        dirtyTrackerRef,
+        currentProjectIdRef,
+        setElements,
+        setSelectedIds,
+        setGeneratorSubmittingMap,
+        workbenchSettings,
+        getPlacementPosition,
+        buildImageElement,
+        buildGeneratorElement,
+        addElementsWithOptionalAutoGroup,
+        resolveElementReferenceImages,
+        resolveElementFrameImages,
+        replaceGeneratorWithPendingImage,
+        finalizeGeneratedImageElement,
+        persistGeneratedAssetToDisk,
+        recordProjectMediaItem,
+        announcePassiveCompletedResult,
+        normalizeGeneratedImageContent,
+        resolveCanvasContentBlob,
+        handleElementChange,
+        focusCanvasElement,
+        showToast,
+        setStoryboardPlannerSourceElementId,
+        setIsStoryboardExportOpen,
+        setIsStoryboardExportSubmitting,
+        setStoryboardExportSubmitStatus,
+        setAnnotateImageTargetId,
+        setCropImageTargetId,
+        setSplitStoryboardTargetId,
+        setStoryboardAuditFilter,
+        autoAdvanceStoryboardIssues,
+        autoAdvanceStoryboardScope,
+        setAutoAdvanceStoryboardScope,
+        showLayers,
+        toggleLayers,
+    });
 
     const handleResumeGenerationItem = useCallback((item: GenerationQueueItem) => {
         if (item.entityType === 'group' && item.resumeTargetIds && item.resumeTargetIds.length > 0) {
@@ -2677,675 +2224,52 @@ function LovartCanvasContent() {
         }
     }, [resolveCanvasContentBlob, showToast]);
 
-    // AI 编辑图片
-    const handleAiEditElement = useCallback(async (element: CanvasElement, prompt: string) => {
-        if (!element.content) {
-            showToast('该元素没有可编辑的图片内容', 'error');
-            return;
-        }
-
-        const model = element.selectedModel || workbenchSettings.imageDefaults.model;
-        const aspectRatio = element.selectedAspectRatio || workbenchSettings.imageDefaults.aspectRatio;
-        const imageSize = element.selectedImageSize || workbenchSettings.imageDefaults.imageSize;
-        const quality = element.selectedImageQuality || workbenchSettings.imageDefaults.quality;
-
-        handleGeneratorSubmittingChange(element.id, true, { prompt, model, aspectRatio, imageSize, quality });
-        showToast('✨ AI 正在处理中，请稍候...', 'info');
-
-        // 解析 imgref 为实际数据用于 API 发送
-        const resolvedContent = await getImageDataUrl(element.content) || element.content;
-        const extraReferenceImages = await resolveElementReferenceImages(element);
-        const scopedReferenceImages = [resolvedContent, ...extraReferenceImages.filter((image) => image !== resolvedContent)];
-
-        // 在元素上显示加载状态
-        setElements(prev => prev.map((item) => (
-            item.id === element.id
-                ? {
-                    ...item,
-                    savedPrompt: prompt,
-                    selectedModel: model,
-                    selectedAspectRatio: aspectRatio,
-                    selectedImageSize: imageSize,
-                    selectedImageQuality: quality,
-                    ...createGenerationTaskPatch('ai-editing', 'image'),
-                }
-                : item
-        )));
-        dirtyTrackerRef.current.markModified(element.id);
-
-        let submissionAccepted = false;
-        let submissionOutcome: 'succeeded' | 'failed' | 'interrupted' = 'failed';
-
-        try {
-            const data = await runImageGenerationFlow({
-                prompt,
-                model,
-                aspectRatio,
-                imageSize,
-                quality,
-                referenceImages: scopedReferenceImages.length > 0 ? scopedReferenceImages : undefined,
-                referenceImage: resolvedContent,
-                preferDirect: false,
-                forceAsync: true,
-            });
-
-            submissionAccepted = true;
-            submissionOutcome = 'succeeded';
-
-            if (data.status === 'pending') {
-                const taskId = data.taskId;
-                // 更新为正确的 taskId 让轮询机制接管
-                setElements(prev => setElementGenerationTask(prev, element.id, taskId, 'image'));
-                dirtyTrackerRef.current.markModified(element.id);
-                // 同步写入 sessionStorage
-                const pid = currentProjectIdRef.current;
-                if (pid) {
-                    persistGeneration(pid, element.id, {
-                        taskId,
-                        taskType: 'image',
-                        progress: 0,
-                        savedPrompt: prompt,
-                    });
-                }
-                showToast('已提交 AI 任务，正在生成中...', 'info');
-            } else {
-                await finalizeAiEditedImageElement(
-                    element.id,
-                    data.imageUrl,
-                    'ai-edit',
-                    {
-                        x: element.x,
-                        y: element.y,
-                        width: element.width || 400,
-                        height: element.height || 400,
-                    },
-                    data.taskId,
-                );
-                announceCompletedResult(element.id, '✅ AI 编辑完成，结果已更新到画布');
-            }
-        } catch (err: unknown) {
-            const isInterrupted = !submissionAccepted && isRecoverableGenerationSubmissionError(err);
-            submissionOutcome = isInterrupted ? 'interrupted' : 'failed';
-            const classifiedMessage = classifyGenerationError('image', err);
-            const nextMessage = isInterrupted ? withSubmissionRecoveryHint(classifiedMessage) : classifiedMessage;
-
-            if (isInterrupted) {
-                console.warn('AI edit interrupted before task acceptance:', err);
-            } else {
-                console.error('AI edit failed:', err);
-            }
-
-            setElements(prev => applyGenerationFailure(prev, element.id, nextMessage));
-            dirtyTrackerRef.current.markModified(element.id);
-            showToast(
-                isInterrupted
-                    ? 'AI 编辑请求中断，已保留提交记录，刷新页面后会自动重试'
-                    : `AI 编辑失败: ${(nextMessage.split(/\r?\n/).find((line) => line.trim()) || '未知错误').trim()}`,
-                isInterrupted ? 'info' : 'error',
-            );
-        } finally {
-            handleGeneratorSubmittingChange(element.id, false, { prompt, model, aspectRatio, imageSize, quality }, { outcome: submissionOutcome });
-        }
-
-    }, [announceCompletedResult, finalizeAiEditedImageElement, handleGeneratorSubmittingChange, resolveElementReferenceImages, setElements, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
-
-    const handleRecoverEditedImageTask = useCallback(async (elementId: string, rawTaskId: string) => {
-        const taskId = rawTaskId.trim();
-        if (!taskId) {
-            throw new Error('请输入有效的 task_id');
-        }
-
-        const currentElement = elementsMapRef.current.get(elementId);
-        if (!currentElement || currentElement.type !== 'image' || !currentElement.content) {
-            throw new Error('当前图片不存在，无法查询 task_id 对应结果');
-        }
-
-        const projectId = currentProjectIdRef.current;
-        setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, true));
-
-        try {
-            const result = await pollGenerationTask(taskId, 'image');
-
-            if (result.status === 'completed') {
-                const resultUrl = result.resultUrl;
-                if (!resultUrl) {
-                    throw new Error('任务已完成，但未获取到图片结果链接');
-                }
-
-                await finalizeAiEditedImageElement(
-                    elementId,
-                    resultUrl,
-                    'manual-recover-ai-edit',
-                    {
-                        x: currentElement.x,
-                        y: currentElement.y,
-                        width: currentElement.width || 400,
-                        height: currentElement.height || 400,
-                    },
-                    taskId,
-                );
-                if (projectId) {
-                    clearSubmission(projectId, elementId);
-                    removeGeneration(projectId, elementId);
-                }
-                announceCompletedResult(elementId, '✅ 已通过 task_id 查询并更新当前图片');
-                return;
-            }
-
-            if (result.status === 'failed') {
-                failGenerationTask(elementId, 'image', result.error);
-                return;
-            }
-
-            if (result.status === 'retryable-error') {
-                throw new Error(result.error);
-            }
-
-            setElements((prev) => applyElementGenerationPatch(
-                prev,
-                elementId,
-                createGenerationTaskPatch(taskId, 'image', Math.max(0, result.progress || 0)),
-            ));
-            dirtyTrackerRef.current.markModified(elementId);
-            if (projectId) {
-                clearSubmission(projectId, elementId);
-                persistGeneration(projectId, elementId, {
-                    taskId,
-                    taskType: 'image',
-                    progress: Math.max(0, result.progress || 0),
-                    savedPrompt: currentElement.savedPrompt,
-                });
-            }
-            showToast('已接管图片任务，后续将继续自动轮询', 'success');
-        } finally {
-            setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
-        }
-    }, [announceCompletedResult, failGenerationTask, finalizeAiEditedImageElement, setElements, showToast]);
-
-    const handleStoryboardExportItemsChange = useCallback((
-        orderedItems: Array<{
-            id: string;
-            storyboardShotCode?: string;
-            storyboardSceneType?: string;
-            storyboardCameraMove?: string;
-            storyboardDuration?: string;
-            storyboardNote?: string;
-        }>,
-    ) => {
-        const normalizeMetaText = (value?: string) => {
-            const nextValue = value?.trim();
-            return nextValue ? nextValue : undefined;
-        };
-
-        orderedItems.forEach((item) => {
-            const element = elementsMapRef.current.get(item.id);
-            if (!element || element.type !== 'image') {
-                return;
-            }
-
-            const nextAttrs: Partial<CanvasElement> = {};
-            const nextShotCode = normalizeMetaText(item.storyboardShotCode);
-            const nextSceneType = normalizeMetaText(item.storyboardSceneType);
-            const nextCameraMove = normalizeMetaText(item.storyboardCameraMove);
-            const nextDuration = normalizeMetaText(item.storyboardDuration);
-            const nextNote = normalizeMetaText(item.storyboardNote);
-
-            if ((element.storyboardShotCode || undefined) !== nextShotCode) {
-                nextAttrs.storyboardShotCode = nextShotCode;
-            }
-            if ((element.storyboardSceneType || undefined) !== nextSceneType) {
-                nextAttrs.storyboardSceneType = nextSceneType;
-            }
-            if ((element.storyboardCameraMove || undefined) !== nextCameraMove) {
-                nextAttrs.storyboardCameraMove = nextCameraMove;
-            }
-            if ((element.storyboardDuration || undefined) !== nextDuration) {
-                nextAttrs.storyboardDuration = nextDuration;
-            }
-            if ((element.storyboardNote || undefined) !== nextNote) {
-                nextAttrs.storyboardNote = nextNote;
-            }
-
-            if (Object.keys(nextAttrs).length > 0) {
-                handleElementChange(item.id, nextAttrs);
-            }
-        });
-    }, [handleElementChange]);
-
-    // 替换背景
-    const handleReplaceBackground = useCallback(async (element: CanvasElement, prompt: string) => {
-        // 复用 AI 编辑通道，prompt 已经包含具体的背景操作指令
-        handleAiEditElement(element, prompt);
-    }, [handleAiEditElement]);
-
-    // Mockup 效果图
-    const handleMockupElement = useCallback(async (element: CanvasElement, templateId: string) => {
-        const templatePrompts: Record<string, string> = {
-            'phone': 'Place this image on a modern smartphone screen, realistic perspective mockup, professional product photography',
-            'laptop': 'Place this image on a laptop screen, MacBook style, realistic workspace mockup, professional photography',
-            'mug': 'Print this image on a white ceramic coffee mug, realistic mockup, clean studio background',
-            'bag': 'Print this image on a canvas tote bag, realistic fashion mockup, clean background',
-            'card': 'Place this image on a business card, realistic mockup, professional presentation',
-        };
-        const prompt = templatePrompts[templateId] || templatePrompts['phone'];
-        handleAiEditElement(element, prompt);
-    }, [handleAiEditElement]);
-
-    const handleAnnotateImage = useCallback(async (
-        element: CanvasElement,
-        options: AnnotateImageOptions,
-    ) => {
-        if (!ensureImageToolSource(element, '当前元素不是可标注图片')) {
-            return;
-        }
-
-        beginImageToolSubmission({
-            setSubmitting: setIsAnnotateImageSubmitting,
-            setStatus: setAnnotateImageSubmitStatus,
-            loadingToast: '正在生成标注图片...',
-        });
-
-        try {
-            const sourceBlob = await resolveCanvasContentBlob(element.content, 'lovart-annotate-image');
-
-            if (!sourceBlob) {
-                throw new Error('无法读取图片内容');
-            }
-
-            setAnnotateImageSubmitStatus('正在后台生成标注图...');
-            const annotatedBlob = await annotateImageBlob(sourceBlob, options);
-
-            const naming = resolveToolResultNaming({
-                element,
-                prefix: options.namePrefix,
-                groupLabel: '标注结果',
-                fallbackLabel: '标注结果',
-                buildPrefixedItemNames: (trimmedPrefix) => [`${trimmedPrefix} · 标注`],
-            });
-
-            setAnnotateImageSubmitStatus('正在写入画布素材...');
-            const { element: newElement } = await createSingleImageToolResultElement({
-                sourceElement: element,
-                resultBlob: annotatedBlob,
-                metricsSource: 'annotate-image',
-                maxHeightPadding: 160,
-                onContentSaved: () => setAnnotateImageSubmitStatus('正在计算展示尺寸...'),
-                displayName: naming.itemNames[0] || sanitizeToolName(options.label.trim() || `${getElementBaseName(element)} · 标注`, '标注结果'),
-                extraAttrs: {
-                    annotationTitle: options.label.trim(),
-                    annotationNote: options.note?.trim() || '',
-                },
-                saveBlob: saveImageBlob,
-                resolveImageDisplayMetrics,
-                buildDisplayMetricsOptions: buildBelowElementDisplayMetricsOptions,
-                buildResultElement: buildBelowSourceImageResultElement,
-            });
-
-            addElementsWithOptionalAutoGroup([newElement], naming.groupName);
-            setAnnotateImageTargetId(null);
-
-            announceCompletedResult(newElement.id, '✅ 标注图片已生成并添加到画布');
-        } catch (error) {
-            if (isWorkerCancelledError(error)) {
-                return;
-            }
-            console.error('Annotate image failed:', error);
-            const message = error instanceof Error ? error.message : '未知错误';
-            showToast(`标注图片失败: ${message}`, 'error');
-        } finally {
-            endImageToolSubmission(setIsAnnotateImageSubmitting, setAnnotateImageSubmitStatus);
-        }
-    }, [addElementsWithOptionalAutoGroup, announceCompletedResult, beginImageToolSubmission, buildBelowElementDisplayMetricsOptions, buildBelowSourceImageResultElement, endImageToolSubmission, ensureImageToolSource, resolveCanvasContentBlob, resolveImageDisplayMetrics, showToast]);
-
-    const handleExportStoryboard = useCallback(async (
-        options: StoryboardExportOptions,
-        orderedItems: Array<{
-            id: string;
-            content: string;
-            displayName?: string;
-            prompt?: string;
-            annotationTitle?: string;
-            annotationNote?: string;
-            storyboardShotCode?: string;
-            storyboardSceneType?: string;
-            storyboardCameraMove?: string;
-            storyboardDuration?: string;
-            storyboardNote?: string;
-        }>,
-    ) => {
-        const selectedImageElements = orderedItems
-            .map((item) => ({ source: elementsMapRef.current.get(item.id), meta: item }))
-            .filter((entry): entry is { source: CanvasElement; meta: typeof orderedItems[number] } => !!entry.source && entry.source.type === 'image' && !!entry.source.content);
-
-        if (selectedImageElements.length < 2) {
-            showToast('请至少选择两张图片再导出分镜表', 'error');
-            return;
-        }
-
-        setIsStoryboardExportSubmitting(true);
-        setStoryboardExportSubmitStatus('正在收集导出图片...');
-        showToast('正在合成分镜表...', 'info');
-
-        try {
-            const exportItems = [] as Array<{
-                blob: Blob;
-                caption?: string;
-                displayName?: string;
-                storyboardShotCode?: string;
-                storyboardSceneType?: string;
-                storyboardCameraMove?: string;
-                storyboardDuration?: string;
-                storyboardNote?: string;
-            }>;
-            for (const entry of selectedImageElements) {
-                const element = entry.source;
-                const meta = entry.meta;
-                setStoryboardExportSubmitStatus(`正在收集导出图片 (${exportItems.length + 1}/${selectedImageElements.length})...`);
-                if (!element.content) continue;
-
-                const blob = await resolveCanvasContentBlob(element.content, 'lovart-storyboard-export');
-
-                if (!blob) continue;
-
-                const caption = (() => {
-                    switch (options.captionMode) {
-                        case 'display-name':
-                            return element.displayName || element.annotationTitle || element.savedPrompt || '';
-                        case 'prompt':
-                            return element.savedPrompt || '';
-                        case 'annotation-title':
-                            return element.annotationTitle || '';
-                        case 'annotation-note':
-                            return element.annotationNote || '';
-                        case 'annotation-full': {
-                            const parts = [element.annotationTitle, element.annotationNote]
-                                .map((part) => (part || '').trim())
-                                .filter(Boolean);
-                            return parts.join(' · ');
-                        }
-                        case 'storyboard-meta': {
-                            const parts = [
-                                meta.storyboardShotCode || element.storyboardShotCode,
-                                meta.storyboardSceneType || element.storyboardSceneType,
-                                meta.storyboardCameraMove || element.storyboardCameraMove,
-                                meta.storyboardDuration || element.storyboardDuration,
-                                meta.storyboardNote || element.storyboardNote,
-                            ].map((part) => (part || '').trim()).filter(Boolean);
-                            return parts.join(' · ');
-                        }
-                        case 'none':
-                        default:
-                            return undefined;
-                    }
-                })();
-
-                exportItems.push({
-                    blob,
-                    caption,
-                    displayName: meta.displayName || element.displayName || element.annotationTitle || element.savedPrompt || '',
-                    storyboardShotCode: meta.storyboardShotCode || element.storyboardShotCode || '',
-                    storyboardSceneType: meta.storyboardSceneType || element.storyboardSceneType || '',
-                    storyboardCameraMove: meta.storyboardCameraMove || element.storyboardCameraMove || '',
-                    storyboardDuration: meta.storyboardDuration || element.storyboardDuration || '',
-                    storyboardNote: meta.storyboardNote || element.storyboardNote || meta.annotationNote || element.annotationNote || '',
-                });
-            }
-
-            if (exportItems.length < 2) {
-                throw new Error('可导出的图片不足两张');
-            }
-
-            setStoryboardExportSubmitStatus('正在后台合成分镜表...');
-            const mergedBlob = await buildStoryboardExportBlob(exportItems, options);
-            const primaryName = selectedImageElements[0]
-                ? getElementBaseName(selectedImageElements[0].source)
-                : 'storyboard';
-            const filenameStem = sanitizeFilenameStem(
-                options.suggestedFileName?.trim() || `${primaryName} 分镜表 ${selectedImageElements.length}张`,
-                'lovart-storyboard',
-            );
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `${filenameStem}-${timestamp}.png`;
-            setStoryboardExportSubmitStatus('正在保存导出文件...');
-            const saveMode = await saveBlobToLocalFile(mergedBlob, filename);
-            if (saveMode === 'cancelled') {
-                showToast('已取消保存', 'info');
-                return;
-            }
-
-            setIsStoryboardExportOpen(false);
-            showToast(saveMode === 'picker' ? '分镜表已保存到本地硬盘' : '分镜表下载成功', 'success');
-        } catch (error) {
-            if (isWorkerCancelledError(error)) {
-                return;
-            }
-            console.error('Storyboard export failed:', error);
-            const message = error instanceof Error ? error.message : '未知错误';
-            showToast(`分镜表导出失败: ${message}`, 'error');
-        } finally {
-            setIsStoryboardExportSubmitting(false);
-            setStoryboardExportSubmitStatus('');
-        }
-    }, [resolveCanvasContentBlob, showToast]);
-
-    const handleCropImage = useCallback(async (
-        element: CanvasElement,
-        options: CropImageOptions,
-    ) => {
-        if (!ensureImageToolSource(element, '当前元素不是可裁剪图片')) {
-            return;
-        }
-
-        beginImageToolSubmission({
-            setSubmitting: setIsCropImageSubmitting,
-            setStatus: setCropImageSubmitStatus,
-            loadingToast: '正在裁剪图片...',
-        });
-
-        try {
-            const sourceBlob = await resolveCanvasContentBlob(element.content, 'lovart-crop-image');
-
-            if (!sourceBlob) {
-                throw new Error('无法读取图片内容');
-            }
-
-            setCropImageSubmitStatus('正在后台裁剪图片...');
-            const croppedBlob = await cropImageBlob(sourceBlob, options);
-
-            const naming = resolveToolResultNaming({
-                element,
-                prefix: options.namePrefix,
-                groupLabel: '裁剪结果',
-                fallbackLabel: '裁剪结果',
-                buildPrefixedItemNames: (trimmedPrefix) => [`${trimmedPrefix} · 裁剪`],
-            });
-
-            setCropImageSubmitStatus('正在写入画布素材...');
-            const { element: newElement } = await createSingleImageToolResultElement({
-                sourceElement: element,
-                resultBlob: croppedBlob,
-                metricsSource: 'crop-image',
-                onContentSaved: () => setCropImageSubmitStatus('正在计算展示尺寸...'),
-                displayName: naming.itemNames[0],
-                saveBlob: saveImageBlob,
-                resolveImageDisplayMetrics,
-                buildDisplayMetricsOptions: buildBelowElementDisplayMetricsOptions,
-                buildResultElement: buildBelowSourceImageResultElement,
-            });
-
-            addElementsWithOptionalAutoGroup([newElement], naming.groupName);
-            setCropImageTargetId(null);
-
-            announceCompletedResult(newElement.id, '✅ 图片裁剪完成，结果已添加到画布');
-        } catch (error) {
-            if (isWorkerCancelledError(error)) {
-                return;
-            }
-            console.error('Crop image failed:', error);
-            const message = error instanceof Error ? error.message : '未知错误';
-            showToast(`图片裁剪失败: ${message}`, 'error');
-        } finally {
-            endImageToolSubmission(setIsCropImageSubmitting, setCropImageSubmitStatus);
-        }
-    }, [addElementsWithOptionalAutoGroup, announceCompletedResult, beginImageToolSubmission, buildBelowElementDisplayMetricsOptions, buildBelowSourceImageResultElement, endImageToolSubmission, ensureImageToolSource, resolveCanvasContentBlob, resolveImageDisplayMetrics, showToast]);
-
-    const handleSplitStoryboard = useCallback(async (
-        element: CanvasElement,
-        options: StoryboardSplitOptions,
-    ) => {
-        if (!ensureImageToolSource(element, '当前元素不是可切割图片')) {
-            return;
-        }
-
-        beginImageToolSubmission({
-            setSubmitting: setIsSplitStoryboardSubmitting,
-            setStatus: setSplitStoryboardSubmitStatus,
-            loadingToast: '正在切割分镜...',
-        });
-
-        try {
-            const sourceBlob = await resolveCanvasContentBlob(element.content, 'lovart-split-storyboard');
-
-            if (!sourceBlob) {
-                throw new Error('无法读取图片内容');
-            }
-
-            setSplitStoryboardSubmitStatus('正在后台切割分镜...');
-            const frames = await splitImageBlobIntoFrames(sourceBlob, options);
-            if (frames.length === 0) {
-                throw new Error('没有生成任何切片');
-            }
-
-            const layoutGap = 24;
-            const baseCellWidth = Math.max(120, Math.floor((element.width || 480) / Math.max(1, options.cols)));
-            const baseCellHeight = Math.max(120, Math.floor((element.height || 480) / Math.max(1, options.rows)));
-            const naming = resolveToolResultNaming({
-                element,
-                prefix: options.namePrefix,
-                groupLabel: '分镜切割',
-                fallbackLabel: '分镜切割',
-                count: frames.length,
-                buildPrefixedItemNames: (trimmedPrefix) => Array.from({ length: frames.length }, (_, index) => `${trimmedPrefix} ${String(index + 1).padStart(2, '0')}`),
-            });
-
-            const preparedFrames: Array<{
-                frame: StoryboardSplitFrame;
-                content: string;
-                width: number;
-                height: number;
-                displayName: string;
-            }> = [];
-
-            for (const [index, frame] of frames.entries()) {
-                let finalBlob = frame.blob;
-
-                if (options.upscaleEnabled && options.upscaleModel) {
-                    setSplitStoryboardSubmitStatus(`正在 AI 放大切片 (${index + 1}/${frames.length})...`);
-                    try {
-                        finalBlob = await upscaleImageBlob(frame.blob, {
-                            model: options.upscaleModel as UpscaleModelId,
-                            scale: options.upscaleScale || 4,
-                        });
-                    } catch (upscaleErr) {
-                        console.warn(`切片 ${index + 1} AI 放大失败，使用原图:`, upscaleErr);
-                    }
-                }
-
-                setSplitStoryboardSubmitStatus(`正在写入切片素材 (${index + 1}/${frames.length})...`);
-                const content = await saveImageBlob(finalBlob);
-                const metrics = await resolveImageDisplayMetrics(
-                    content,
-                    'split-storyboard',
-                    {
-                        maxWidth: baseCellWidth,
-                        maxHeight: baseCellHeight,
-                    },
-                    finalBlob,
-                );
-
-                preparedFrames.push({
-                    frame,
-                    content,
-                    width: metrics?.width ?? baseCellWidth,
-                    height: metrics?.height ?? baseCellHeight,
-                    displayName: naming.itemNames[index],
-                });
-            }
-
-            const colWidths = Array.from({ length: Math.max(1, options.cols) }, (_, col) => {
-                const values = preparedFrames
-                    .filter((item) => item.frame.col === col)
-                    .map((item) => item.width);
-                return Math.max(baseCellWidth, ...values);
-            });
-            const rowHeights = Array.from({ length: Math.max(1, options.rows) }, (_, row) => {
-                const values = preparedFrames
-                    .filter((item) => item.frame.row === row)
-                    .map((item) => item.height);
-                return Math.max(baseCellHeight, ...values);
-            });
-
-            const viewportBounds = getViewportBounds(scaleRef.current, panRef.current);
-            const existingElements = elements.filter((item) => item.id !== element.id && item.type !== 'connector');
-            const origin = chooseSplitLayoutOrigin({
-                sourceBounds: {
-                    x: element.x,
-                    y: element.y,
-                    width: element.width || 0,
-                    height: element.height || 0,
-                },
-                viewport: viewportBounds,
-                existingElements,
-                colWidths,
-                rowHeights,
-                gap: layoutGap,
-            });
-
-            const nextElements: CanvasElement[] = preparedFrames.map((item) => {
-                const offsetX = colWidths.slice(0, item.frame.col).reduce((sum, width) => sum + width, 0) + item.frame.col * layoutGap;
-                const offsetY = rowHeights.slice(0, item.frame.row).reduce((sum, height) => sum + height, 0) + item.frame.row * layoutGap;
-                const cellWidth = colWidths[item.frame.col] || baseCellWidth;
-                const cellHeight = rowHeights[item.frame.row] || baseCellHeight;
-
-                return buildImageElement({
-                    x: origin.x + offsetX + Math.round((cellWidth - item.width) / 2),
-                    y: origin.y + offsetY + Math.round((cellHeight - item.height) / 2),
-                    width: item.width,
-                    height: item.height,
-                    displayName: item.displayName,
-                    content: item.content,
-                });
-            });
-
-            addElementsWithOptionalAutoGroup(nextElements, naming.groupName);
-            setSplitStoryboardTargetId(null);
-
-            announceCompletedResult(
-                nextElements[0].id,
-                `✅ 分镜切割完成，已生成 ${nextElements.length} 张图片`,
-            );
-        } catch (error) {
-            if (isWorkerCancelledError(error)) {
-                return;
-            }
-            console.error('Split storyboard failed:', error);
-            const message = error instanceof Error ? error.message : '未知错误';
-            showToast(`分镜切割失败: ${message}`, 'error');
-        } finally {
-            endImageToolSubmission(setIsSplitStoryboardSubmitting, setSplitStoryboardSubmitStatus);
-        }
-    }, [
-        addElementsWithOptionalAutoGroup,
-        announceCompletedResult,
-        beginImageToolSubmission,
-        buildImageElement,
+    const {
+        handleAiEditElement,
+        handleAnnotateImage,
+        handleAnnotateImageRequest,
+        handleCropImage,
+        handleCropImageRequest,
+        handleMockupElement,
+        handleRecoverEditedImageTask,
+        handleReplaceBackground,
+        handleSplitStoryboard,
+        handleSplitStoryboardRequest,
+    } = useCanvasImageToolActions({
         elements,
-        endImageToolSubmission,
-        ensureImageToolSource,
+        elementsMapRef,
+        dirtyTrackerRef,
+        currentProjectIdRef,
+        scaleRef,
+        panRef,
+        setElements,
+        setGeneratorSubmittingMap,
+        workbenchSettings,
+        resolveElementReferenceImages,
+        finalizeAiEditedImageElement,
+        failGenerationTask,
+        announceCompletedResult,
+        showToast,
+        handleGeneratorSubmittingChange,
         resolveCanvasContentBlob,
         resolveImageDisplayMetrics,
-        showToast,
-    ]);
+        buildBelowElementDisplayMetricsOptions,
+        buildBelowSourceImageResultElement,
+        buildImageElement,
+        addElementsWithOptionalAutoGroup,
+        beginImageToolSubmission,
+        endImageToolSubmission,
+        ensureImageToolSource,
+        setAnnotateImageTargetId,
+        setIsAnnotateImageSubmitting,
+        setAnnotateImageSubmitStatus,
+        setCropImageTargetId,
+        setIsCropImageSubmitting,
+        setCropImageSubmitStatus,
+        setSplitStoryboardTargetId,
+        setIsSplitStoryboardSubmitting,
+        setSplitStoryboardSubmitStatus,
+    });
 
     const handleGenerateImage = useCallback(async (result: { imageUrl: string; taskId?: string | null }) => {
         // ImageGeneratorPanel now handles API calls and polling internally
@@ -3469,42 +2393,30 @@ function LovartCanvasContent() {
         return normalizedElement;
     }, [addElement, normalizeGeneratedImageContent, primeRuntimeImageRenderSrc, recordProjectMediaItem, resolveImageDisplayMetrics, setSelectedIds, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
-    const resolveProjectMediaImageInsertContent = useCallback(async (item: ProjectMediaHistoryItem) => {
-        return resolveBackflowMediaImageInsertContent(item, {
-            projectId: currentProjectIdRef.current,
-            normalizeImageContent: normalizeGeneratedImageContent,
-            pollImageGenerationTask: pollGenerationTask,
-        });
-    }, [normalizeGeneratedImageContent]);
-
-    const resolveProjectReferenceImageInsertContent = useCallback(async (item: ProjectReferenceImageItem) => {
-        return resolveBackflowReferenceImageInsertContent(item, {
-            projectId: currentProjectIdRef.current,
-            normalizeImageContent: normalizeGeneratedImageContent,
-            pollImageGenerationTask: pollGenerationTask,
-        });
-    }, [normalizeGeneratedImageContent]);
-
-    const saveProjectReferenceFromMediaItem = useCallback((item: ProjectMediaHistoryItem) => {
-        const projectId = currentProjectIdRef.current;
-        if (!projectId || item.kind !== 'image') {
-            return;
-        }
-
-        void (async () => {
-            const saved = await saveBackflowProjectReferenceFromMediaItem(item, {
-                projectId,
-                normalizeImageContent: normalizeGeneratedImageContent,
-                pollImageGenerationTask: pollGenerationTask,
-            });
-            if (saved) {
-                showToast('已加入项目参考库', 'success');
-            }
-        })().catch((error) => {
-            console.error('Save project reference from media failed:', error);
-            showToast(`加入参考库失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
-        });
-    }, [normalizeGeneratedImageContent, showToast]);
+    const {
+        handleClearProjectMediaHistory,
+        handleClearProjectReferences,
+        handleDeleteProjectReferenceItem,
+        handleDeleteProjectReferenceItems,
+        handleInsertProjectMediaItem,
+        handleInsertProjectReferenceItem,
+        handleInsertProjectReferenceItems,
+        handleLocateProjectMediaSource,
+        handleLocateProjectReferenceSource,
+        saveProjectReferenceFromMediaItem,
+    } = useCanvasProjectBackflowActions({
+        currentProjectIdRef,
+        normalizeGeneratedImageContent,
+        getPlacementPosition,
+        buildImageElement,
+        buildVideoElement,
+        addGeneratedImageElementToCanvas,
+        addAndSelectElement,
+        addElement,
+        setSelectedIds,
+        focusCanvasElement,
+        showToast,
+    });
 
     const handleAddGeneratedBatchImageElement = useCallback((element: {
         id: string;
@@ -3637,48 +2549,6 @@ function LovartCanvasContent() {
             .filter((item): item is CanvasElement => !!item && item.type === 'image' && !!item.content);
     }, [elements, selectedIds]);
 
-    const handleStoryboardAuditFilterChange = useCallback((filter: StoryboardAuditFilter) => {
-        setStoryboardAuditFilter(filter);
-        setAutoAdvanceStoryboardScope(mapStoryboardFilterToScope(filter));
-    }, []);
-
-    const handleStoryboardFieldsSaved = useCallback((savedId: string) => {
-        if (!autoAdvanceStoryboardIssues) {
-            return;
-        }
-
-        const currentElements = Array.from(elementsMapRef.current.values());
-        const imageElements = currentElements.filter((element) => element.type === 'image' && !!element.content);
-        const invalidIds = imageElements.filter((element) => getStoryboardAuditState(element).hasValidationError).map((element) => element.id);
-        const partialIds = imageElements.filter((element) => getStoryboardAuditState(element).isPartial).map((element) => element.id);
-        const untrackedIds = imageElements.filter((element) => getStoryboardAuditState(element).isUntracked).map((element) => element.id);
-        const issueIds = autoAdvanceStoryboardScope === 'invalid'
-            ? invalidIds
-            : autoAdvanceStoryboardScope === 'partial'
-                ? partialIds
-                : autoAdvanceStoryboardScope === 'untracked'
-                    ? untrackedIds
-                    : [...invalidIds, ...partialIds, ...untrackedIds];
-
-        if (issueIds.includes(savedId)) {
-            return;
-        }
-
-        if (issueIds.length === 0) {
-            showToast('分镜问题已全部处理完成。', 'success');
-            return;
-        }
-
-        const imageOrder = imageElements.map((element) => element.id);
-        const savedIndex = imageOrder.indexOf(savedId);
-        const nextIssueId = issueIds.find((id) => imageOrder.indexOf(id) > savedIndex) || issueIds[0];
-
-        if (!showLayers) {
-            toggleLayers();
-        }
-        focusCanvasElement(nextIssueId);
-    }, [autoAdvanceStoryboardIssues, autoAdvanceStoryboardScope, focusCanvasElement, showLayers, showToast, toggleLayers]);
-
     const selectedSplitStoryboardElement = useMemo(() => {
         if (
             !splitStoryboardTargetId ||
@@ -3697,39 +2567,6 @@ function LovartCanvasContent() {
     const selectedSplitStoryboardPanelStyle = useMemo(() => {
         return getElementPanelStyle(selectedSplitStoryboardElement, scale, pan);
     }, [pan, scale, selectedSplitStoryboardElement]);
-
-    const handleExportStoryboardSelection = useCallback((ids: string[]) => {
-        const imageCount = ids
-            .map((id) => elementsMapRef.current.get(id))
-            .filter((item) => item?.type === 'image' && !!item.content)
-            .length;
-        if (imageCount >= 2) {
-            setAnnotateImageTargetId(null);
-            setCropImageTargetId(null);
-            setSplitStoryboardTargetId(null);
-            setIsStoryboardExportOpen(true);
-        } else {
-            showToast('请至少选择两张图片', 'info');
-        }
-    }, [showToast]);
-
-    const handleAnnotateImageRequest = useCallback((element: CanvasElement) => {
-        setCropImageTargetId(null);
-        setSplitStoryboardTargetId(null);
-        setAnnotateImageTargetId((current) => current === element.id ? null : element.id);
-    }, []);
-
-    const handleCropImageRequest = useCallback((element: CanvasElement) => {
-        setAnnotateImageTargetId(null);
-        setSplitStoryboardTargetId(null);
-        setCropImageTargetId((current) => current === element.id ? null : element.id);
-    }, []);
-
-    const handleSplitStoryboardRequest = useCallback((element: CanvasElement) => {
-        setAnnotateImageTargetId(null);
-        setCropImageTargetId(null);
-        setSplitStoryboardTargetId((current) => current === element.id ? null : element.id);
-    }, []);
 
     const canvasAreaDomains = buildCanvasAreaDomains({
         selection: {
@@ -3976,65 +2813,10 @@ function LovartCanvasContent() {
                         items={projectMediaItems}
                         referenceImages={projectReferenceItems.map((item) => item.image)}
                         onClose={closeMedia}
-                        onClearAll={() => {
-                            if (!currentProjectIdRef.current) return;
-                            clearProjectMediaHistory(currentProjectIdRef.current);
-                            showToast('已清空当前项目媒体历史', 'info');
-                        }}
+                        onClearAll={handleClearProjectMediaHistory}
                         onSaveAsReference={saveProjectReferenceFromMediaItem}
-                        onLocateSource={(item) => {
-                            if (item.sourceElementId) {
-                                focusCanvasElement(item.sourceElementId);
-                            }
-                        }}
-                        onInsertItem={(item) => {
-                            if (item.kind === 'audio') {
-                                void navigator.clipboard.writeText(item.content).then(() => {
-                                    showToast('已复制音频素材地址，可在视频生成器中作为参考音频使用', 'success');
-                                }).catch(() => {
-                                    showToast('音频素材仅可在视频生成器中作为参考音频使用', 'info');
-                                });
-                                return;
-                            }
-
-                            const center = getPlacementPosition();
-                            if (item.kind === 'image') {
-                                void (async () => {
-                                    const resolvedContent = await resolveProjectMediaImageInsertContent(item);
-                                    const newElement = buildImageElement({
-                                        ...buildCenteredElementBounds(center, 400, 300),
-                                        content: resolvedContent,
-                                        savedPrompt: item.prompt,
-                                        selectedModel: item.model,
-                                        selectedAspectRatio: item.aspectRatio,
-                                        selectedImageSize: item.imageSize,
-                                        sourceGenerationTaskId: item.taskId,
-                                        sourceGenerationTaskType: item.taskId ? 'image' : undefined,
-                                    });
-                                    await addGeneratedImageElementToCanvas(newElement, {
-                                        selectAfterAdd: true,
-                                    });
-                                    showToast('已将项目图片回流到画布', 'success');
-                                })().catch((error) => {
-                                    console.error('Reinsert project image failed:', error);
-                                    showToast(`项目图片回流失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
-                                });
-                                return;
-                            }
-
-                            const newElement = buildVideoElement({
-                                ...buildCenteredElementBounds(center, 400, 300),
-                                content: item.content,
-                                savedPrompt: item.prompt,
-                                selectedModel: item.model,
-                                selectedAspectRatio: item.aspectRatio,
-                                selectedDuration: item.duration,
-                                sourceGenerationTaskId: item.taskId,
-                                sourceGenerationTaskType: item.taskId ? 'video' : undefined,
-                            });
-                            addAndSelectElement(newElement);
-                            showToast('已将项目视频回流到画布', 'success');
-                        }}
+                        onLocateSource={handleLocateProjectMediaSource}
+                        onInsertItem={handleInsertProjectMediaItem}
                     />
                 </div>
             )}
@@ -4047,67 +2829,12 @@ function LovartCanvasContent() {
                     <ProjectReferencePanel
                         items={projectReferenceItems}
                         onClose={closeReferences}
-                        onClearAll={() => {
-                            if (!currentProjectIdRef.current) return;
-                            clearProjectReferenceLibrary(currentProjectIdRef.current);
-                            showToast('已清空当前项目参考库', 'info');
-                        }}
-                        onDeleteItem={(item) => {
-                            if (!currentProjectIdRef.current) return;
-                            removeProjectReferenceImage(currentProjectIdRef.current, item.id);
-                            showToast('已从项目参考库移除', 'info');
-                        }}
-                        onDeleteItems={(items) => {
-                            if (!currentProjectIdRef.current || items.length === 0) return;
-                            items.forEach((item) => removeProjectReferenceImage(currentProjectIdRef.current!, item.id));
-                            showToast(`已批量移出 ${items.length} 张项目参考图`, 'info');
-                        }}
-                        onLocateSource={(item) => {
-                            if (item.sourceElementId) {
-                                focusCanvasElement(item.sourceElementId);
-                            }
-                        }}
-                        onInsertItem={(item) => {
-                            const center = getPlacementPosition();
-                            void (async () => {
-                                const resolvedContent = await resolveProjectReferenceImageInsertContent(item);
-                                const newElement = buildImageElement({
-                                    ...buildCenteredElementBounds(center, 400, 300),
-                                    content: resolvedContent,
-                                    displayName: item.label,
-                                    savedPrompt: item.prompt,
-                                });
-                                await addGeneratedImageElementToCanvas(newElement, {
-                                    selectAfterAdd: true,
-                                });
-                                touchProjectReferenceImage(currentProjectIdRef.current!, item.id);
-                                showToast('已将项目参考图回流到画布', 'success');
-                            })().catch((error) => {
-                                console.error('Reinsert project reference failed:', error);
-                                showToast(`项目参考图回流失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
-                            });
-                        }}
-                        onInsertItems={(items) => {
-                            if (items.length === 0) return;
-                            const center = getPlacementPosition();
-                            const gapX = 36;
-                            const gapY = 28;
-                            void (async () => {
-                                const newElements = await Promise.all(items.map(async (item, index) => buildImageElement({
-                                    ...buildCenteredElementBounds({ x: center.x + (index * gapX), y: center.y + (index * gapY) }, 400, 300),
-                                    content: await resolveProjectReferenceImageInsertContent(item),
-                                    displayName: item.label,
-                                    savedPrompt: item.prompt,
-                                })));
-                                newElements.forEach((element) => addElement(element));
-                                setSelectedIds(newElements.map((element) => element.id));
-                                items.forEach((item) => touchProjectReferenceImage(currentProjectIdRef.current!, item.id));
-                                showToast(`已批量回流 ${items.length} 张项目参考图`, 'success');
-                            })().catch((error) => {
-                                console.error('Batch reinsert project references failed:', error);
-                                showToast(`批量回流项目参考图失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
-                            });
-                        }}
+                        onClearAll={handleClearProjectReferences}
+                        onDeleteItem={handleDeleteProjectReferenceItem}
+                        onDeleteItems={handleDeleteProjectReferenceItems}
+                        onLocateSource={handleLocateProjectReferenceSource}
+                        onInsertItem={handleInsertProjectReferenceItem}
+                        onInsertItems={handleInsertProjectReferenceItems}
                     />
                 </div>
             )}
