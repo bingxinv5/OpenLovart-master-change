@@ -13,10 +13,10 @@ import {
     type ResizeSnapLockState,
 } from './canvas-snap-utils';
 import type { AlignGuide } from './canvas-alignment';
-import { calculatePanInertiaVelocity, stepPanInertia, trimPanVelocityPoints, type CanvasPointWithTime } from './canvas-pan-inertia';
 import { createSelectionBox, getSelectionBoxScreenRect, resolveSelectionBoxSelectedIds, updateSelectionBox, type SelectionBoxState } from './canvas-selection-box-state';
 import { getDragDescendantIds, resolveDragFrameAdoptions } from './canvas-drag-adoption';
 import { calculateResizeBounds } from './canvas-resize-state';
+import { useCanvasPanController } from './use-canvas-pan-controller';
 
 // ── Internal types (mirrors private types in CanvasArea) ──────────────────────
 
@@ -212,76 +212,14 @@ export function useCanvasPointerInteraction(
     const toolbarSelectionProbeRef = useRef<(() => void) | null>(null);
     const toolbarSuppressClickRef = useRef(false);
 
-    // ── Pan inertia refs ───────────────────────────────────────────────────────
-    const panRef = useRef(pan);
-    const committedPanRef = useRef(pan);
-    const onPanChangeRef = useRef(onPanChange);
-    const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
-    const panVelocityPointsRef = useRef<CanvasPointWithTime[]>([]);
-    const inertiaRafRef = useRef<number | null>(null);
-    const panRafRef = useRef<number | null>(null);
-
-    // Keep pan refs in sync with incoming prop
-    useEffect(() => {
-        panRef.current = pan;
-        committedPanRef.current = pan;
-    }, [pan]);
-
-    useEffect(() => {
-        onPanChangeRef.current = onPanChange;
-    }, [onPanChange]);
-
-    // Clean up inertia on unmount
-    useEffect(() => () => {
-        if (inertiaRafRef.current !== null) cancelAnimationFrame(inertiaRafRef.current);
-        if (panRafRef.current !== null) cancelAnimationFrame(panRafRef.current);
-    }, []);
-
-    // ── Pan utilities ──────────────────────────────────────────────────────────
-
-    const commitPanChange = useCallback((nextPan: { x: number; y: number }) => {
-        const previousPan = committedPanRef.current;
-        if (previousPan.x === nextPan.x && previousPan.y === nextPan.y) return;
-        committedPanRef.current = nextPan;
-        panRef.current = nextPan;
-        onPanChangeRef.current(nextPan);
-    }, []);
-
-    const flushPendingPanChange = useCallback(() => {
-        if (panRafRef.current !== null) {
-            cancelAnimationFrame(panRafRef.current);
-            panRafRef.current = null;
-        }
-        const nextPan = pendingPanRef.current;
-        pendingPanRef.current = null;
-        if (!nextPan) return;
-        commitPanChange(nextPan);
-    }, [commitPanChange]);
-
-    const schedulePanChange = useCallback((nextPan: { x: number; y: number }) => {
-        pendingPanRef.current = nextPan;
-        if (panRafRef.current !== null) return;
-        panRafRef.current = requestAnimationFrame(() => {
-            panRafRef.current = null;
-            const queuedPan = pendingPanRef.current;
-            pendingPanRef.current = null;
-            if (!queuedPan) return;
-            commitPanChange(queuedPan);
-        });
-    }, [commitPanChange]);
-
-    const cancelInertia = useCallback(() => {
-        if (inertiaRafRef.current !== null) {
-            cancelAnimationFrame(inertiaRafRef.current);
-            inertiaRafRef.current = null;
-        }
-        if (panRafRef.current !== null) {
-            cancelAnimationFrame(panRafRef.current);
-            panRafRef.current = null;
-        }
-        pendingPanRef.current = null;
-        panVelocityPointsRef.current = [];
-    }, []);
+    const {
+        cancelInertia,
+        commitPanChange,
+        flushPendingPanChange,
+        recordPanVelocityPoint,
+        schedulePanChange,
+        startInertiaFromVelocityPoints,
+    } = useCanvasPanController({ pan, onPanChange });
 
     // ── Canvas coordinate conversion ───────────────────────────────────────────
 
@@ -703,10 +641,7 @@ export function useCanvasPointerInteraction(
             const dx = clientX - dragStartRef.current.x;
             const dy = clientY - dragStartRef.current.y;
             schedulePanChange({ x: dragStartRef.current.panX + dx, y: dragStartRef.current.panY + dy });
-            const now = timeStamp ?? 0;
-            const pts = panVelocityPointsRef.current;
-            pts.push({ x: clientX, y: clientY, t: now });
-            panVelocityPointsRef.current = trimPanVelocityPoints(pts, 6);
+            recordPanVelocityPoint({ x: clientX, y: clientY, t: timeStamp ?? 0 });
             return;
         }
 
@@ -982,25 +917,8 @@ export function useCanvasPointerInteraction(
         }
 
         // Launch inertia momentum if was panning
-        if (isPanning && panVelocityPointsRef.current.length >= 2) {
-            const velocity = calculatePanInertiaVelocity(panVelocityPointsRef.current);
-            if (velocity) {
-                let currentPan = { x: panRef.current.x, y: panRef.current.y };
-                let currentVelocity = velocity;
-                const step = () => {
-                    const next = stepPanInertia(currentPan, currentVelocity);
-                    currentVelocity = next.velocity;
-                    if (!next.shouldContinue) {
-                        inertiaRafRef.current = null;
-                        return;
-                    }
-                    currentPan = next.pan;
-                    commitPanChange(currentPan);
-                    inertiaRafRef.current = requestAnimationFrame(step);
-                };
-                inertiaRafRef.current = requestAnimationFrame(step);
-            }
-            panVelocityPointsRef.current = [];
+        if (isPanning) {
+            startInertiaFromVelocityPoints();
         }
 
         setIsDragging(false);

@@ -32,7 +32,7 @@ import {
     createGenerationTaskPatch,
 } from '@/lib/generation-task-state';
 import { useLocalDb } from '@/hooks/useLocalDb';
-import { elementStore, ensureImageRef, migrateElementsToImageStore, isImageRef, getImageBlob, getImageDataUrl, saveImageBlob, cleanupUnusedImages } from '@/lib/editor-kernel';
+import { elementStore, migrateElementsToImageStore, isImageRef, getImageBlob, getImageDataUrl, saveImageBlob, cleanupUnusedImages } from '@/lib/editor-kernel';
 import { useCanvasFeedback } from './canvas-feedback';
 import { CanvasBenchmarkPanel } from './CanvasBenchmarkPanel';
 import { CanvasHeader } from './CanvasHeader';
@@ -78,6 +78,7 @@ import { useCanvasSessionRuntime } from './canvas-session-runtime';
 import { useGenerationPollingController } from './canvas-generation-controller';
 import { useImageFinalizer } from './use-image-finalizer';
 import { useCanvasProjectReferenceActions } from './use-canvas-project-reference-actions';
+import { useCanvasBenchmarkActions } from './use-canvas-benchmark-actions';
 import { pollGenerationTask } from './generation-polling';
 import { persistGeneration, removeGeneration, persistSubmission, clearSubmission } from './generation-persistence';
 import { saveViewportState } from './viewport-persistence';
@@ -86,12 +87,10 @@ import {
     type CanvasChunkManifestEntry,
     type CanvasChunkStats,
 } from './project-storage';
-import { clearCanvasBenchmarkResults, generateBenchmarkSeeds, getCanvasBenchmarkResults, saveCanvasBenchmarkResult, type CanvasBenchmarkResult } from '@/lib/canvas-benchmark';
 import { collectRetainedLocalImageRefs } from '@/lib/local-image-ref-usage';
 import { DEFAULT_WORKBENCH_SETTINGS, getWorkbenchSettings, hasDirectoryPickerSupport, requestAutoSaveDirectoryHandle, requestPersistentStorage, saveBlobToAutoSaveDirectory, saveWorkbenchSettings, subscribeWorkbenchSettingsChange, type StorageEstimateInfo, type WorkbenchSettings, getStorageEstimateInfo } from '@/lib/workbench-settings';
 import { v4 as uuidv4 } from 'uuid';
 import {
-    IMAGE_IMPORT_CONCURRENCY,
     BACKGROUND_IMAGE_FIX_CONCURRENCY,
     BACKGROUND_IMAGE_FIX_BATCH_SIZE,
     STORAGE_WARN_THRESHOLD,
@@ -190,8 +189,6 @@ function LovartCanvasContent() {
     }, [scale, pan]);
     const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(DEFAULT_WORKBENCH_SETTINGS);
     const [storageEstimate, setStorageEstimate] = useState<StorageEstimateInfo | null>(null);
-    const [benchmarkResults, setBenchmarkResults] = useState<CanvasBenchmarkResult[]>([]);
-    const [isBenchmarkRunning, setIsBenchmarkRunning] = useState(false);
     const [chunkPreheat, setChunkPreheat] = useState<ChunkPreheatState>({
         active: false,
         phase: 'idle',
@@ -738,10 +735,7 @@ function LovartCanvasContent() {
     useEffect(() => {
         setWorkbenchSettings(getWorkbenchSettings());
         void requestPersistentStorage();
-        if (benchmarkMode) {
-            setBenchmarkResults(getCanvasBenchmarkResults());
-        }
-    }, [benchmarkMode]);
+    }, []);
 
     useEffect(() => {
         return subscribeWorkbenchSettingsChange(() => {
@@ -770,6 +764,21 @@ function LovartCanvasContent() {
         }, 30000);
         return () => window.clearInterval(timer);
     }, [refreshStorageEstimate]);
+
+    const {
+        benchmarkResults,
+        handleClearBenchmarkResults,
+        isBenchmarkRunning,
+        runCanvasBenchmark,
+    } = useCanvasBenchmarkActions({
+        benchmarkMode,
+        workbenchSettings,
+        addElements,
+        setElements,
+        setSelectedIds,
+        refreshStorageEstimate,
+        showToast,
+    });
 
     const persistGeneratedAssetToDisk = useCallback(async (
         content: string,
@@ -883,12 +892,6 @@ function LovartCanvasContent() {
         saveWorkbenchSettings(next);
         showToast('已开启生成结果自动落盘', 'success');
     }, [showToast, workbenchSettings]);
-
-    const handleClearBenchmarkResults = useCallback(() => {
-        clearCanvasBenchmarkResults();
-        setBenchmarkResults([]);
-        showToast('已清空压力测试记录', 'info');
-    }, [showToast]);
 
     const mouseCanvasPosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -1396,59 +1399,6 @@ function LovartCanvasContent() {
 
     // sanitizeToolName, sanitizeFilenameStem, getElementBaseName, buildToolResultNames,
     // resolveToolResultNaming — now imported from canvas-page-utils
-
-    const runCanvasBenchmark = useCallback(async (count: number, mode: 'replace' | 'append' = 'replace') => {
-        setIsBenchmarkRunning(true);
-        showToast(`开始执行 ${count} 张图片压力测试...`, 'info');
-
-        try {
-            const start = performance.now();
-            const seeds = generateBenchmarkSeeds(count);
-            const refs = await mapWithConcurrency(seeds, IMAGE_IMPORT_CONCURRENCY, async (seed) => {
-                const content = await ensureImageRef(seed.content);
-                return content;
-            });
-
-            const generatedElements: CanvasElement[] = refs.map((content, index) => ({
-                id: uuidv4(),
-                type: 'image',
-                x: seeds[index].x,
-                y: seeds[index].y,
-                width: seeds[index].width,
-                height: seeds[index].height,
-                content,
-                ...getDefaultImagePresentation(workbenchSettings),
-            }));
-
-            if (mode === 'append') {
-                addElements(generatedElements);
-            } else {
-                setElements(generatedElements);
-                setSelectedIds([]);
-            }
-
-            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-            await refreshStorageEstimate();
-            const end = performance.now();
-            const latestEstimate = await getStorageEstimateInfo();
-            const results = saveCanvasBenchmarkResult({
-                id: uuidv4(),
-                timestamp: new Date().toISOString(),
-                count,
-                durationMs: Math.round((end - start) * 100) / 100,
-                storageUsageBytes: latestEstimate?.usageBytes ?? 0,
-                quotaBytes: latestEstimate?.quotaBytes ?? 0,
-                mode,
-            });
-            setBenchmarkResults(results);
-            showToast(`压力测试完成：${count} 张 / ${Math.round(end - start)} ms`, 'success');
-        } catch (error) {
-            console.error('[Benchmark] Failed:', error);
-            showToast('压力测试执行失败', 'error');
-        } finally {
-            setIsBenchmarkRunning(false);
-        }
-    }, [addElements, refreshStorageEstimate, setElements, showToast, workbenchSettings]);
 
     const focusNewElement = useCallback((elementId: string) => {
         setSelectedIds([elementId]);
