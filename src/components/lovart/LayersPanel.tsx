@@ -36,8 +36,16 @@ import {
     type StoryboardMetaTemplateValue,
     type StoryboardMetaTemplateEntry,
 } from '@/lib/storyboard-meta-presets';
-import { getStoryboardShotSortTuple, parseStoryboardShotCode, validateStoryboardDuration, validateStoryboardShotCode } from '@/lib/storyboard-utils';
+import { parseStoryboardShotCode, validateStoryboardDuration, validateStoryboardShotCode } from '@/lib/storyboard-utils';
 import type { CanvasElement } from './canvas-types';
+import {
+    getLayerLabel,
+    LayerTreeBuilder,
+    type FlattenedLayerRow,
+    type LayerFilterType,
+    type LayerSortMode,
+    type StoryboardAuditFilter,
+} from './layers-tree-model';
 
 interface LayersPanelProps {
     elements: CanvasElement[];
@@ -74,21 +82,6 @@ interface LayersPanelProps {
     onClose?: () => void;
 }
 
-interface LayerNode {
-    element: CanvasElement;
-    children: LayerNode[];
-}
-
-interface FlattenedLayerRow {
-    element: CanvasElement;
-    children: LayerNode[];
-    depth: number;
-    hasChildren: boolean;
-    expanded: boolean;
-    top: number;
-    height: number;
-}
-
 interface LayersPanelMoveToParentDetail {
     draggedId?: string;
     draggedIds?: string[];
@@ -107,19 +100,10 @@ interface LayerDragPayload {
     ids: string[];
 }
 
-type LayerFilterType = 'all' | 'image' | 'frame' | 'text' | 'shape' | 'video' | 'other';
-type LayerSortMode = 'canvas' | 'storyboard-shot';
-type StoryboardAuditFilter = 'all' | 'ready' | 'partial' | 'invalid' | 'untracked';
 type StoryboardNavigationScope = 'issues' | 'invalid' | 'partial' | 'untracked';
 
 const TEST_MOVE_TO_PARENT_EVENT = layersPanelTestEvents.moveToParentEvent;
 const TEST_REORDER_EVENT = layersPanelTestEvents.reorderEvent;
-const LAYER_ROW_BASE_HEIGHT = 36;
-const LAYER_ROW_SELECTED_ACTIONS_HEIGHT = 28;
-const LAYER_ROW_STORYBOARD_META_HEIGHT = 140;
-const LAYER_ROW_NEST_TARGET_HEIGHT = 32;
-const LAYER_ROW_GAP_HEIGHT = 4;
-const LAYER_ROW_OVERSCAN = 8;
 
 function validateStoryboardPrefix(value?: string) {
     const rawValue = value?.trim();
@@ -128,41 +112,6 @@ function validateStoryboardPrefix(value?: string) {
         return '前缀建议只使用字母或连字符，例如 A、SC、SHOT-。';
     }
     return null;
-}
-
-function getLayerLabel(element: CanvasElement) {
-    if (element.displayName?.trim()) {
-        return element.displayName.trim();
-    }
-
-    if (element.type === 'frame') {
-        return element.frameName?.trim() || (element.groupFrame ? '编组' : '画板');
-    }
-
-    if (element.type === 'text') {
-        return element.content?.trim().slice(0, 18) || '文本';
-    }
-
-    if (element.type === 'shape') {
-        const shapeMap: Record<NonNullable<CanvasElement['shapeType']>, string> = {
-            square: '矩形',
-            circle: '圆形',
-            triangle: '三角形',
-            star: '星形',
-            message: '气泡',
-            'arrow-left': '左箭头',
-            'arrow-right': '右箭头',
-        };
-        return shapeMap[element.shapeType || 'square'];
-    }
-
-    if (element.type === 'path') return '路径';
-    if (element.type === 'image') return '图片';
-    if (element.type === 'video') return '视频';
-    if (element.type === 'image-generator') return '图片生成器';
-    if (element.type === 'video-generator') return '视频生成器';
-    if (element.type === 'mark') return `标记 ${element.markNumber || ''}`.trim();
-    return element.type;
 }
 
 function getLayerIcon(element: CanvasElement) {
@@ -191,15 +140,6 @@ function isElementLocked(element: CanvasElement) {
     return !!(element.locked || (element.type === 'frame' && element.frameLocked));
 }
 
-function getLayerFilterType(element: CanvasElement): LayerFilterType {
-    if (element.type === 'image') return 'image';
-    if (element.type === 'frame') return 'frame';
-    if (element.type === 'text') return 'text';
-    if (element.type === 'shape' || element.type === 'path' || element.type === 'mark') return 'shape';
-    if (element.type === 'video' || element.type === 'video-generator') return 'video';
-    return 'other';
-}
-
 function getStoryboardSummaryParts(element: CanvasElement) {
     return [
         element.storyboardShotCode?.trim(),
@@ -209,27 +149,85 @@ function getStoryboardSummaryParts(element: CanvasElement) {
     ].filter(Boolean) as string[];
 }
 
-function getStoryboardAuditState(element: CanvasElement) {
-    const shotCode = element.storyboardShotCode?.trim();
-    const sceneType = element.storyboardSceneType?.trim();
-    const duration = element.storyboardDuration?.trim();
-    const note = element.storyboardNote?.trim();
-    const cameraMove = element.storyboardCameraMove?.trim();
-    const hasAnyMeta = !!(shotCode || sceneType || duration || note || cameraMove);
-    const hasValidationError = !!(validateStoryboardShotCode(shotCode) || validateStoryboardDuration(duration));
-    const isReady = !!(shotCode && sceneType && duration) && !hasValidationError;
-    const isPartial = hasAnyMeta && !isReady && !hasValidationError;
-    const isUntracked = !hasAnyMeta;
-    const needsAttention = hasValidationError || isPartial;
+function LayerVirtualList({
+    scrollContainerRef,
+    draggingId,
+    parentDropTarget,
+    dragHintLabel,
+    filteredRowsState,
+    flattenedRowCount,
+    visibleRows,
+    onRootDragOver,
+    onRootDragLeave,
+    onRootDrop,
+    renderRow,
+}: {
+    scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+    draggingId: string | null;
+    parentDropTarget: string | 'root' | null;
+    dragHintLabel: string;
+    filteredRowsState: { rows: FlattenedLayerRow[]; totalHeight: number };
+    flattenedRowCount: number;
+    visibleRows: FlattenedLayerRow[];
+    onRootDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
+    onRootDragLeave: () => void;
+    onRootDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+    renderRow: (row: FlattenedLayerRow) => React.ReactNode;
+}) {
+    return (
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-2 py-1.5">
+            <div
+                data-testid="layers-root-drop-zone"
+                className={`mb-1 rounded-md border border-dashed px-2.5 py-1.5 text-[10px] font-medium transition-all ${draggingId ? 'border-slate-300 bg-slate-50 text-slate-500' : 'border-transparent bg-transparent text-transparent h-0 overflow-hidden p-0 mb-0'} ${parentDropTarget === 'root' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : ''}`}
+                onDragOver={onRootDragOver}
+                onDragLeave={onRootDragLeave}
+                onDrop={onRootDrop}
+            >
+                拖到这里移出画板
+            </div>
+            {draggingId && (
+                <div className="sticky top-0 z-10 mb-1 rounded-md border border-blue-200 bg-blue-50/95 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 shadow-sm backdrop-blur-sm" data-testid="layers-drag-hint">
+                    {dragHintLabel}
+                </div>
+            )}
+            {filteredRowsState.rows.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 text-center">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
+                        <Layers3 size={16} />
+                    </div>
+                    <div className="mt-2 text-[12px] font-medium text-slate-700">{flattenedRowCount === 0 ? '画布还没有可管理的图层' : '当前筛选没有匹配图层'}</div>
+                    <p className="mt-1 text-[11px] leading-4 text-slate-500">{flattenedRowCount === 0 ? '添加形状、图片或画板后，这里会自动显示层级结构。' : '可以尝试修改搜索词或切换筛选类型。'}</p>
+                </div>
+            ) : (
+                <div className="relative" style={{ height: `${filteredRowsState.totalHeight}px` }}>
+                    {visibleRows.map((row) => renderRow(row))}
+                </div>
+            )}
+        </div>
+    );
+}
 
-    return {
-        hasAnyMeta,
-        hasValidationError,
-        isReady,
-        isPartial,
-        isUntracked,
-        needsAttention,
-    };
+function StoryboardMetaEditor({
+    depth,
+    hasValidationError,
+    children,
+}: {
+    depth: number;
+    hasValidationError: boolean;
+    children: React.ReactNode;
+}) {
+    return (
+        <div
+            className={`mt-1 rounded-md border bg-white p-2.5 shadow-sm ${hasValidationError ? 'border-rose-200' : 'border-slate-200'}`}
+            style={{ marginLeft: `${depth * 12 + 30}px` }}
+        >
+            {children}
+        </div>
+    );
+}
+
+function LayerBulkActions({ children }: { children: React.ReactNode }) {
+    return <>{children}</>;
 }
 
 export function LayersPanel({
@@ -301,153 +299,28 @@ export function LayersPanel({
     const bulkStoryboardDurationError = useMemo(() => validateStoryboardDuration(bulkStoryboardDuration), [bulkStoryboardDuration]);
     const effectiveStoryboardAuditFilter = externalStoryboardAuditFilter ?? 'all';
 
-    const layerTree = useMemo(() => {
-        const layerElements = elements.filter((element) => element.type !== 'connector');
-        const idSet = new Set(layerElements.map((element) => element.id));
-        const childrenByParent = new Map<string, CanvasElement[]>();
+    const layerTree = useMemo(() => LayerTreeBuilder.buildTree(elements), [elements]);
 
-        layerElements.forEach((element) => {
-            if (!element.parentFrameId || !idSet.has(element.parentFrameId)) {
-                return;
-            }
-            const siblings = childrenByParent.get(element.parentFrameId) || [];
-            siblings.push(element);
-            childrenByParent.set(element.parentFrameId, siblings);
-        });
+    const flattenedRows = useMemo(() => LayerTreeBuilder.flattenRows({
+        layerTree,
+        expandedMap,
+        selectedIdSet,
+        draggingId,
+    }), [draggingId, expandedMap, layerTree, selectedIdSet]);
 
-        const buildNodes = (parentId?: string): LayerNode[] => {
-            const source = parentId
-                ? (childrenByParent.get(parentId) || [])
-                : layerElements.filter((element) => !element.parentFrameId || !idSet.has(element.parentFrameId));
+    const filteredRowsState = useMemo(() => LayerTreeBuilder.filterRows({
+        flattenedRows: flattenedRows.rows,
+        layerQuery,
+        layerFilterType,
+        layerSortMode,
+        storyboardOnly,
+        storyboardAuditFilter: effectiveStoryboardAuditFilter,
+    }), [effectiveStoryboardAuditFilter, flattenedRows.rows, layerFilterType, layerQuery, layerSortMode, storyboardOnly]);
 
-            return [...source].reverse().map((element) => ({
-                element,
-                children: buildNodes(element.id),
-            }));
-        };
-
-        return buildNodes();
-    }, [elements]);
-
-    const flattenedRows = useMemo(() => {
-        const rows: FlattenedLayerRow[] = [];
-        let offsetTop = 0;
-
-        const visit = (nodes: LayerNode[], depth: number) => {
-            nodes.forEach((node) => {
-                const hasChildren = node.children.length > 0;
-                const expanded = expandedMap[node.element.id] ?? true;
-                const selected = selectedIdSet.has(node.element.id);
-                const storyboardMetaVisible = selected && node.element.type === 'image';
-                const rowHeight = LAYER_ROW_BASE_HEIGHT
-                    + (selected ? LAYER_ROW_SELECTED_ACTIONS_HEIGHT : 0)
-                    + (storyboardMetaVisible ? LAYER_ROW_STORYBOARD_META_HEIGHT : 0)
-                    + (node.element.type === 'frame' && draggingId && draggingId !== node.element.id ? LAYER_ROW_NEST_TARGET_HEIGHT : 0)
-                    + LAYER_ROW_GAP_HEIGHT;
-
-                rows.push({
-                    element: node.element,
-                    children: node.children,
-                    depth,
-                    hasChildren,
-                    expanded,
-                    top: offsetTop,
-                    height: rowHeight,
-                });
-
-                offsetTop += rowHeight;
-
-                if (hasChildren && expanded) {
-                    visit(node.children, depth + 1);
-                }
-            });
-        };
-
-        visit(layerTree, 0);
-        return {
-            rows,
-            totalHeight: offsetTop,
-        };
-    }, [draggingId, expandedMap, layerTree, selectedIdSet]);
-
-    const filteredRowsState = useMemo(() => {
-        const query = layerQuery.trim().toLowerCase();
-        const filteredRows = flattenedRows.rows
-            .filter((row) => {
-                const typeMatched = layerFilterType === 'all' || getLayerFilterType(row.element) === layerFilterType;
-                const label = getLayerLabel(row.element).toLowerCase();
-                const queryMatched = !query || label.includes(query) || row.element.type.toLowerCase().includes(query);
-                const storyboardMatched = !storyboardOnly || !!row.element.storyboardShotCode?.trim();
-                let storyboardAuditMatched = true;
-
-                if (effectiveStoryboardAuditFilter !== 'all') {
-                    if (row.element.type !== 'image') {
-                        storyboardAuditMatched = false;
-                    } else {
-                        const auditState = getStoryboardAuditState(row.element);
-                        storyboardAuditMatched = (
-                            (effectiveStoryboardAuditFilter === 'ready' && auditState.isReady)
-                            || (effectiveStoryboardAuditFilter === 'partial' && auditState.isPartial)
-                            || (effectiveStoryboardAuditFilter === 'invalid' && auditState.hasValidationError)
-                            || (effectiveStoryboardAuditFilter === 'untracked' && auditState.isUntracked)
-                        );
-                    }
-                }
-
-                return typeMatched && queryMatched && storyboardMatched && storyboardAuditMatched;
-            })
-            ;
-
-        if (layerSortMode === 'storyboard-shot') {
-            filteredRows.sort((a, b) => {
-                const tupleA = getStoryboardShotSortTuple(a.element.storyboardShotCode, getLayerLabel(a.element));
-                const tupleB = getStoryboardShotSortTuple(b.element.storyboardShotCode, getLayerLabel(b.element));
-                if (tupleA[0] !== tupleB[0]) return tupleA[0] - tupleB[0];
-                if (tupleA[1] !== tupleB[1]) return tupleA[1].localeCompare(tupleB[1], 'zh-CN');
-                if (tupleA[2] !== tupleB[2]) return tupleA[2] - tupleB[2];
-                return tupleA[3].localeCompare(tupleB[3], 'zh-CN');
-            });
-        }
-
-        const rows = filteredRows.reduce<FlattenedLayerRow[]>((accumulator, row) => {
-            const nextTop = accumulator.length === 0
-                ? 0
-                : accumulator[accumulator.length - 1].top + accumulator[accumulator.length - 1].height;
-            accumulator.push({ ...row, top: nextTop });
-            return accumulator;
-        }, []);
-
-        const totalHeight = rows.length === 0
-            ? 0
-            : rows[rows.length - 1].top + rows[rows.length - 1].height;
-
-        return {
-            rows,
-            totalHeight,
-        };
-    }, [effectiveStoryboardAuditFilter, flattenedRows.rows, layerFilterType, layerQuery, layerSortMode, storyboardOnly]);
-
-    const visibleRows = useMemo(() => {
-        const rows = filteredRowsState.rows;
-        if (rows.length === 0) {
-            return rows;
-        }
-
-        const viewportBottom = scrollTop + Math.max(viewportHeight, 1);
-        let startIndex = rows.findIndex((row) => row.top + row.height >= scrollTop);
-        if (startIndex < 0) {
-            startIndex = 0;
-        }
-
-        let endIndex = rows.findIndex((row) => row.top > viewportBottom);
-        if (endIndex < 0) {
-            endIndex = rows.length;
-        }
-
-        startIndex = Math.max(0, startIndex - LAYER_ROW_OVERSCAN);
-        endIndex = Math.min(rows.length, endIndex + LAYER_ROW_OVERSCAN);
-        return rows.slice(startIndex, endIndex);
-    }, [filteredRowsState.rows, scrollTop, viewportHeight]);
+    const visibleRows = useMemo(
+        () => LayerTreeBuilder.visibleRows(filteredRowsState.rows, scrollTop, viewportHeight),
+        [filteredRowsState.rows, scrollTop, viewportHeight],
+    );
 
     useEffect(() => {
         const targetId = highlightedIds[0];
@@ -975,15 +848,20 @@ export function LayersPanel({
             onReorderLayer(draggedIds, targetId, placement);
         };
 
-        root.addEventListener(TEST_MOVE_TO_PARENT_EVENT, handleTestMoveToParent as EventListener);
-        root.addEventListener(TEST_REORDER_EVENT, handleTestReorder as EventListener);
+        const eventTargets = Array.from(new Set([root, root.parentElement].filter((target): target is HTMLElement => !!target)));
+        eventTargets.forEach((target) => {
+            target.addEventListener(TEST_MOVE_TO_PARENT_EVENT, handleTestMoveToParent as EventListener);
+            target.addEventListener(TEST_REORDER_EVENT, handleTestReorder as EventListener);
+        });
         return () => {
-            root.removeEventListener(TEST_MOVE_TO_PARENT_EVENT, handleTestMoveToParent as EventListener);
-            root.removeEventListener(TEST_REORDER_EVENT, handleTestReorder as EventListener);
+            eventTargets.forEach((target) => {
+                target.removeEventListener(TEST_MOVE_TO_PARENT_EVENT, handleTestMoveToParent as EventListener);
+                target.removeEventListener(TEST_REORDER_EVENT, handleTestReorder as EventListener);
+            });
         };
     }, [elementsById, onMoveLayerToParent, onReorderLayer]);
 
-    const renderRow = (row: FlattenedLayerRow): React.ReactNode => {
+    const LayerRow = (row: FlattenedLayerRow): React.ReactNode => {
         const { element, children, depth, hasChildren, expanded, top, height } = row;
         const selected = selectedIdSet.has(element.id);
         const locked = isElementLocked(element);
@@ -1256,10 +1134,7 @@ export function LayersPanel({
                 )}
 
                 {showStoryboardEditor && (
-                    <div
-                        className={`mt-1 rounded-md border bg-white p-2.5 shadow-sm ${hasStoryboardValidationError ? 'border-rose-200' : 'border-slate-200'}`}
-                        style={{ marginLeft: `${depth * 12 + 30}px` }}
-                    >
+                    <StoryboardMetaEditor depth={depth} hasValidationError={hasStoryboardValidationError}>
                         <div className="mb-2 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1.5">
                                 <div className="text-[11px] font-semibold text-slate-700">分镜字段</div>
@@ -1415,7 +1290,7 @@ export function LayersPanel({
                                 </div>
                             </div>
                         )}
-                    </div>
+                    </StoryboardMetaEditor>
                 )}
             </div>
         );
@@ -1487,43 +1362,27 @@ export function LayersPanel({
                 </div>
             </div>
 
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-2 py-1.5">
-                <div
-                    data-testid="layers-root-drop-zone"
-                    className={`mb-1 rounded-md border border-dashed px-2.5 py-1.5 text-[10px] font-medium transition-all ${draggingId ? 'border-slate-300 bg-slate-50 text-slate-500' : 'border-transparent bg-transparent text-transparent h-0 overflow-hidden p-0 mb-0'} ${parentDropTarget === 'root' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : ''}`}
-                    onDragOver={(event) => {
-                        if (!draggingId) return;
-                        event.preventDefault();
-                        updateDragAutoScroll(event.clientY);
-                        setParentDropTarget('root');
-                        setDropIndicator(null);
-                    }}
-                    onDragLeave={() => {
-                        setParentDropTarget((prev) => prev === 'root' ? null : prev);
-                    }}
-                    onDrop={(event) => handleMoveToParentDrop(event, undefined)}
-                >
-                    拖到这里移出画板
-                </div>
-                {draggingId && (
-                    <div className="sticky top-0 z-10 mb-1 rounded-md border border-blue-200 bg-blue-50/95 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 shadow-sm backdrop-blur-sm" data-testid="layers-drag-hint">
-                        {dragHintLabel}
-                    </div>
-                )}
-                {filteredRowsState.rows.length === 0 ? (
-                    <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 text-center">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
-                            <Layers3 size={16} />
-                        </div>
-                        <div className="mt-2 text-[12px] font-medium text-slate-700">{flattenedRows.rows.length === 0 ? '画布还没有可管理的图层' : '当前筛选没有匹配图层'}</div>
-                        <p className="mt-1 text-[11px] leading-4 text-slate-500">{flattenedRows.rows.length === 0 ? '添加形状、图片或画板后，这里会自动显示层级结构。' : '可以尝试修改搜索词或切换筛选类型。'}</p>
-                    </div>
-                ) : (
-                    <div className="relative" style={{ height: `${filteredRowsState.totalHeight}px` }}>
-                        {visibleRows.map((row) => renderRow(row))}
-                    </div>
-                )}
-            </div>
+            <LayerVirtualList
+                scrollContainerRef={scrollContainerRef}
+                draggingId={draggingId}
+                parentDropTarget={parentDropTarget}
+                dragHintLabel={dragHintLabel}
+                filteredRowsState={filteredRowsState}
+                flattenedRowCount={flattenedRows.rows.length}
+                visibleRows={visibleRows}
+                onRootDragOver={(event) => {
+                    if (!draggingId) return;
+                    event.preventDefault();
+                    updateDragAutoScroll(event.clientY);
+                    setParentDropTarget('root');
+                    setDropIndicator(null);
+                }}
+                onRootDragLeave={() => {
+                    setParentDropTarget((prev) => prev === 'root' ? null : prev);
+                }}
+                onRootDrop={(event) => handleMoveToParentDrop(event, undefined)}
+                renderRow={LayerRow}
+            />
 
             {(selectedIds.length > 1 || historySummary) && (
                 <div className="border-t border-slate-100 bg-slate-50/90 px-3 py-2.5 space-y-2.5">
@@ -1560,7 +1419,7 @@ export function LayersPanel({
                     )}
 
                     {selectedIds.length > 1 && (
-                        <>
+                        <LayerBulkActions>
                     <div className="mb-2 flex items-center justify-between text-[12px] text-slate-600">
                         <span>已选 {selectedIds.length} 个图层</span>
                         <span className="font-medium">批量操作</span>
@@ -2028,7 +1887,7 @@ export function LayersPanel({
                             <Trash2 size={14} />
                         </button>
                     </div>
-                        </>
+                        </LayerBulkActions>
                     )}
                 </div>
             )}

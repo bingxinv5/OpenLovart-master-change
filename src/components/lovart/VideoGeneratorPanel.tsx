@@ -2,9 +2,18 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { LibraryBig, Sparkles, ChevronDown, Zap, Upload, X, Video, Loader2, MousePointerClick, FolderOpen, Film, Volume2, Search, Settings2, Plus, ChevronRight } from 'lucide-react';
-import { GeneratorStatusCard, getGeneratorStatusState } from './GeneratorStatusCard';
+import { LibraryBig, Sparkles, ChevronDown, Upload, X, Video, MousePointerClick, FolderOpen, Film, Volume2, Settings2, ChevronRight } from 'lucide-react';
+import { debugLog } from '@/lib/debug-log';
+import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration } from './canvas-types';
+import { getGeneratorStatusState } from './GeneratorStatusCard';
 import { WorkbenchImage } from './WorkbenchImage';
+import {
+    GeneratorRecoveryTaskCard,
+    GeneratorReferenceStack,
+    GeneratorStatusSection,
+    GeneratorSubmitButton,
+    MentionComposerSuggestions,
+} from './generator-panel-sections';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from './generator-error-utils';
 import { createGeneratorTaskUpdate, useClearGeneratorError, usePersistGeneratorValue } from './generator-panel-hooks';
 import {
@@ -20,16 +29,20 @@ import type { ProjectReferenceImageItem } from '@/lib/project-reference-library'
 import { useVideoGenerationDefaults } from '@/lib/generation-defaults';
 import { VIDEO_DURATION_OPTIONS, type VideoDuration } from '@/lib/workbench-settings';
 import {
-    filterMentionSuggestions,
     insertTextAtSelection,
     normalizeMentionText,
     removeMentionToken,
     removeMentionTokens,
     resolveTextareaMentionQuery,
-    resolveTokenDeletionRange,
     type TextareaMentionQuery,
     type TextareaSelection,
 } from './textarea-mention-utils';
+import {
+    buildPromptComposerSegments,
+    getPromptMentionSuggestions,
+    materializePromptMentions,
+    resolvePromptMentionDeletion,
+} from './generator-mention-view-model';
 
 type VideoModel = 'veo3.1' | 'veo3.1-fast' | 'veo3.1-components' | 'doubao-seedance-2-0-260128';
 type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
@@ -147,10 +160,6 @@ interface PromptMentionBinding {
 type PromptMentionQuery = TextareaMentionQuery;
 
 type PromptSelection = TextareaSelection;
-
-type PromptComposerSegment =
-    | { type: 'text'; value: string; key: string }
-    | { type: 'mention'; mention: PromptMention; key: string };
 
 // Module-level stable serialize function (avoids new reference each render)
 function serializeFrameImages(value: FrameImage[]): string | undefined {
@@ -271,24 +280,6 @@ function parseStoredPromptMentionBindings(value: string | undefined): PromptMent
     } catch {
         return parseStoredStringArray(value).map((mentionId) => ({ mentionId }));
     }
-}
-
-function resolvePromptMentionDeletion(
-    prompt: string,
-    mentions: PromptMention[],
-    selectionOffset: number,
-    key: 'Backspace' | 'Delete',
-): { start: number; end: number; nextCaretOffset: number } | null {
-    return resolveTokenDeletionRange({
-        value: prompt,
-        tokens: mentions.map((mention) => mention.token),
-        selectionOffset,
-        key,
-    });
-}
-
-function getPromptMentionSuggestions(mentions: PromptMention[], query: PromptMentionQuery | null): PromptMention[] {
-    return filterMentionSuggestions(mentions, query, (mention) => mention.searchText);
 }
 
 function isReusableReferenceAsset(value: string): boolean {
@@ -461,66 +452,8 @@ function getPromptMentionEmptyState(params: {
     return '先添加参考图，再输入 @ 进行引用';
 }
 
-function materializePromptMentions(
-    prompt: string,
-    mentions: PromptMention[],
-): string {
-    let materializedPrompt = prompt.trim();
-    if (!materializedPrompt) {
-        return materializedPrompt;
-    }
-
-    [...mentions]
-        .sort((left, right) => right.token.length - left.token.length)
-        .forEach((mention) => {
-            materializedPrompt = materializedPrompt.split(mention.token).join(mention.replacement);
-        });
-
-    return materializedPrompt.trim();
-}
-
 function resolvePromptMentionQuery(value: string, caretIndex: number): PromptMentionQuery | null {
     return resolveTextareaMentionQuery(value, caretIndex);
-}
-
-function buildPromptComposerSegments(prompt: string, mentions: PromptMention[]): PromptComposerSegment[] {
-    if (!prompt) {
-        return [];
-    }
-
-    const sortedMentions = [...mentions].sort((left, right) => right.token.length - left.token.length);
-    const segments: PromptComposerSegment[] = [];
-    let cursor = 0;
-    let segmentIndex = 0;
-
-    while (cursor < prompt.length) {
-        const matchedMention = sortedMentions.find((mention) => prompt.startsWith(mention.token, cursor));
-        if (matchedMention) {
-            segments.push({
-                type: 'mention',
-                mention: matchedMention,
-                key: `mention-${segmentIndex}-${cursor}`,
-            });
-            cursor += matchedMention.token.length;
-            segmentIndex += 1;
-            continue;
-        }
-
-        const start = cursor;
-        cursor += 1;
-        while (cursor < prompt.length && !sortedMentions.some((mention) => prompt.startsWith(mention.token, cursor))) {
-            cursor += 1;
-        }
-
-        segments.push({
-            type: 'text',
-            value: prompt.slice(start, cursor),
-            key: `text-${segmentIndex}-${start}`,
-        });
-        segmentIndex += 1;
-    }
-
-    return segments;
 }
 
 interface VideoGeneratorPanelProps {
@@ -918,6 +851,11 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         });
 
         const promptAlreadyHasMention = promptMentions.some((mention) => prompt.includes(mention.token));
+        const hasLegacyMentionPayload = promptMentionBindings.some((binding) => binding.note || !binding.token?.trim());
+        const shouldPersistLegacyMentionMigration = !!currentElement
+            && !hasCurrentCanvasLegacyMigration(currentElement)
+            && hasLegacyMentionPayload;
+
         if (legacySegments.length > 0 && !promptAlreadyHasMention) {
             setPrompt((prev) => normalizeMentionText([
                 legacySegments.join('，'),
@@ -936,8 +874,16 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             setPromptMentionBindings(migratedBindings);
         }
 
+        if (shouldPersistLegacyMentionMigration) {
+            onElementChange?.(elementId, {
+                savedPromptMentionBindings: migratedBindings.length > 0 ? JSON.stringify(migratedBindings) : undefined,
+                savedPromptMentionIds: undefined,
+                legacyMigrationVersion: CANVAS_LEGACY_MIGRATION_VERSION,
+            });
+        }
+
         legacyMentionBindingsMigratedRef.current = true;
-    }, [prompt, promptMentionBindings, promptMentionMap, promptMentions]);
+    }, [currentElement, elementId, onElementChange, prompt, promptMentionBindings, promptMentionMap, promptMentions, usesFrameImages]);
 
     const clearCanvasReferenceBinding = useCallback(() => {
         const sourceId = currentElement?.referenceImageId;
@@ -1262,7 +1208,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 generateAudio: isDomesticModel ? generateAudio : undefined,
             });
 
-            console.log('[VideoGen] API response:', data);
+            debugLog('[VideoGen] API response:', data);
 
             if (data.status === 'pending') {
                 // Async task - store taskId on element, parent will poll
@@ -1498,6 +1444,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     return (
         <div
             className="absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
+            data-testid="video-generator-panel"
             style={style}
             ref={panelRef}
             onKeyDown={(e) => {
@@ -1572,112 +1519,31 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                             />
                         </div>
 
-                        {/* Bottom-left reference assets: collapsed mini stack, expand on hover */}
-                        <div className={`${referencePreviewItems.length > 0 ? 'group/refs' : ''} relative px-3 pb-2.5`}>
-                            <div className="relative" style={{ minHeight: '32px' }}>
-                                {/* Collapsed: stacked mini thumbnails + small + button */}
-                                <div className={`relative z-0 flex items-end gap-1 transition-all duration-300 ease-out ${referencePreviewItems.length > 0 ? 'group-hover/refs:opacity-0 group-hover/refs:scale-95 group-hover/refs:pointer-events-none' : ''}`}>
-                                    {referencePreviewItems.length > 0 && (
-                                        <div
-                                            className="relative flex items-end"
-                                            style={{ width: `${Math.min(referencePreviewItems.length, 3) * 10 + 22}px`, height: '32px' }}
-                                        >
-                                            {referencePreviewItems.slice(0, 3).map((item, index) => (
-                                                <div
-                                                    key={item.id}
-                                                    className="absolute bottom-0 rounded-lg border-2 border-white shadow-sm overflow-hidden"
-                                                    style={{ left: `${index * 10}px`, zIndex: index + 1, width: '32px', height: '32px' }}
-                                                >
-                                                    {item.kind === 'image' && item.previewImage ? (
-                                                        <WorkbenchImage content={item.previewImage} alt={item.title} containerClassName="h-full w-full" imageClassName="rounded-md" fit="cover" showSurface={false} />
-                                                    ) : (
-                                                        <div className={`flex h-full w-full items-center justify-center rounded-md ${item.kind === 'video' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                                            {item.kind === 'video' ? <Film size={10} /> : <Volume2 size={10} />}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                            {referencePreviewItems.length > 3 && (
-                                                <div
-                                                    className="absolute bottom-0 flex h-8 w-8 items-center justify-center rounded-lg border-2 border-white bg-slate-100 text-[10px] font-medium text-slate-500 shadow-sm"
-                                                    style={{ left: `${3 * 10}px`, zIndex: 4 }}
-                                                >
-                                                    +{referencePreviewItems.length - 3}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div className="relative shrink-0" data-popover-menu>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const types = getAvailableImageTypes();
-                                                if (types.length > 0) setAddImageType(types[0].value);
-                                                const next = !showAddImageMenu;
-                                                closeAllMenus();
-                                                setShowAddImageMenu(next);
-                                            }}
-                                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-400 transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-600"
-                                            title={getAddImageTitle(model, domesticMode)}
-                                        >
-                                            {isReferenceUploadBusy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={14} />}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Expanded: full thumbnail row (only rendered when there are references) */}
-                                {referencePreviewItems.length > 0 && (
-                                    <div className="absolute inset-0 z-10 flex items-end gap-1.5 transition-all duration-300 ease-out opacity-0 scale-95 pointer-events-none group-hover/refs:opacity-100 group-hover/refs:scale-100 group-hover/refs:pointer-events-auto">
-                                        <button type="button" onClick={() => { if (confirmClear) { clearMountedReferences(); setConfirmClear(false); } else { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 2000); } }} className={`relative z-20 shrink-0 self-center rounded-full p-1 transition-colors ${confirmClear ? 'bg-rose-50 text-rose-500 ring-1 ring-rose-200' : 'text-slate-300 hover:text-slate-500'}`} title={confirmClear ? '再次点击确认清空' : '清空素材'}>
-                                            <X size={14} />
-                                        </button>
-                                        {referencePreviewItems.map((item, index) => (
-                                            <div
-                                                key={item.id}
-                                                className="group/item relative shrink-0 transition-all duration-300 ease-out"
-                                                style={{ transitionDelay: `${index * 40}ms` }}
-                                                title={`${item.title} · ${item.subtitle}`}
-                                            >
-                                                {item.kind === 'image' && item.previewImage ? (
-                                                    <WorkbenchImage content={item.previewImage} alt={item.title} containerClassName="h-10 w-10 rounded-xl border border-slate-200/60" imageClassName="rounded-xl" fit="cover" showSurface={false} />
-                                                ) : (
-                                                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/60 ${item.kind === 'video' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                                        {item.kind === 'video' ? <Film size={14} /> : <Volume2 size={14} />}
-                                                    </div>
-                                                )}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => item.kind === 'image' ? removeFrameImage(item.id) : removeReferenceAsset(item.id, item.kind)}
-                                                    className="absolute -right-1 -top-1 z-20 hidden h-4 w-4 items-center justify-center rounded-full bg-white text-slate-400 shadow ring-1 ring-slate-200 transition-colors hover:bg-rose-50 hover:text-rose-500 group-hover/item:flex"
-                                                    title={`移除${item.subtitle}`}
-                                                >
-                                                    <X size={9} />
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {/* Expanded + button */}
-                                        {canAddMoreReferences && !isReferenceUploadBusy && (
-                                            <div className="relative shrink-0" data-popover-menu>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const types = getAvailableImageTypes();
-                                                        if (types.length > 0) setAddImageType(types[0].value);
-                                                        const next = !showAddImageMenu;
-                                                        closeAllMenus();
-                                                        setShowAddImageMenu(next);
-                                                    }}
-                                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-600"
-                                                    title={getAddImageTitle(model, domesticMode)}
-                                                >
-                                                    <Plus size={18} />
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        <GeneratorReferenceStack
+                            items={referencePreviewItems}
+                            canAddMore={canAddMoreReferences}
+                            isAddBusy={isReferenceUploadBusy}
+                            addButtonTitle={getAddImageTitle(model, domesticMode)}
+                            confirmClear={confirmClear}
+                            clearTitle="清空素材"
+                            onAdd={() => {
+                                const types = getAvailableImageTypes();
+                                if (types.length > 0) setAddImageType(types[0].value);
+                                const next = !showAddImageMenu;
+                                closeAllMenus();
+                                setShowAddImageMenu(next);
+                            }}
+                            onClear={() => {
+                                if (confirmClear) {
+                                    clearMountedReferences();
+                                    setConfirmClear(false);
+                                } else {
+                                    setConfirmClear(true);
+                                    setTimeout(() => setConfirmClear(false), 2000);
+                                }
+                            }}
+                            onRemove={(item) => item.kind === 'image' ? removeFrameImage(item.id) : removeReferenceAsset(item.id, item.kind)}
+                        />
                     </div>
 
                     {/* Add image menu (positioned outside overflow container) */}
@@ -1714,63 +1580,31 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                     )}
 
                     {mentionQuery && (
-                        <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-                            <div className="border-b border-slate-100 px-3 py-2 text-[11px] font-medium text-slate-500">{promptMentionPanelTitle}</div>
-                            <div className="max-h-[220px] overflow-y-auto p-2">
-                                {mentionSuggestions.length > 0 ? mentionSuggestions.map((mention) => (
-                                    <button
-                                        key={mention.id}
-                                        type="button"
-                                        onMouseDown={(event) => event.preventDefault()}
-                                        onClick={() => applyPromptMention(mention)}
-                                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-slate-50"
-                                    >
-                                        {mention.kind === 'image' && mention.previewImage ? (
-                                            <WorkbenchImage
-                                                content={mention.previewImage}
-                                                alt={mention.name}
-                                                containerClassName="h-10 w-10 shrink-0 rounded-lg"
-                                                imageClassName="rounded-lg"
-                                                fit="cover"
-                                                showSurface={false}
-                                            />
-                                        ) : (
-                                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${mention.kind === 'video' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                                                {mention.kind === 'video' ? <Film size={16} /> : <Volume2 size={16} />}
-                                            </div>
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate text-sm font-medium text-slate-700">{mention.name}</div>
-                                            <div className="text-[11px] text-slate-400">{mention.label}</div>
-                                        </div>
-                                    </button>
-                                )) : (
-                                    <div className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-[12px] text-slate-400">
-                                        {promptMentionEmptyState}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        <MentionComposerSuggestions
+                            title={promptMentionPanelTitle}
+                            suggestions={mentionSuggestions.map((mention) => ({
+                                id: mention.id,
+                                name: mention.name,
+                                label: mention.label,
+                                kind: mention.kind,
+                                previewImage: mention.previewImage,
+                            }))}
+                            emptyText={promptMentionEmptyState}
+                            onApply={(item) => {
+                                const mention = mentionSuggestions.find((candidate) => candidate.id === item.id);
+                                if (mention) applyPromptMention(mention);
+                            }}
+                        />
                     )}
                 </div>
             </div>
 
-            <GeneratorStatusCard kind="video" state={statusState} />
-
-            {(errorFromElement || errorMsg) && (
-                <div className="px-3 pb-2">
-                    <div className="text-xs text-red-600 bg-red-50/80 border border-red-200 rounded-xl p-2.5 whitespace-pre-line leading-relaxed relative pr-7">
-                        {errorFromElement || errorMsg}
-                        <button
-                            onClick={() => setErrorMsg(null)}
-                            className="absolute top-2 right-2 text-red-300 hover:text-red-500 transition-colors"
-                            title="关闭"
-                        >
-                            <X size={12} />
-                        </button>
-                    </div>
-                </div>
-            )}
+            <GeneratorStatusSection
+                kind="video"
+                state={statusState}
+                error={errorFromElement || errorMsg}
+                onClearError={() => setErrorMsg(null)}
+            />
 
             {/* Footer Controls — single row */}
             <div className="relative z-10 rounded-b-[20px] border-t border-slate-100 bg-slate-50/60 px-3 py-2">
@@ -2017,61 +1851,27 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                     )}
 
                     {/* Task Recovery */}
-                    <div className="relative" data-popover-menu>
-                        <button
-                            type="button"
-                            onClick={() => { const next = !showRecoveryPanel; closeAllMenus(); setShowRecoveryPanel(next); }}
-                            className={`flex items-center justify-center rounded-lg px-1.5 py-1 transition-colors ${showRecoveryPanel ? 'bg-sky-50 text-sky-600' : 'text-slate-400 hover:bg-white hover:text-slate-600'}`}
-                            title="任务恢复"
-                        >
-                            <Search size={13} />
-                        </button>
-                        {showRecoveryPanel && (
-                            <div className="absolute bottom-full right-0 mb-1 bg-white/96 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/60 z-30 w-[320px] overflow-hidden">
-                                <div className="px-3 py-2 border-b border-slate-100 text-xs font-medium text-slate-700">任务恢复</div>
-                                <div className="flex items-center gap-2 p-3">
-                                    <input
-                                        type="text"
-                                        value={recoveryTaskId}
-                                        onChange={(event) => setRecoveryTaskId(event.target.value)}
-                                        placeholder="输入 task_id"
-                                        className="min-w-0 flex-1 rounded-lg border border-sky-200/80 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-sky-400"
-                                        disabled={isGenerating || isRecovering}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => void handleRecoverTask()}
-                                        disabled={!recoveryTaskId.trim() || isGenerating || isRecovering}
-                                        className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${!recoveryTaskId.trim() || isGenerating || isRecovering ? 'cursor-not-allowed bg-slate-200 text-slate-400' : 'bg-sky-600 text-white hover:bg-sky-700'}`}
-                                    >
-                                        {isRecovering ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                                        <span>{isRecovering ? '查询中' : '接管'}</span>
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <GeneratorRecoveryTaskCard
+                        isOpen={showRecoveryPanel}
+                        taskId={recoveryTaskId}
+                        isGenerating={isGenerating}
+                        isRecovering={isRecovering}
+                        onToggle={() => { const next = !showRecoveryPanel; closeAllMenus(); setShowRecoveryPanel(next); }}
+                        onTaskIdChange={setRecoveryTaskId}
+                        onRecover={() => void handleRecoverTask()}
+                    />
 
                     {/* Spacer */}
                     <div className="flex-1" />
 
                     {/* Generate button */}
-                    <button
-                        onClick={() => canGenerate && handleGenerate()}
+                    <GeneratorSubmitButton
                         disabled={!canGenerate}
-                        className={`flex shrink-0 items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] transition-all ${
-                            canGenerate
-                                ? 'bg-slate-700 text-white hover:bg-slate-600 active:scale-[0.97]'
-                                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        }`}
-                    >
-                        {isGenerating || isReferenceUploadBusy ? (
-                            <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                            <Zap size={14} className="fill-current" />
-                        )}
-                        <span className="font-medium">{isReferenceUploadBusy ? '上传中' : statusState.buttonLabel}</span>
-                    </button>
+                        busy={isGenerating || isReferenceUploadBusy}
+                        label={statusState.buttonLabel}
+                        busyLabel={isReferenceUploadBusy ? '上传中' : undefined}
+                        onClick={() => canGenerate && handleGenerate()}
+                    />
                 </div>
             </div>
         </div>

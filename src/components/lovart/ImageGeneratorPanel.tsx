@@ -1,10 +1,19 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Sparkles, ChevronDown, Zap, Upload, X, Loader2, MousePointerClick, History, RotateCcw, LibraryBig, Star, Pencil, Trash2, Check, FolderOpen, Search, Plus, Settings2 } from 'lucide-react';
-import { GeneratorStatusCard, getGeneratorStatusState } from './GeneratorStatusCard';
+import { Sparkles, ChevronDown, Upload, X, MousePointerClick, History, RotateCcw, LibraryBig, Star, Pencil, Trash2, Check, FolderOpen, Settings2 } from 'lucide-react';
+import { debugLog } from '@/lib/debug-log';
+import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration } from './canvas-types';
+import { getGeneratorStatusState } from './GeneratorStatusCard';
 import { WorkbenchImage } from './WorkbenchImage';
+import {
+    GeneratorRecoveryTaskCard,
+    GeneratorReferenceStack,
+    GeneratorStatusSection,
+    GeneratorSubmitButton,
+    MentionComposerSuggestions,
+} from './generator-panel-sections';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from './generator-error-utils';
 import { createGeneratorTaskUpdate, serializeReferenceImages, useClearGeneratorError, usePersistGeneratorValue } from './generator-panel-hooks';
 import {
@@ -31,7 +40,6 @@ import {
     type GeneratorCanvasElement,
 } from './generator-panel-shared';
 import {
-    filterMentionSuggestions,
     insertTextAtSelection,
     normalizeMentionText,
     removeMentionTokens,
@@ -40,6 +48,14 @@ import {
     type TextareaMentionQuery,
     type TextareaSelection,
 } from './textarea-mention-utils';
+import {
+    buildPromptReferenceMentions,
+    clampPromptReferenceTokens,
+    getPromptMentionSuggestions,
+    remapPromptReferenceTokensAfterRemoval,
+    resolvePromptReferenceMentions,
+    type PromptReferenceMention,
+} from './generator-mention-view-model';
 import { runImageGenerationFlow } from './image-generation-flow';
 import { requestImageGeneration } from '@/lib/ai-client';
 import { isDataUrl } from '@/lib/data-url';
@@ -67,7 +83,6 @@ type ImageQuality = ImageGenerationDefaults['quality'];
 
 const GROK_IMAGE_ASPECT_RATIOS: AspectRatio[] = ['4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
 const GROK_IMAGE_SIZES: ImageSize[] = ['1K', '2K'];
-const PROMPT_REFERENCE_TOKEN_REGEX = /@参考图(\d+)/g;
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
 
 const MODEL_LABELS: Record<ImageModel, string> = {
@@ -86,91 +101,6 @@ const IMAGE_QUALITY_LABELS: Record<ImageQuality, string> = {
 };
 
 type GenerateCount = 1 | 2 | 3 | 4;
-
-type PromptReferenceMention = {
-    id: string;
-    token: string;
-    replacement: string;
-    label: string;
-    name: string;
-    image: File | string;
-    searchText: string;
-};
-
-function buildPromptReferenceMentions(referenceImages: (File | string)[]): PromptReferenceMention[] {
-    return referenceImages.map((image, index) => ({
-        id: `reference-${index}`,
-        token: `@参考图${index + 1}`,
-        replacement: `第${index + 1}张参考图`,
-        label: `输入 ${`@参考图${index + 1}`} 引用这张参考图`,
-        name: `参考图 ${index + 1}`,
-        image,
-        searchText: `参考图${index + 1} @参考图${index + 1}`.toLowerCase(),
-    }));
-}
-
-function resolvePromptReferenceMentions(prompt: string, mentions: PromptReferenceMention[]) {
-    const replacements = new Map(mentions.map((mention) => [mention.token, mention.replacement]));
-    const invalidTokens: string[] = [];
-    const materializedPrompt = prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, rawIndex) => {
-        const mentionIndex = Number.parseInt(rawIndex, 10);
-        if (!Number.isSafeInteger(mentionIndex)) {
-            if (!invalidTokens.includes(fullMatch)) {
-                invalidTokens.push(fullMatch);
-            }
-            return fullMatch;
-        }
-
-        const replacement = replacements.get(fullMatch);
-        if (!replacement) {
-            if (!invalidTokens.includes(fullMatch)) {
-                invalidTokens.push(fullMatch);
-            }
-            return fullMatch;
-        }
-
-        return replacement;
-    });
-
-    return {
-        materializedPrompt: materializedPrompt.trim(),
-        invalidTokens,
-    };
-}
-
-function getPromptMentionSuggestions(mentions: PromptReferenceMention[], query: TextareaMentionQuery | null) {
-    return filterMentionSuggestions(mentions, query, (mention) => mention.searchText);
-}
-
-function remapPromptReferenceTokensAfterRemoval(prompt: string, removedTokenIndex: number) {
-    return normalizeMentionText(prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, rawIndex) => {
-        const mentionIndex = Number.parseInt(rawIndex, 10);
-        if (!Number.isSafeInteger(mentionIndex)) {
-            return fullMatch;
-        }
-
-        if (mentionIndex === removedTokenIndex) {
-            return '';
-        }
-
-        if (mentionIndex > removedTokenIndex) {
-            return `@参考图${mentionIndex - 1}`;
-        }
-
-        return fullMatch;
-    }));
-}
-
-function clampPromptReferenceTokens(prompt: string, maxReferenceImages: number) {
-    return normalizeMentionText(prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, rawIndex) => {
-        const mentionIndex = Number.parseInt(rawIndex, 10);
-        if (!Number.isSafeInteger(mentionIndex) || mentionIndex <= maxReferenceImages) {
-            return fullMatch;
-        }
-
-        return '';
-    }));
-}
 
 interface ImageGeneratorPanelProps {
     elementId: string;
@@ -245,6 +175,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [confirmClear, setConfirmClear] = useState(false);
     const [resourceLibraryTab, setResourceLibraryTab] = useState<'project' | 'favorite' | 'history' | 'library'>('history');
     const [mentionQuery, setMentionQuery] = useState<TextareaMentionQuery | null>(null);
+    const maxPromptRows = 8;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const promptInputRef = useRef<HTMLTextAreaElement>(null);
@@ -253,6 +184,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         start: prompt.length,
         end: prompt.length,
     });
+    const promptDraftRef = useRef(prompt);
+    const persistedPromptRef = useRef(currentElement?.savedPrompt || '');
+    const legacyReferenceMigratedRef = useRef(false);
     const isPromptComposingRef = useRef(false);
     const dismissedCanvasReferenceSourceIdsRef = useRef<Set<string>>(new Set());
     const promptReferenceMentions = useMemo(() => buildPromptReferenceMentions(referenceImages), [referenceImages]);
@@ -271,12 +205,25 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, []);
 
     // Auto-resize textarea
-    useEffect(() => {
+    useLayoutEffect(() => {
         const el = promptInputRef.current;
         if (!el) return;
+        const computedStyle = window.getComputedStyle(el);
+        const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 24;
+        const verticalPadding = Number.parseFloat(computedStyle.paddingTop || '0') + Number.parseFloat(computedStyle.paddingBottom || '0');
+        const maxHeight = lineHeight * maxPromptRows + verticalPadding;
         el.style.height = 'auto';
-        el.style.height = `${el.scrollHeight}px`;
+        el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+        el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }, [maxPromptRows, prompt]);
+
+    useEffect(() => {
+        promptDraftRef.current = prompt;
     }, [prompt]);
+
+    useEffect(() => {
+        persistedPromptRef.current = currentElement?.savedPrompt || '';
+    }, [currentElement?.savedPrompt, elementId]);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -426,6 +373,22 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
     }, [syncPromptMentionQuery]);
 
+    const flushPromptToElement = useCallback((nextPrompt?: string) => {
+        const promptToPersist = nextPrompt ?? promptDraftRef.current;
+        if (persistedPromptRef.current === promptToPersist) {
+            return;
+        }
+
+        persistedPromptRef.current = promptToPersist;
+        onElementChange?.(elementId, { savedPrompt: promptToPersist });
+    }, [elementId, onElementChange]);
+
+    useEffect(() => {
+        return () => {
+            flushPromptToElement();
+        };
+    }, [flushPromptToElement]);
+
     const handleInsertPromptReferenceToken = useCallback((mention: PromptReferenceMention) => {
         const textarea = promptInputRef.current;
         const basePrompt = textarea?.value ?? prompt;
@@ -520,7 +483,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     usePersistGeneratorValue({ elementId, key: 'selectedModel', value: model, onElementChange, skipInitial: true });
     usePersistGeneratorValue({ elementId, key: 'selectedAspectRatio', value: aspectRatio, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'savedPrompt', value: prompt, onElementChange, skipInitial: true, debounceMs: 160 });
     usePersistGeneratorValue({ elementId, key: 'selectedGenerateCount', value: generateCount, onElementChange, skipInitial: true });
     usePersistGeneratorValue({ elementId, key: 'selectedImageSize', value: imageSize, onElementChange, skipInitial: true });
     usePersistGeneratorValue({ elementId, key: 'selectedImageQuality', value: quality, onElementChange, skipInitial: true });
@@ -532,6 +494,24 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         skipInitial: true,
         serialize: serializeReferenceImages,
     });
+
+    useEffect(() => {
+        if (legacyReferenceMigratedRef.current || !currentElement) {
+            return;
+        }
+
+        if (hasCurrentCanvasLegacyMigration(currentElement) || currentElement.savedReferenceImages || !currentElement.savedReferenceImage?.trim()) {
+            legacyReferenceMigratedRef.current = true;
+            return;
+        }
+
+        legacyReferenceMigratedRef.current = true;
+        onElementChange?.(elementId, {
+            savedReferenceImages: JSON.stringify([currentElement.savedReferenceImage.trim()]),
+            savedReferenceImage: undefined,
+            legacyMigrationVersion: CANVAS_LEGACY_MIGRATION_VERSION,
+        });
+    }, [currentElement, elementId, onElementChange]);
 
     useEffect(() => {
         const serializedReferences = currentElement?.savedReferenceImages
@@ -938,7 +918,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             });
 
             const results = await Promise.allSettled(requests);
-            console.log('[ImageGen] All responses:', results);
+            debugLog('[ImageGen] All responses:', results);
 
             let firstHandled = false;
             let errorCount = 0;
@@ -1042,10 +1022,18 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const resourceLibraryCount = projectReferenceImages.length + favoriteReferences.length + recentHistory.length + referenceLibrary.length;
     const canAddMoreImages = referenceImages.length < maxReferenceImages;
+    const referencePreviewItems = useMemo(() => referenceImages.map((image, index) => ({
+        id: `reference-image-${index}`,
+        kind: 'image' as const,
+        title: `参考图 ${index + 1}`,
+        subtitle: `参考图 ${index + 1}`,
+        previewImage: image,
+    })), [referenceImages]);
 
     return (
         <div
             className="absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
+            data-testid="image-generator-panel"
             style={style}
             ref={panelRef}
             onKeyDown={(e) => {
@@ -1096,6 +1084,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                                 }}
                                 onCompositionEnd={handlePromptCompositionEnd}
                                 onBlur={() => {
+                                    flushPromptToElement();
                                     window.setTimeout(() => setMentionQuery(null), 120);
                                 }}
                                 className="w-full resize-none overflow-hidden bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400/60"
@@ -1103,112 +1092,29 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                             />
                         </div>
 
-                        {/* Reference images: collapsed stack + hover expand */}
-                        <div className={`${referenceImages.length > 0 ? 'group/refs' : ''} relative px-3 pb-2.5`}>
-                            <div className="relative" style={{ minHeight: '32px' }}>
-                                {/* Collapsed: stacked mini thumbnails + small + button */}
-                                <div className={`relative z-0 flex items-end gap-1 transition-all duration-300 ease-out ${referenceImages.length > 0 ? 'group-hover/refs:opacity-0 group-hover/refs:scale-95 group-hover/refs:pointer-events-none' : ''}`}>
-                                    {referenceImages.length > 0 && (
-                                        <div
-                                            className="relative flex items-end"
-                                            style={{ width: `${Math.min(referenceImages.length, 3) * 10 + 22}px`, height: '32px' }}
-                                        >
-                                            {referenceImages.slice(0, 3).map((img, index) => (
-                                                <div
-                                                    key={index}
-                                                    className="absolute bottom-0 rounded-lg border-2 border-white shadow-sm overflow-hidden"
-                                                    style={{ left: `${index * 10}px`, zIndex: index + 1, width: '32px', height: '32px' }}
-                                                >
-                                                    <WorkbenchImage
-                                                        content={typeof img === 'string' ? img : URL.createObjectURL(img)}
-                                                        alt={`参考图 ${index + 1}`}
-                                                        containerClassName="h-full w-full"
-                                                        imageClassName="rounded-md"
-                                                        fit="cover"
-                                                        showSurface={false}
-                                                        onLoad={(e) => { if (typeof img !== 'string') URL.revokeObjectURL((e.target as HTMLImageElement).src); }}
-                                                    />
-                                                </div>
-                                            ))}
-                                            {referenceImages.length > 3 && (
-                                                <div
-                                                    className="absolute bottom-0 flex h-8 w-8 items-center justify-center rounded-lg border-2 border-white bg-slate-100 text-[10px] font-medium text-slate-500 shadow-sm"
-                                                    style={{ left: `${3 * 10}px`, zIndex: 4 }}
-                                                >
-                                                    +{referenceImages.length - 3}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div className="relative shrink-0" data-popover-menu>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const next = !showAddImageMenu;
-                                                closeAllMenus();
-                                                setShowAddImageMenu(next);
-                                            }}
-                                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-400 transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-600"
-                                            title="添加参考图"
-                                        >
-                                            <Plus size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Expanded: full thumbnail row (only when there are references) */}
-                                {referenceImages.length > 0 && (
-                                    <div className="absolute inset-0 z-10 flex items-end gap-1.5 transition-all duration-300 ease-out opacity-0 scale-95 pointer-events-none group-hover/refs:opacity-100 group-hover/refs:scale-100 group-hover/refs:pointer-events-auto">
-                                        <button type="button" onClick={() => { if (confirmClear) { handleClearReferenceImages(); setConfirmClear(false); } else { setConfirmClear(true); setTimeout(() => setConfirmClear(false), 2000); } }} className={`relative z-20 shrink-0 self-center rounded-full p-1 transition-colors ${confirmClear ? 'bg-rose-50 text-rose-500 ring-1 ring-rose-200' : 'text-slate-300 hover:text-slate-500'}`} title={confirmClear ? '再次点击确认清空' : '清空参考图'}>
-                                            <X size={14} />
-                                        </button>
-                                        {referenceImages.map((img, index) => (
-                                            <div
-                                                key={index}
-                                                className="group/item relative shrink-0 transition-all duration-300 ease-out"
-                                                style={{ transitionDelay: `${index * 40}ms` }}
-                                                title={`参考图 ${index + 1}`}
-                                            >
-                                                <WorkbenchImage
-                                                    content={typeof img === 'string' ? img : URL.createObjectURL(img)}
-                                                    alt={`参考图 ${index + 1}`}
-                                                    containerClassName="h-10 w-10 rounded-xl border border-slate-200/60"
-                                                    imageClassName="rounded-xl"
-                                                    fit="cover"
-                                                    showSurface={false}
-                                                    onLoad={(e) => { if (typeof img !== 'string') URL.revokeObjectURL((e.target as HTMLImageElement).src); }}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoveReferenceImage(index)}
-                                                    className="absolute -right-1 -top-1 z-20 hidden h-4 w-4 items-center justify-center rounded-full bg-white text-slate-400 shadow ring-1 ring-slate-200 transition-colors hover:bg-rose-50 hover:text-rose-500 group-hover/item:flex"
-                                                    title={`移除参考图 ${index + 1}`}
-                                                >
-                                                    <X size={9} />
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {/* Expanded + button */}
-                                        {canAddMoreImages && (
-                                            <div className="relative shrink-0" data-popover-menu>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const next = !showAddImageMenu;
-                                                        closeAllMenus();
-                                                        setShowAddImageMenu(next);
-                                                    }}
-                                                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-600"
-                                                    title="添加参考图"
-                                                >
-                                                    <Plus size={18} />
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        <GeneratorReferenceStack
+                            items={referencePreviewItems}
+                            canAddMore={canAddMoreImages}
+                            addButtonTitle="添加参考图"
+                            confirmClear={confirmClear}
+                            clearTitle="清空参考图"
+                            testId="image-generator-reference-count"
+                            onAdd={() => {
+                                const next = !showAddImageMenu;
+                                closeAllMenus();
+                                setShowAddImageMenu(next);
+                            }}
+                            onClear={() => {
+                                if (confirmClear) {
+                                    handleClearReferenceImages();
+                                    setConfirmClear(false);
+                                } else {
+                                    setConfirmClear(true);
+                                    setTimeout(() => setConfirmClear(false), 2000);
+                                }
+                            }}
+                            onRemove={(_item, index) => handleRemoveReferenceImage(index)}
+                        />
 
                     </div>
 
@@ -1225,42 +1131,21 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                     )}
 
                     {mentionQuery && (
-                        <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-                            <div className="border-b border-slate-100 px-3 py-2 text-[11px] font-medium text-slate-500">可引用的参考图</div>
-                            <div className="max-h-[220px] overflow-y-auto p-2">
-                                {mentionSuggestions.length > 0 ? mentionSuggestions.map((mention) => (
-                                    <button
-                                        key={mention.id}
-                                        type="button"
-                                        onMouseDown={(event) => event.preventDefault()}
-                                        onClick={() => handleInsertPromptReferenceToken(mention)}
-                                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-slate-50"
-                                    >
-                                        <WorkbenchImage
-                                            content={typeof mention.image === 'string' ? mention.image : URL.createObjectURL(mention.image)}
-                                            alt={mention.name}
-                                            containerClassName="h-10 w-10 shrink-0 rounded-lg"
-                                            imageClassName="rounded-lg"
-                                            fit="cover"
-                                            showSurface={false}
-                                            onLoad={(event) => {
-                                                if (typeof mention.image !== 'string') {
-                                                    URL.revokeObjectURL((event.target as HTMLImageElement).src);
-                                                }
-                                            }}
-                                        />
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate text-sm font-medium text-slate-700">{mention.name}</div>
-                                            <div className="text-[11px] text-slate-400">{mention.label}</div>
-                                        </div>
-                                    </button>
-                                )) : (
-                                    <div className="rounded-xl border border-dashed border-slate-200 px-3 py-5 text-center text-[12px] text-slate-400">
-                                        {promptReferenceMentions.length > 0 ? '没有匹配的参考图，请继续输入或调整关键词' : '先添加参考图，再输入 @ 进行引用'}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        <MentionComposerSuggestions
+                            title="可引用的参考图"
+                            suggestions={mentionSuggestions.map((mention) => ({
+                                id: mention.id,
+                                name: mention.name,
+                                label: mention.label,
+                                kind: 'image' as const,
+                                previewImage: mention.image,
+                            }))}
+                            emptyText={promptReferenceMentions.length > 0 ? '没有匹配的参考图，请继续输入或调整关键词' : '先添加参考图，再输入 @ 进行引用'}
+                            onApply={(item) => {
+                                const mention = mentionSuggestions.find((candidate) => candidate.id === item.id);
+                                if (mention) handleInsertPromptReferenceToken(mention);
+                            }}
+                        />
                     )}
                 </div>
             </div>
@@ -1275,22 +1160,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 </div>
             )}
 
-            <GeneratorStatusCard kind="image" state={statusState} />
-
-            {(errorFromElement || errorMsg) && (
-                <div className="px-3 pb-2">
-                    <div className="text-xs text-red-600 bg-red-50/80 border border-red-200/60 rounded-xl p-2.5 whitespace-pre-line leading-relaxed relative pr-7">
-                        {errorFromElement || errorMsg}
-                        <button
-                            onClick={() => setErrorMsg(null)}
-                            className="absolute top-2 right-2 text-red-300 hover:text-red-500 transition-colors"
-                            title="关闭"
-                        >
-                            <X size={12} />
-                        </button>
-                    </div>
-                </div>
-            )}
+            <GeneratorStatusSection
+                kind="image"
+                state={statusState}
+                error={errorFromElement || errorMsg}
+                onClearError={() => setErrorMsg(null)}
+            />
 
             {/* Footer Controls — single row */}
             <div className="relative z-10 rounded-b-[20px] border-t border-slate-100 bg-slate-50/60 px-3 py-2">
@@ -1643,63 +1518,27 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
                     {/* Task recovery icon */}
                     {onRecoverTask && (
-                        <div className="relative" data-popover-menu>
-                            <button
-                                type="button"
-                                onClick={() => { const next = !showRecoveryPanel; closeAllMenus(); setShowRecoveryPanel(next); }}
-                                className={`flex items-center justify-center rounded-lg p-1 text-[11px] transition-all ${showRecoveryPanel ? 'bg-sky-50 text-sky-600' : 'text-slate-400 hover:bg-white hover:text-slate-600'}`}
-                                title="任务恢复"
-                            >
-                                <Search size={13} />
-                            </button>
-
-                            {showRecoveryPanel && (
-                                <div className="absolute bottom-full mb-1 right-0 bg-white/96 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/60 z-30 w-[320px] overflow-hidden p-3">
-                                    <div className="text-[11px] font-medium text-slate-500 mb-2">任务恢复</div>
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="text"
-                                            value={recoveryTaskId}
-                                            onChange={(event) => setRecoveryTaskId(event.target.value)}
-                                            placeholder="输入 task_id"
-                                            className="min-w-0 flex-1 rounded-lg border border-sky-200/80 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-sky-400"
-                                            disabled={isGenerating || isRecovering}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleRecoverTask()}
-                                            disabled={!recoveryTaskId.trim() || isGenerating || isRecovering}
-                                            className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${!recoveryTaskId.trim() || isGenerating || isRecovering ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-sky-600 text-white hover:bg-sky-700'}`}
-                                        >
-                                            {isRecovering ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                                            <span>{isRecovering ? '查询中' : '接管'}</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        <GeneratorRecoveryTaskCard
+                            isOpen={showRecoveryPanel}
+                            taskId={recoveryTaskId}
+                            isGenerating={isGenerating}
+                            isRecovering={isRecovering}
+                            onToggle={() => { const next = !showRecoveryPanel; closeAllMenus(); setShowRecoveryPanel(next); }}
+                            onTaskIdChange={setRecoveryTaskId}
+                            onRecover={() => void handleRecoverTask()}
+                        />
                     )}
 
                     {/* Spacer */}
                     <div className="flex-1" />
 
                     {/* Generate button */}
-                    <button
-                        onClick={() => prompt.trim() && !isGenerating && handleGenerate()}
+                    <GeneratorSubmitButton
                         disabled={!prompt.trim() || isGenerating}
-                        className={`flex shrink-0 items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] transition-all ${
-                            prompt.trim() && !isGenerating
-                                ? 'bg-slate-700 text-white hover:bg-slate-600 active:scale-[0.97]'
-                                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        }`}
-                    >
-                        {isGenerating ? (
-                            <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                            <Zap size={14} className="fill-current" />
-                        )}
-                        <span className="font-medium">{statusState.buttonLabel}</span>
-                    </button>
+                        busy={isGenerating}
+                        label={statusState.buttonLabel}
+                        onClick={() => prompt.trim() && !isGenerating && handleGenerate()}
+                    />
                 </div>
             </div>
         </div>
