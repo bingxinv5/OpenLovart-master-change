@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { CanvasElement, CanvasFrameElement } from './canvas-types';
+import type { CanvasElementPatchAttrs } from './canvas-element-patch';
 import { isCanvasElementOfType } from './canvas-types';
 import { getDescendantIds } from './canvas-alignment';
 import { computeFrameLayout } from './canvas-frame-layout';
@@ -16,7 +17,7 @@ export function useCanvasFrameActions({
     onElementChange: (id: string, attrs: Partial<CanvasElement>) => void;
     onAddElement: (element: CanvasElement) => void;
     onSelect: (ids: string[]) => void;
-    applyElementChanges: (changes: { id: string; attrs: Partial<CanvasElement> }[]) => void;
+    applyElementChanges: (changes: { id: string; attrs: CanvasElementPatchAttrs }[]) => void;
 }) {
     const pendingAutoLayoutRef = useRef<Set<string>>(new Set());
 

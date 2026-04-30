@@ -14,7 +14,15 @@ import {
     isCanvasMediaElement,
 } from './canvas-types';
 
+export type CanvasElementPatchAttrs = Partial<Omit<CanvasElement, 'id' | 'type'>>;
 export type TypedCanvasElementPatch<TElement extends CanvasElement> = Partial<Omit<TElement, 'id' | 'type'>>;
+
+export function patchCanvasElement<TElement extends CanvasElement>(
+    element: TElement,
+    patch: CanvasElementPatchAttrs,
+): TElement {
+    return { ...element, ...patch };
+}
 
 export function patchElementOfType<TType extends CanvasElementType>(
     element: CanvasElement,

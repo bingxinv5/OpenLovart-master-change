@@ -6,6 +6,7 @@
  */
 
 import type { CanvasElement, CanvasFrameElement, FrameAutoLayoutMode, FrameAutoLayoutAlign } from './canvas-types';
+import type { CanvasElementPatchAttrs } from './canvas-element-patch';
 import type { ElementChange } from './canvas-alignment';
 import { getDescendantIds } from './canvas-alignment';
 
@@ -64,16 +65,16 @@ export function computeFrameLayout(
     };
 
     const items = children.map(clampItem);
-    const changeMap = new Map<string, Partial<CanvasElement>>();
+    const changeMap = new Map<string, CanvasElementPatchAttrs>();
 
-    const queueChange = (id: string, attrs: Partial<CanvasElement>) => {
+    const queueChange = (id: string, attrs: CanvasElementPatchAttrs) => {
         changeMap.set(id, { ...(changeMap.get(id) || {}), ...attrs });
     };
 
     const placeItem = (item: LayoutItem, x: number, y: number) => {
         const newX = Math.round(x);
         const newY = Math.round(y);
-        const changes: Partial<CanvasElement> = { x: newX, y: newY };
+        const changes: CanvasElementPatchAttrs = { x: newX, y: newY };
         if (item.w !== item.origW || item.h !== item.origH) {
             changes.width = Math.round(item.w);
             changes.height = Math.round(item.h);

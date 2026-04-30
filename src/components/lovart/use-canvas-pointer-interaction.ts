@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import type { CanvasElement } from './canvas-types';
+import type { CanvasElementPatchAttrs } from './canvas-element-patch';
 import { clientPointToCanvas } from './canvas-viewport-utils';
 import { getInnermostFrameAtCanvasPoint } from './canvas-hit-test';
 import {
@@ -57,7 +58,7 @@ export interface UseCanvasPointerInteractionParams {
     onToolChange: (tool: string) => void;
     onSelect: (ids: string[]) => void;
     onElementChange: (id: string, newAttrs: Partial<CanvasElement>) => void;
-    onBatchElementChange?: (changes: { id: string; attrs: Partial<CanvasElement> }[]) => void;
+    onBatchElementChange?: (changes: { id: string; attrs: CanvasElementPatchAttrs }[]) => void;
     onAddElement: (element: CanvasElement) => void;
     onDragStart?: () => void;
     onDragEnd?: () => void;
@@ -736,7 +737,7 @@ export function useCanvasPointerInteraction(
         if (isDragging && dragStartRef.current?.initialPositions && dragVisualDeltaRef.current) {
             const { dx, dy } = dragVisualDeltaRef.current;
             if (dx !== 0 || dy !== 0) {
-                const batchChanges: { id: string; attrs: Partial<CanvasElement> }[] = [];
+                const batchChanges: { id: string; attrs: CanvasElementPatchAttrs }[] = [];
                 for (const pos of dragStartRef.current.initialPositions) {
                     batchChanges.push({ id: pos.id, attrs: { x: pos.x + dx, y: pos.y + dy } });
                 }

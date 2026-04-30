@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { CanvasElement } from './canvas-types';
+import type { CanvasElementPatchAttrs } from './canvas-element-patch';
 import type { AlignmentDirection, AlignGuide, DistributionAxis, LayoutSelectionMode } from './canvas-alignment';
 import { computeAlignment, computeDistribution, computeEqualSpacing, computeLayoutSelection, getElementsBounds } from './canvas-alignment';
 
@@ -14,7 +15,7 @@ export function useCanvasSelectionLayoutActions({
     elements: CanvasElement[];
     selectedIds: string[];
     onElementChange: (id: string, attrs: Partial<CanvasElement>) => void;
-    onBatchElementChange?: (changes: { id: string; attrs: Partial<CanvasElement> }[]) => void;
+    onBatchElementChange?: (changes: { id: string; attrs: CanvasElementPatchAttrs }[]) => void;
     flashAlignGuides: (guides: AlignGuide[]) => void;
     multiLayoutGap: number;
 }) {
@@ -22,7 +23,7 @@ export function useCanvasSelectionLayoutActions({
         return elements.filter((element) => selectedIds.includes(element.id) && element.type !== 'connector');
     }, [elements, selectedIds]);
 
-    const applyElementChanges = useCallback((changes: { id: string; attrs: Partial<CanvasElement> }[]) => {
+    const applyElementChanges = useCallback((changes: { id: string; attrs: CanvasElementPatchAttrs }[]) => {
         if (changes.length === 0) return;
 
         if (onBatchElementChange) {

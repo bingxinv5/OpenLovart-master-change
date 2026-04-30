@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { CanvasElement } from './canvas-types';
 import {
+    patchCanvasElement,
     patchFrameElement,
     patchGenerationTargetElement,
     patchGeneratorElement,
@@ -18,6 +19,19 @@ function makeElement(overrides: Partial<CanvasElement>): CanvasElement {
 }
 
 describe('canvas-element-patch', () => {
+    it('patches common canvas attrs without changing element identity', () => {
+        const image = makeElement({ type: 'image', x: 10, y: 20 });
+        const patched = patchCanvasElement(image, { x: 30, width: 120 });
+
+        expect(patched).toMatchObject({
+            id: 'element-id',
+            type: 'image',
+            x: 30,
+            y: 20,
+            width: 120,
+        });
+    });
+
     it('patches only image elements with image fields', () => {
         const image = makeElement({ type: 'image', content: 'imgref:old' });
         const patched = patchImageElement(image, {

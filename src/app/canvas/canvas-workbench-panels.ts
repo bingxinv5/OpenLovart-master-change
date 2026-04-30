@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
-
-const MODEL_STORAGE_KEY = 'lovart_selected_model';
+import { loadCanvasSelectedModel, saveCanvasSelectedModel } from './canvas-selected-model-storage';
 
 interface UseCanvasWorkbenchPanelsOptions {
     elements: CanvasElement[];
@@ -15,15 +14,10 @@ export function useCanvasWorkbenchPanels({
     const [showHistory, setShowHistory] = useState(false);
     const [showMedia, setShowMedia] = useState(false);
     const [showReferences, setShowReferences] = useState(false);
-    const [selectedModel, _setSelectedModel] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem(MODEL_STORAGE_KEY) || 'gemini-3.1-pro-preview';
-        }
-        return 'gemini-3.1-pro-preview';
-    });
+    const [selectedModel, _setSelectedModel] = useState(loadCanvasSelectedModel);
     const setSelectedModel = useCallback((model: string) => {
         _setSelectedModel(model);
-        try { localStorage.setItem(MODEL_STORAGE_KEY, model); } catch {}
+        saveCanvasSelectedModel(model);
     }, []);
     const [chatPanelMode, setChatPanelMode] = useState<'side' | 'bottom'>('side');
     const [chatExpanded, setChatExpanded] = useState(false);

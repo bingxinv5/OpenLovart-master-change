@@ -6,6 +6,7 @@
  */
 
 import type { CanvasElement, CanvasElementExportFormat } from './canvas-types';
+import type { CanvasElementPatchAttrs } from './canvas-element-patch';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import type { SpatialIndex } from '@/lib/editor-kernel';
 
@@ -50,7 +51,7 @@ export interface ViewDomainPort {
 export interface ElementCRUDDomainPort {
     elements: CanvasElement[];
     onElementChange: (id: string, newAttrs: Partial<CanvasElement>) => void;
-    onBatchElementChange?: (changes: { id: string; attrs: Partial<CanvasElement> }[]) => void;
+    onBatchElementChange?: (changes: { id: string; attrs: CanvasElementPatchAttrs }[]) => void;
     onDelete: (id: string) => void;
     onAddElement: (element: CanvasElement) => void;
 }

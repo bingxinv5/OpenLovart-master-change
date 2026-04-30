@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { patchCanvasElement, type CanvasElementPatchAttrs } from '@/components/lovart/canvas-element-patch';
 import {
     DirtyTracker,
     HistoryManager,
@@ -353,7 +354,7 @@ export function useCanvasDocumentState({
         }
     }, []);
 
-    const handleBatchElementChange = useCallback((changes: { id: string; attrs: Partial<CanvasElement> }[]) => {
+    const handleBatchElementChange = useCallback((changes: { id: string; attrs: CanvasElementPatchAttrs }[]) => {
         const shouldAutoTransaction = !historyTransactionRef.current && changes.length > 0;
         if (shouldAutoTransaction) {
             beginHistoryTransaction({
@@ -367,7 +368,7 @@ export function useCanvasDocumentState({
         for (const { id, attrs } of changes) {
             const element = map.get(id);
             if (element) {
-                const updated = { ...element, ...attrs };
+                const updated = patchCanvasElement(element, attrs);
                 map.set(id, updated);
                 updatedElements.push(updated);
                 historyChangedIdsRef.current.add(id);

@@ -7,6 +7,7 @@
  */
 
 import type { CanvasElement } from './canvas-types';
+import type { CanvasElementPatchAttrs } from './canvas-element-patch';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ export interface ElementBounds {
 
 export interface ElementChange {
     id: string;
-    attrs: Partial<CanvasElement>;
+    attrs: CanvasElementPatchAttrs;
 }
 
 // ── Pure helpers ───────────────────────────────────────────────────────
@@ -282,8 +283,8 @@ export function computeLayoutSelection(
         });
     }
 
-    const changeMap = new Map<string, Partial<CanvasElement>>();
-    const queueChange = (id: string, attrs: Partial<CanvasElement>) => {
+    const changeMap = new Map<string, CanvasElementPatchAttrs>();
+    const queueChange = (id: string, attrs: CanvasElementPatchAttrs) => {
         changeMap.set(id, { ...(changeMap.get(id) || {}), ...attrs });
     };
 

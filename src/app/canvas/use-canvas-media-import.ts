@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { patchMediaElement } from '@/components/lovart/canvas-element-patch';
 import { debugLog } from '@/lib/debug-log';
 import { saveImageBlob } from '@/lib/editor-kernel';
 import { v4 as uuidv4 } from 'uuid';
@@ -223,7 +224,7 @@ export function useCanvasMediaImport({
             const blobUrl = URL.createObjectURL(mp4Blob);
 
             setElements((prev) => prev.map((element) =>
-                element.id === elementId ? { ...element, content: blobUrl } : element,
+                element.id === elementId ? patchMediaElement(element, { content: blobUrl }) : element,
             ));
             setTranscodingStatus(null);
             debugLog('[video] Transcode complete');
