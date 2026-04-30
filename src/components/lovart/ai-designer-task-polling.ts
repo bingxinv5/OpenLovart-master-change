@@ -8,7 +8,7 @@
  * 这样 AiDesignerPanel 只需调用 hook，不再内联轮询逻辑。
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ChatMessage } from './ai-designer-panel-types';
 import { waitForImageGenerationResult } from './image-generation-flow';
 import { waitForVideoGenerationResult } from './video-generation-flow';
@@ -91,10 +91,7 @@ export function useAiDesignerTaskPolling(
 ) {
     const resumedTaskKeysRef = useRef<Set<string>>(new Set());
 
-    const pollGeneratedTask = useCallback(
-        createTaskPoller(setMessages),
-        [setMessages],
-    );
+    const pollGeneratedTask = useMemo(() => createTaskPoller(setMessages), [setMessages]);
 
     // Auto-resume pending / processing tasks after mount or message change
     useEffect(() => {

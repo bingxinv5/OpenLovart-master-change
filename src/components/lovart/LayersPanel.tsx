@@ -1,42 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-    AlertCircle,
-    ArrowDown,
-    ArrowUp,
-    ChevronDown,
-    ChevronRight,
-    ChevronsDown,
-    ChevronsUp,
-    Eye,
-    EyeOff,
-    Frame,
-    Image as ImageIcon,
-    LayoutGrid,
-    Layers3,
-    Lock,
-    Search,
-    Sparkles,
-    Square,
-    Type,
-    Unlock,
-    Video,
-    Pencil,
-    Shapes,
-    Trash2,
-    GripVertical,
-} from 'lucide-react';
+import { Layers3, Search } from 'lucide-react';
 import { PanelShell, PanelBadge } from './PanelShell';
 import layersPanelTestEvents from '@/lib/testing/layers-panel-test-events.json';
-import {
-    deleteStoryboardMetaTemplate,
-    listStoryboardMetaTemplates,
-    saveStoryboardMetaTemplate,
-    type StoryboardMetaTemplateValue,
-    type StoryboardMetaTemplateEntry,
-} from '@/lib/storyboard-meta-presets';
-import { parseStoryboardShotCode, validateStoryboardDuration, validateStoryboardShotCode } from '@/lib/storyboard-utils';
+import type { StoryboardMetaTemplateEntry, StoryboardMetaTemplateValue } from '@/lib/storyboard-meta-presets';
+import { parseStoryboardShotCode, validateStoryboardDuration } from '@/lib/storyboard-utils';
 import type { CanvasElement } from './canvas-types';
 import {
     getLayerLabel,
@@ -60,6 +29,12 @@ import {
     type LayersPanelMoveToParentDetail,
     type LayersPanelReorderDetail,
 } from './layers-dnd-model';
+import { LayerBulkOperations } from './LayerBulkOperations';
+import { LayerRow } from './LayerRow';
+import { isElementLocked, validateStoryboardPrefix } from './layers-panel-utils';
+import { useDragAutoScroll } from './use-drag-auto-scroll';
+import { useStoryboardDrafts } from './use-storyboard-drafts';
+import { useStoryboardTemplates } from './use-storyboard-templates';
 
 interface LayersPanelProps {
     elements: CanvasElement[];
@@ -100,50 +75,6 @@ type StoryboardNavigationScope = 'issues' | 'invalid' | 'partial' | 'untracked';
 
 const TEST_MOVE_TO_PARENT_EVENT = layersPanelTestEvents.moveToParentEvent;
 const TEST_REORDER_EVENT = layersPanelTestEvents.reorderEvent;
-
-function validateStoryboardPrefix(value?: string) {
-    const rawValue = value?.trim();
-    if (!rawValue) return null;
-    if (!/^[A-Z\-]+$/i.test(rawValue)) {
-        return '前缀建议只使用字母或连字符，例如 A、SC、SHOT-。';
-    }
-    return null;
-}
-
-function getLayerIcon(element: CanvasElement) {
-    switch (element.type) {
-        case 'image':
-            return ImageIcon;
-        case 'text':
-            return Type;
-        case 'shape':
-            return Shapes;
-        case 'path':
-            return Pencil;
-        case 'video':
-            return Video;
-        case 'image-generator':
-        case 'video-generator':
-            return Sparkles;
-        case 'frame':
-            return Frame;
-        default:
-            return Square;
-    }
-}
-
-function isElementLocked(element: CanvasElement) {
-    return !!(element.locked || (element.type === 'frame' && element.frameLocked));
-}
-
-function getStoryboardSummaryParts(element: CanvasElement) {
-    return [
-        element.storyboardShotCode?.trim(),
-        element.storyboardSceneType?.trim(),
-        element.storyboardCameraMove?.trim(),
-        element.storyboardDuration?.trim(),
-    ].filter(Boolean) as string[];
-}
 
 function LayerVirtualList({
     scrollContainerRef,
@@ -203,29 +134,6 @@ function LayerVirtualList({
     );
 }
 
-function StoryboardMetaEditor({
-    depth,
-    hasValidationError,
-    children,
-}: {
-    depth: number;
-    hasValidationError: boolean;
-    children: React.ReactNode;
-}) {
-    return (
-        <div
-            className={`mt-1 rounded-md border bg-white p-2.5 shadow-sm ${hasValidationError ? 'border-rose-200' : 'border-slate-200'}`}
-            style={{ marginLeft: `${depth * 12 + 30}px` }}
-        >
-            {children}
-        </div>
-    );
-}
-
-function LayerBulkActions({ children }: { children: React.ReactNode }) {
-    return <>{children}</>;
-}
-
 export function LayersPanel({
     elements,
     selectedIds,
@@ -270,16 +178,6 @@ export function LayersPanel({
     const [bulkStoryboardCameraMove, setBulkStoryboardCameraMove] = useState('');
     const [bulkStoryboardDuration, setBulkStoryboardDuration] = useState('');
     const [bulkStoryboardNote, setBulkStoryboardNote] = useState('');
-    const [storyboardTemplateName, setStoryboardTemplateName] = useState('');
-    const [storyboardTemplateHint, setStoryboardTemplateHint] = useState('');
-    const [storyboardTemplates, setStoryboardTemplates] = useState<StoryboardMetaTemplateEntry[]>(() => listStoryboardMetaTemplates());
-    const [storyboardDrafts, setStoryboardDrafts] = useState<Record<string, {
-        storyboardShotCode: string;
-        storyboardSceneType: string;
-        storyboardCameraMove: string;
-        storyboardDuration: string;
-        storyboardNote: string;
-    }>>({});
     const [layerQuery, setLayerQuery] = useState('');
     const [layerFilterType, setLayerFilterType] = useState<LayerFilterType>('all');
     const [layerSortMode, setLayerSortMode] = useState<LayerSortMode>('canvas');
@@ -289,8 +187,38 @@ export function LayersPanel({
     const [parentDropTarget, setParentDropTarget] = useState<LayerParentDropTarget>(null);
     const [scrollTop, setScrollTop] = useState(0);
     const [viewportHeight, setViewportHeight] = useState(0);
-    const dragAutoScrollVelocityRef = useRef(0);
-    const dragAutoScrollFrameRef = useRef<number | null>(null);
+    const { updateDragAutoScroll, resetDragAutoScroll } = useDragAutoScroll(scrollContainerRef, draggingId);
+    const {
+        getStoryboardDraft,
+        updateStoryboardDraft,
+        commitStoryboardDraft,
+        resetStoryboardDraft,
+    } = useStoryboardDrafts({ onRenameElement });
+    const getBulkStoryboardTemplateValue = useCallback(() => ({
+        storyboardSceneType: bulkStoryboardSceneType,
+        storyboardCameraMove: bulkStoryboardCameraMove,
+        storyboardDuration: bulkStoryboardDuration,
+        storyboardNote: bulkStoryboardNote,
+    }), [bulkStoryboardCameraMove, bulkStoryboardDuration, bulkStoryboardNote, bulkStoryboardSceneType]);
+    const loadBulkStoryboardTemplate = useCallback((template: StoryboardMetaTemplateEntry) => {
+        setBulkStoryboardSceneType(template.value.storyboardSceneType || '');
+        setBulkStoryboardCameraMove(template.value.storyboardCameraMove || '');
+        setBulkStoryboardDuration(template.value.storyboardDuration || '');
+        setBulkStoryboardNote(template.value.storyboardNote || '');
+    }, []);
+    const {
+        storyboardTemplates,
+        storyboardTemplateName,
+        setStoryboardTemplateName,
+        storyboardTemplateHint,
+        saveCurrentStoryboardTemplate,
+        loadStoryboardTemplate,
+        deleteStoryboardTemplate,
+        resetStoryboardTemplateForm,
+    } = useStoryboardTemplates({
+        getTemplateValue: getBulkStoryboardTemplateValue,
+        onLoadTemplate: loadBulkStoryboardTemplate,
+    });
     const bulkStoryboardPrefixError = useMemo(() => validateStoryboardPrefix(bulkStoryboardPrefix), [bulkStoryboardPrefix]);
     const bulkStoryboardDurationError = useMemo(() => validateStoryboardDuration(bulkStoryboardDuration), [bulkStoryboardDuration]);
     const effectiveStoryboardAuditFilter = externalStoryboardAuditFilter ?? 'all';
@@ -347,54 +275,6 @@ export function LayersPanel({
         };
     }, []);
 
-    const updateDragAutoScroll = useCallback((clientY: number) => {
-        const container = scrollContainerRef.current;
-        if (!container || !draggingId) {
-            dragAutoScrollVelocityRef.current = 0;
-            return;
-        }
-
-        const rect = container.getBoundingClientRect();
-        const edgeThreshold = 56;
-        const topDistance = clientY - rect.top;
-        const bottomDistance = rect.bottom - clientY;
-
-        if (topDistance < edgeThreshold) {
-            dragAutoScrollVelocityRef.current = -Math.max(8, Math.round((edgeThreshold - topDistance) * 0.65));
-        } else if (bottomDistance < edgeThreshold) {
-            dragAutoScrollVelocityRef.current = Math.max(8, Math.round((edgeThreshold - bottomDistance) * 0.65));
-        } else {
-            dragAutoScrollVelocityRef.current = 0;
-        }
-    }, [draggingId]);
-
-    useEffect(() => {
-        if (!draggingId) {
-            dragAutoScrollVelocityRef.current = 0;
-            if (dragAutoScrollFrameRef.current !== null) {
-                cancelAnimationFrame(dragAutoScrollFrameRef.current);
-                dragAutoScrollFrameRef.current = null;
-            }
-            return;
-        }
-
-        const tick = () => {
-            const container = scrollContainerRef.current;
-            if (container && dragAutoScrollVelocityRef.current !== 0) {
-                container.scrollTop += dragAutoScrollVelocityRef.current;
-            }
-            dragAutoScrollFrameRef.current = requestAnimationFrame(tick);
-        };
-
-        dragAutoScrollFrameRef.current = requestAnimationFrame(tick);
-        return () => {
-            if (dragAutoScrollFrameRef.current !== null) {
-                cancelAnimationFrame(dragAutoScrollFrameRef.current);
-                dragAutoScrollFrameRef.current = null;
-            }
-        };
-    }, [draggingId]);
-
     const layerCount = useMemo(() => elements.filter((element) => element.type !== 'connector').length, [elements]);
     const selectedElements = useMemo(() => elements.filter((element) => selectedIdSet.has(element.id)), [elements, selectedIdSet]);
     const selectedHidden = selectedElements.length > 0 && selectedElements.every((element) => !!element.hidden);
@@ -446,9 +326,32 @@ export function LayersPanel({
         setBulkStoryboardCameraMove('');
         setBulkStoryboardDuration('');
         setBulkStoryboardNote('');
-        setStoryboardTemplateName('');
-        setStoryboardTemplateHint('');
+        resetStoryboardTemplateForm();
         setBulkStoryboardMetaOpen(true);
+    }, [resetStoryboardTemplateForm]);
+
+    const cancelBulkRename = useCallback(() => {
+        setBulkRenameOpen(false);
+        setBulkRenameValue('');
+        setBulkRenameStart(1);
+    }, []);
+
+    const cancelBulkStoryboardNumbering = useCallback(() => {
+        setBulkStoryboardOpen(false);
+        setBulkStoryboardPrefix('A');
+        setBulkStoryboardStart(1);
+        setBulkStoryboardDigits(2);
+        setBulkStoryboardStep(1);
+        setBulkStoryboardSkipExisting(false);
+        setBulkStoryboardAvoidExistingNumbers(true);
+    }, []);
+
+    const cancelBulkStoryboardMeta = useCallback(() => {
+        setBulkStoryboardMetaOpen(false);
+        setBulkStoryboardSceneType('');
+        setBulkStoryboardCameraMove('');
+        setBulkStoryboardDuration('');
+        setBulkStoryboardNote('');
     }, []);
     const draggingSelectionIds = useMemo(() => {
         if (!draggingId) return [];
@@ -598,89 +501,6 @@ export function LayersPanel({
         setBulkStoryboardNote('');
     };
 
-    const getStoryboardDraft = useCallback((element: CanvasElement) => {
-        const draft = storyboardDrafts[element.id];
-        return draft || {
-            storyboardShotCode: element.storyboardShotCode || '',
-            storyboardSceneType: element.storyboardSceneType || '',
-            storyboardCameraMove: element.storyboardCameraMove || '',
-            storyboardDuration: element.storyboardDuration || '',
-            storyboardNote: element.storyboardNote || '',
-        };
-    }, [storyboardDrafts]);
-
-    const updateStoryboardDraft = useCallback((
-        id: string,
-        key: 'storyboardShotCode' | 'storyboardSceneType' | 'storyboardCameraMove' | 'storyboardDuration' | 'storyboardNote',
-        value: string,
-        element: CanvasElement,
-    ) => {
-        setStoryboardDrafts((prev) => ({
-            ...prev,
-            [id]: {
-                ...getStoryboardDraft(element),
-                ...prev[id],
-                [key]: value,
-            },
-        }));
-    }, [getStoryboardDraft]);
-
-    const commitStoryboardDraft = useCallback((id: string, element: CanvasElement) => {
-        const draft = storyboardDrafts[id];
-        if (!draft) return;
-
-        const normalizeValue = (value: string) => {
-            const nextValue = value.trim();
-            return nextValue ? nextValue : undefined;
-        };
-
-        const nextAttrs: Partial<CanvasElement> = {};
-        const nextShotCode = normalizeValue(draft.storyboardShotCode);
-        const nextSceneType = normalizeValue(draft.storyboardSceneType);
-        const nextCameraMove = normalizeValue(draft.storyboardCameraMove);
-        const nextDuration = normalizeValue(draft.storyboardDuration);
-        const nextNote = normalizeValue(draft.storyboardNote);
-
-        if (validateStoryboardShotCode(nextShotCode) || validateStoryboardDuration(nextDuration)) {
-            return;
-        }
-
-        if ((element.storyboardShotCode || undefined) !== nextShotCode) {
-            nextAttrs.storyboardShotCode = nextShotCode;
-        }
-        if ((element.storyboardSceneType || undefined) !== nextSceneType) {
-            nextAttrs.storyboardSceneType = nextSceneType;
-        }
-        if ((element.storyboardCameraMove || undefined) !== nextCameraMove) {
-            nextAttrs.storyboardCameraMove = nextCameraMove;
-        }
-        if ((element.storyboardDuration || undefined) !== nextDuration) {
-            nextAttrs.storyboardDuration = nextDuration;
-        }
-        if ((element.storyboardNote || undefined) !== nextNote) {
-            nextAttrs.storyboardNote = nextNote;
-        }
-
-        if (Object.keys(nextAttrs).length > 0) {
-            onRenameElement(id, nextAttrs);
-        }
-
-        setStoryboardDrafts((prev) => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-        });
-    }, [onRenameElement, storyboardDrafts]);
-
-    const resetStoryboardDraft = useCallback((id: string) => {
-        setStoryboardDrafts((prev) => {
-            if (!prev[id]) return prev;
-            const next = { ...prev };
-            delete next[id];
-            return next;
-        });
-    }, []);
-
     const applyStoryboardTemplateToElement = useCallback((element: CanvasElement, templateValue: StoryboardMetaTemplateValue) => {
         const nextAttrs: Partial<CanvasElement> = {};
         if (templateValue.storyboardSceneType !== undefined) {
@@ -701,12 +521,8 @@ export function LayersPanel({
         }
 
         onRenameElement(element.id, nextAttrs);
-        setStoryboardDrafts((prev) => {
-            const next = { ...prev };
-            delete next[element.id];
-            return next;
-        });
-    }, [onRenameElement]);
+        resetStoryboardDraft(element.id);
+    }, [onRenameElement, resetStoryboardDraft]);
 
     const handleSelect = (event: React.MouseEvent<HTMLButtonElement>, id: string) => {
         event.preventDefault();
@@ -752,7 +568,7 @@ export function LayersPanel({
         setDraggingId(null);
         setDropIndicator(null);
         setParentDropTarget(null);
-        dragAutoScrollVelocityRef.current = 0;
+        resetDragAutoScroll();
     };
 
     const handleDrop = (event: React.DragEvent<HTMLDivElement>, targetId: string, placement: 'before' | 'after') => {
@@ -835,440 +651,50 @@ export function LayersPanel({
         };
     }, [elementsById, onMoveLayerToParent, onReorderLayer]);
 
-    const LayerRow = (row: FlattenedLayerRow): React.ReactNode => {
-        const { element, children, depth, hasChildren, expanded, top, height } = row;
-        const selected = selectedIdSet.has(element.id);
-        const locked = isElementLocked(element);
-        const hidden = !!element.hidden;
-        const Icon = getLayerIcon(element);
-        const isDragging = draggingId === element.id;
-        const isHighlighted = highlightedIdSet.has(element.id);
-        const storyboardDraft = getStoryboardDraft(element);
-        const storyboardShotCodeError = validateStoryboardShotCode(storyboardDraft.storyboardShotCode);
-        const storyboardDurationError = validateStoryboardDuration(storyboardDraft.storyboardDuration);
-        const hasStoryboardValidationError = !!(storyboardShotCodeError || storyboardDurationError);
-        const showStoryboardEditor = selected && element.type === 'image';
-        const storyboardSummaryParts = getStoryboardSummaryParts(element);
-        const storyboardNote = element.storyboardNote?.trim();
-        return (
-            <div
-                key={element.id}
-                className="absolute left-0 right-0"
-                style={{ transform: `translateY(${top}px)`, height: `${height}px` }}
-            >
-                <div
-                    data-testid={`layer-drop-before-${element.id}`}
-                    className={`h-1 rounded-full transition-all ${dropIndicator?.targetId === element.id && dropIndicator.placement === 'before' ? 'bg-blue-400/80' : 'bg-transparent'}`}
-                    style={{ marginLeft: `${depth * 12 + 8}px` }}
-                    onDragOver={(event) => {
-                        event.preventDefault();
-                        if (!draggingId || draggingId === element.id) return;
-                        updateDragAutoScroll(event.clientY);
-                        setDropIndicator({ targetId: element.id, placement: 'before' });
-                    }}
-                    onDragLeave={() => {
-                        setDropIndicator((prev) => prev?.targetId === element.id && prev.placement === 'before' ? null : prev);
-                    }}
-                    onDrop={(event) => handleDrop(event, element.id, 'before')}
-                />
-                <div
-                    data-testid={`layer-row-${element.id}`}
-                    onDragOver={(event) => updateRowDropIndicator(event, element.id)}
-                    onDrop={(event) => {
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        const placement = getLayerDropPlacement(event.clientY, rect.top, rect.height);
-                        handleDrop(event, element.id, placement);
-                    }}
-                    className={`group relative flex items-center gap-1 rounded-md border px-1 py-1 transition-all duration-200 ${selected ? 'border-blue-200 bg-blue-50/70' : 'border-transparent bg-white/80 hover:border-slate-200 hover:bg-white'} ${isHighlighted ? 'border-amber-300 bg-amber-50/95 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]' : ''} ${hidden ? 'opacity-60' : ''} ${isDragging ? 'opacity-40' : ''}`}
-                    style={{ marginLeft: `${depth * 12}px` }}
-                >
-                    <div
-                        data-testid={`layer-drag-${element.id}`}
-                        draggable={editingNameId !== element.id}
-                        onDragStart={(event) => handleDragStart(event, element.id)}
-                        onDragEnd={handleDragEnd}
-                        className="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-                        title="拖拽排序或跨画板移动图层"
-                    >
-                        <GripVertical size={12} />
-                    </div>
-                    <button
-                        type="button"
-                        aria-label={hasChildren ? (expanded ? '收起图层分组' : '展开图层分组') : '图层无子项'}
-                        onClick={() => hasChildren && toggleExpanded(element.id)}
-                        className={`flex h-6 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition-colors ${hasChildren ? 'hover:text-slate-700' : 'cursor-default opacity-30'}`}
-                    >
-                        {hasChildren ? (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <span className="h-1.5 w-1.5" />}
-                    </button>
-
-                    <button
-                        type="button"
-                        data-testid={`layer-select-${element.id}`}
-                        onClick={(event) => handleSelect(event, element.id)}
-                        onDoubleClick={() => onLocate(element.id)}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-0.5 text-left"
-                    >
-                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${selected ? 'bg-violet-100 text-blue-700 ring-violet-200' : 'bg-slate-100 text-slate-500 ring-slate-200'}`}>
-                            <Icon size={14} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1">
-                                {editingNameId === element.id ? (
-                                    <input
-                                        data-testid={`layer-name-input-${element.id}`}
-                                        value={editingNameValue}
-                                        autoFocus
-                                        onChange={(event) => setEditingNameValue(event.target.value)}
-                                        onBlur={commitRename}
-                                        onClick={(event) => event.stopPropagation()}
-                                        onKeyDown={(event) => {
-                                            event.stopPropagation();
-                                            if (event.key === 'Enter') commitRename();
-                                            if (event.key === 'Escape') {
-                                                setEditingNameId(null);
-                                                setEditingNameValue('');
-                                            }
-                                        }}
-                                        className="h-6 min-w-0 max-w-[160px] rounded border border-blue-200 bg-white px-1.5 text-[12px] font-medium text-slate-800 outline-none ring-2 ring-blue-100"
-                                    />
-                                ) : (
-                                    <span
-                                        className="truncate text-[12px] font-medium text-slate-800"
-                                        title="双击重命名"
-                                        onDoubleClick={(event) => {
-                                            event.stopPropagation();
-                                            startRename(element);
-                                        }}
-                                    >
-                                        {getLayerLabel(element)}
-                                    </span>
-                                )}
-                                {element.groupFrame && (
-                                    <span className="rounded bg-violet-100 px-1 py-px text-[9px] font-semibold text-blue-700">组</span>
-                                )}
-                                {element.type === 'frame' && !element.groupFrame && (
-                                    <span className="rounded bg-sky-100 px-1 py-px text-[9px] font-semibold text-sky-700">板</span>
-                                )}
-                                {hidden && <span className="rounded bg-slate-100 px-1 py-px text-[9px] text-slate-500">隐</span>}
-                                {locked && <span className="rounded bg-amber-50 px-1 py-px text-[9px] text-amber-600">锁</span>}
-                                {hasChildren && <span className="text-[9px] text-slate-400">{children.length}</span>}
-                            </div>
-                            {element.type === 'image' && (storyboardSummaryParts.length > 0 || storyboardNote) && (
-                                <div className="mt-px flex flex-wrap items-center gap-0.5">
-                                    {storyboardSummaryParts.map((part, index) => (
-                                        <span
-                                            key={`${element.id}-storyboard-${index}-${part}`}
-                                            className="rounded border border-amber-200/70 bg-amber-50/80 px-1 py-px text-[8px] font-medium text-amber-700"
-                                        >
-                                            {part}
-                                        </span>
-                                    ))}
-                                    {storyboardNote && (
-                                        <span
-                                            className="max-w-[120px] truncate rounded border border-slate-200/70 bg-slate-50/80 px-1 py-px text-[8px] text-slate-500"
-                                            title={storyboardNote}
-                                        >
-                                            {storyboardNote}
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </button>
-
-                    <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded-lg bg-white/95 shadow-sm ring-1 ring-slate-100 px-0.5 backdrop-blur-sm transition-opacity ${selected ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'}`}>
-                        <button
-                            type="button"
-                            title={hidden ? '显示图层' : '隐藏图层'}
-                            aria-label={hidden ? '显示图层' : '隐藏图层'}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                onToggleHidden([element.id]);
-                            }}
-                            className={`rounded p-1 transition-colors ${hidden ? 'text-slate-600 hover:text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
-                        >
-                            {hidden ? <Eye size={13} /> : <EyeOff size={13} />}
-                        </button>
-                        <button
-                            type="button"
-                            title={locked ? '解锁图层' : '锁定图层'}
-                            aria-label={locked ? '解锁图层' : '锁定图层'}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                onToggleLocked([element.id]);
-                            }}
-                            className={`rounded p-1 transition-colors ${locked ? 'text-amber-600 hover:text-amber-700' : 'text-slate-400 hover:text-slate-600'}`}
-                        >
-                            {locked ? <Unlock size={13} /> : <Lock size={13} />}
-                        </button>
-                        <button
-                            type="button"
-                            data-testid={`layer-rename-${element.id}`}
-                            title="重命名图层"
-                            aria-label="重命名图层"
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                startRename(element);
-                            }}
-                            className="rounded p-1 text-slate-400 transition-colors hover:text-slate-600"
-                        >
-                            <Pencil size={13} />
-                        </button>
-                        <button
-                            type="button"
-                            data-testid={`layer-delete-${element.id}`}
-                            title="删除图层"
-                            aria-label="删除图层"
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                onDeleteSelection([element.id]);
-                            }}
-                            className="rounded p-1 text-slate-400 transition-colors hover:text-red-500"
-                        >
-                            <Trash2 size={13} />
-                        </button>
-                    </div>
-                </div>
-                <div
-                    data-testid={`layer-drop-after-${element.id}`}
-                    className={`h-2 rounded-full transition-all ${dropIndicator?.targetId === element.id && dropIndicator.placement === 'after' ? 'bg-violet-400/80' : 'bg-transparent'}`}
-                    style={{ marginLeft: `${depth * 14 + 10}px` }}
-                    onDragOver={(event) => {
-                        event.preventDefault();
-                        if (!draggingId || draggingId === element.id) return;
-                        updateDragAutoScroll(event.clientY);
-                        setDropIndicator({ targetId: element.id, placement: 'after' });
-                    }}
-                    onDragLeave={() => {
-                        setDropIndicator((prev) => prev?.targetId === element.id && prev.placement === 'after' ? null : prev);
-                    }}
-                    onDrop={(event) => handleDrop(event, element.id, 'after')}
-                />
-
-                {element.type === 'frame' && draggingId !== element.id && (
-                    <div
-                        data-testid={`layer-nest-target-${element.id}`}
-                        className={`ml-10 rounded-2xl border border-dashed text-[11px] font-medium transition-all ${draggingId ? 'px-3 py-2' : 'min-h-[8px] px-0 py-0 border-transparent bg-transparent text-transparent'} ${parentDropTarget === element.id ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : draggingId ? 'border-slate-200 bg-slate-50/80 text-slate-500' : ''}`}
-                        style={{ marginLeft: `${depth * 14 + 42}px` }}
-                        onDragOver={(event) => {
-                            if (!draggingId) return;
-                            event.preventDefault();
-                            updateDragAutoScroll(event.clientY);
-                            setParentDropTarget(element.id);
-                            setDropIndicator(null);
-                        }}
-                        onDragLeave={() => {
-                            setParentDropTarget((prev) => prev === element.id ? null : prev);
-                        }}
-                        onDrop={(event) => handleMoveToParentDrop(event, element.id)}
-                    >
-                        拖到这里加入“{getLayerLabel(element)}”
-                    </div>
-                )}
-
-                {selected && (
-                    <div className="flex items-center gap-0.5 py-0.5" style={{ marginLeft: `${depth * 12 + 30}px` }}>
-                        <button
-                            type="button"
-                            title="上移一层"
-                            aria-label="上移一层"
-                            onClick={() => onBringForward([element.id])}
-                            className="rounded-md border border-slate-200 bg-white p-1 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800"
-                        >
-                            <ArrowUp size={12} />
-                        </button>
-                        <button
-                            type="button"
-                            title="下移一层"
-                            aria-label="下移一层"
-                            onClick={() => onSendBackward([element.id])}
-                            className="rounded-md border border-slate-200 bg-white p-1 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800"
-                        >
-                            <ArrowDown size={12} />
-                        </button>
-                        <button
-                            type="button"
-                            title="置于顶层"
-                            aria-label="置于顶层"
-                            onClick={() => onBringToFront([element.id])}
-                            className="rounded-md border border-slate-200 bg-white p-1 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800"
-                        >
-                            <ChevronsUp size={12} />
-                        </button>
-                        <button
-                            type="button"
-                            title="置于底层"
-                            aria-label="置于底层"
-                            onClick={() => onSendToBack([element.id])}
-                            className="rounded-md border border-slate-200 bg-white p-1 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800"
-                        >
-                            <ChevronsDown size={12} />
-                        </button>
-                    </div>
-                )}
-
-                {showStoryboardEditor && (
-                    <StoryboardMetaEditor depth={depth} hasValidationError={hasStoryboardValidationError}>
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5">
-                                <div className="text-[11px] font-semibold text-slate-700">分镜字段</div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                {hasStoryboardValidationError && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-700">
-                                        <AlertCircle size={10} />
-                                        需校验
-                                    </span>
-                                )}
-                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">快捷编辑</span>
-                            </div>
-                        </div>
-
-                        {hasStoryboardValidationError && (
-                            <div className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-[10px] leading-4 text-rose-700">
-                                镜头号或时长格式不符合约定，修正后会自动保存。
-                            </div>
-                        )}
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <label className={`rounded-md border bg-white px-2.5 py-2 shadow-sm ${storyboardShotCodeError ? 'border-rose-200 bg-rose-50/50' : 'border-slate-200'}`}>
-                                <div className="text-[10px] font-medium text-slate-500">镜头号</div>
-                                <input
-                                    type="text"
-                                    value={storyboardDraft.storyboardShotCode}
-                                    onChange={(event) => updateStoryboardDraft(element.id, 'storyboardShotCode', event.target.value, element)}
-                                    onBlur={() => commitStoryboardDraft(element.id, element)}
-                                    onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                            commitStoryboardDraft(element.id, element);
-                                        }
-                                        if (event.key === 'Escape') {
-                                            resetStoryboardDraft(element.id);
-                                        }
-                                    }}
-                                    placeholder="A01"
-                                    className="mt-1 w-full bg-transparent text-xs font-medium text-slate-700 outline-none placeholder:text-slate-300"
-                                />
-                                {storyboardShotCodeError && (
-                                    <div className="mt-1 text-[10px] leading-4 text-rose-600">{storyboardShotCodeError}</div>
-                                )}
-                            </label>
-                            <label className="rounded-md border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
-                                <div className="text-[10px] font-medium text-slate-500">景别</div>
-                                <input
-                                    type="text"
-                                    value={storyboardDraft.storyboardSceneType}
-                                    onChange={(event) => updateStoryboardDraft(element.id, 'storyboardSceneType', event.target.value, element)}
-                                    onBlur={() => commitStoryboardDraft(element.id, element)}
-                                    onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                            commitStoryboardDraft(element.id, element);
-                                        }
-                                        if (event.key === 'Escape') {
-                                            resetStoryboardDraft(element.id);
-                                        }
-                                    }}
-                                    placeholder="中景"
-                                    className="mt-1 w-full bg-transparent text-xs font-medium text-slate-700 outline-none placeholder:text-slate-300"
-                                />
-                            </label>
-                            <label className="rounded-md border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
-                                <div className="text-[10px] font-medium text-slate-500">运镜</div>
-                                <input
-                                    type="text"
-                                    value={storyboardDraft.storyboardCameraMove}
-                                    onChange={(event) => updateStoryboardDraft(element.id, 'storyboardCameraMove', event.target.value, element)}
-                                    onBlur={() => commitStoryboardDraft(element.id, element)}
-                                    onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                            commitStoryboardDraft(element.id, element);
-                                        }
-                                        if (event.key === 'Escape') {
-                                            resetStoryboardDraft(element.id);
-                                        }
-                                    }}
-                                    placeholder="推镜"
-                                    className="mt-1 w-full bg-transparent text-xs font-medium text-slate-700 outline-none placeholder:text-slate-300"
-                                />
-                            </label>
-                            <label className={`rounded-md border bg-white px-2.5 py-2 shadow-sm ${storyboardDurationError ? 'border-rose-200 bg-rose-50/50' : 'border-slate-200'}`}>
-                                <div className="text-[10px] font-medium text-slate-500">时长</div>
-                                <input
-                                    type="text"
-                                    value={storyboardDraft.storyboardDuration}
-                                    onChange={(event) => updateStoryboardDraft(element.id, 'storyboardDuration', event.target.value, element)}
-                                    onBlur={() => commitStoryboardDraft(element.id, element)}
-                                    onKeyDown={(event) => {
-                                        if (event.key === 'Enter') {
-                                            commitStoryboardDraft(element.id, element);
-                                        }
-                                        if (event.key === 'Escape') {
-                                            resetStoryboardDraft(element.id);
-                                        }
-                                    }}
-                                    placeholder="3s"
-                                    className="mt-1 w-full bg-transparent text-xs font-medium text-slate-700 outline-none placeholder:text-slate-300"
-                                />
-                                {storyboardDurationError && (
-                                    <div className="mt-1 text-[10px] leading-4 text-rose-600">{storyboardDurationError}</div>
-                                )}
-                            </label>
-                        </div>
-
-                        <label className="mt-2 block rounded-md border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
-                            <div className="text-[10px] font-medium text-slate-500">备注</div>
-                            <input
-                                type="text"
-                                value={storyboardDraft.storyboardNote}
-                                onChange={(event) => updateStoryboardDraft(element.id, 'storyboardNote', event.target.value, element)}
-                                onBlur={() => commitStoryboardDraft(element.id, element)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                        commitStoryboardDraft(element.id, element);
-                                    }
-                                    if (event.key === 'Escape') {
-                                        resetStoryboardDraft(element.id);
-                                    }
-                                }}
-                                placeholder="补充剧情动作或画面说明"
-                                className="mt-1 w-full bg-transparent text-xs font-medium text-slate-700 outline-none placeholder:text-slate-300"
-                            />
-                        </label>
-
-                        {storyboardTemplates.length > 0 && (
-                            <div className="mt-2 rounded-md border border-sky-100 bg-sky-50/60 px-2.5 py-2">
-                                <div className="mb-2 flex items-center justify-between gap-2">
-                                    <div>
-                                        <div className="text-[10px] font-semibold tracking-[0.08em] text-sky-700">模板快速套用</div>
-                                        <div className="text-[10px] text-sky-500">点击模板即可将字段填入当前分镜。</div>
-                                    </div>
-                                    <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-sky-600 ring-1 ring-sky-100">{storyboardTemplates.length} 个模板</span>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {storyboardTemplates.slice(0, 6).map((template) => (
-                                        <button
-                                            key={template.id}
-                                            type="button"
-                                            onClick={() => applyStoryboardTemplateToElement(element, template.value)}
-                                            className="group rounded-full border border-sky-200 bg-white px-2.5 py-1 text-[10px] font-medium text-sky-700 transition-colors hover:border-sky-300 hover:bg-sky-100"
-                                            title={[
-                                                template.value.storyboardSceneType,
-                                                template.value.storyboardCameraMove,
-                                                template.value.storyboardDuration,
-                                                template.value.storyboardNote,
-                                            ].filter(Boolean).join(' · ') || template.name}
-                                        >
-                                            {template.name}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </StoryboardMetaEditor>
-                )}
-            </div>
-        );
-    };
+    const renderLayerRow = (row: FlattenedLayerRow): React.ReactNode => (
+        <LayerRow
+            key={row.element.id}
+            row={row}
+            selectedIdSet={selectedIdSet}
+            highlightedIdSet={highlightedIdSet}
+            draggingId={draggingId}
+            dropIndicator={dropIndicator}
+            parentDropTarget={parentDropTarget}
+            editingNameId={editingNameId}
+            editingNameValue={editingNameValue}
+            storyboardTemplates={storyboardTemplates}
+            getStoryboardDraft={getStoryboardDraft}
+            onToggleExpanded={toggleExpanded}
+            onSelect={handleSelect}
+            onLocate={onLocate}
+            onStartRename={startRename}
+            onSetEditingNameValue={setEditingNameValue}
+            onCancelRename={() => {
+                setEditingNameId(null);
+                setEditingNameValue('');
+            }}
+            onCommitRename={commitRename}
+            onUpdateStoryboardDraft={updateStoryboardDraft}
+            onCommitStoryboardDraft={commitStoryboardDraft}
+            onResetStoryboardDraft={resetStoryboardDraft}
+            onApplyStoryboardTemplateToElement={applyStoryboardTemplateToElement}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDrop={handleDrop}
+            onUpdateDragAutoScroll={updateDragAutoScroll}
+            onDropIndicatorChange={setDropIndicator}
+            onParentDropTargetChange={setParentDropTarget}
+            onUpdateRowDropIndicator={updateRowDropIndicator}
+            onMoveToParentDrop={handleMoveToParentDrop}
+            onToggleHidden={onToggleHidden}
+            onToggleLocked={onToggleLocked}
+            onBringForward={onBringForward}
+            onSendBackward={onSendBackward}
+            onBringToFront={onBringToFront}
+            onSendToBack={onSendToBack}
+            onDeleteSelection={onDeleteSelection}
+        />
+    );
 
     return (
         <PanelShell
@@ -1355,7 +781,7 @@ export function LayersPanel({
                     setParentDropTarget((prev) => prev === 'root' ? null : prev);
                 }}
                 onRootDrop={(event) => handleMoveToParentDrop(event, undefined)}
-                renderRow={LayerRow}
+                renderRow={renderLayerRow}
             />
 
             {(selectedIds.length > 1 || historySummary) && (
@@ -1393,475 +819,67 @@ export function LayersPanel({
                     )}
 
                     {selectedIds.length > 1 && (
-                        <LayerBulkActions>
-                    <div className="mb-2 flex items-center justify-between text-[12px] text-slate-600">
-                        <span>已选 {selectedIds.length} 个图层</span>
-                        <span className="font-medium">批量操作</span>
-                    </div>
-                    <div className="mb-2 text-[12px] text-slate-500">{selectedParentSummary}</div>
-                    <div className="mb-3 rounded-2xl border border-blue-200 bg-gradient-to-br from-violet-50 to-white p-2.5 shadow-sm">
-                        {bulkRenameOpen ? (
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between text-[11px] font-medium text-blue-700">
-                                    <span>批量重命名</span>
-                                    <span>{bulkRenameTargets.length} 项</span>
-                                </div>
-                                <input
-                                    type="text"
-                                    value={bulkRenameValue}
-                                    autoFocus
-                                    onChange={(event) => setBulkRenameValue(event.target.value)}
-                                    onKeyDown={(event) => {
-                                        event.stopPropagation();
-                                        if (event.key === 'Enter') commitBulkRename();
-                                        if (event.key === 'Escape') {
-                                            setBulkRenameOpen(false);
-                                            setBulkRenameValue('');
-                                            setBulkRenameStart(1);
-                                        }
-                                    }}
-                                    placeholder="输入前缀，如：镜头A"
-                                    className="h-9 w-full rounded-md border border-blue-200 bg-white px-3 text-sm font-medium text-slate-800 outline-none ring-2 ring-blue-100 placeholder:text-blue-300"
-                                />
-                                <div className="grid grid-cols-[1fr_92px] gap-2">
-                                    <div className="rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-[11px] text-blue-700">
-                                        编号将按当前图层顺序依次递增。
-                                    </div>
-                                    <label className="rounded-md border border-blue-200 bg-white px-2.5 py-2">
-                                        <div className="text-[10px] font-medium text-violet-500">起始编号</div>
-                                        <input
-                                            type="number"
-                                            min={1}
-                                            max={9999}
-                                            value={bulkRenameStart}
-                                            onChange={(event) => setBulkRenameStart(Math.max(1, Number(event.target.value) || 1))}
-                                            className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none"
-                                        />
-                                    </label>
-                                </div>
-                                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                                    <span>示例：{(bulkRenameValue.trim() || '镜头A')} {String(Math.max(1, bulkRenameStart || 1)).padStart(2, '0')}</span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setBulkRenameOpen(false);
-                                                setBulkRenameValue('');
-                                                setBulkRenameStart(1);
-                                            }}
-                                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-500 transition-colors hover:bg-slate-50"
-                                        >
-                                            取消
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={commitBulkRename}
-                                            disabled={!bulkRenameValue.trim()}
-                                            className="rounded-lg bg-violet-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                            应用
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <button
-                                type="button"
-                                onClick={openBulkRenamePanel}
-                                className="flex w-full items-center justify-between rounded-md border border-blue-200 bg-white px-3 py-2 text-left text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50"
-                            >
-                                <span className="inline-flex items-center gap-2">
-                                    <Pencil size={14} />
-                                    批量重命名
-                                </span>
-                                <span className="text-[11px] text-violet-500">按顺序编号</span>
-                            </button>
-                        )}
-                    </div>
-                    {bulkStoryboardTargets.length > 1 && (
-                        <div className="mb-3 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-2.5 shadow-sm">
-                            {bulkStoryboardOpen ? (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between text-[11px] font-medium text-amber-700">
-                                        <span>批量镜头编号</span>
-                                        <span>{bulkStoryboardTargets.length} 张图片</span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <label className={`rounded-md border bg-white px-2.5 py-2 shadow-sm ${bulkStoryboardPrefixError ? 'border-rose-200 bg-rose-50/50' : 'border-amber-200'}`}>
-                                            <div className="text-[10px] font-medium text-amber-500">前缀</div>
-                                            <input
-                                                type="text"
-                                                value={bulkStoryboardPrefix}
-                                                autoFocus
-                                                onChange={(event) => setBulkStoryboardPrefix(event.target.value)}
-                                                onKeyDown={(event) => {
-                                                    event.stopPropagation();
-                                                    if (event.key === 'Enter') commitBulkStoryboardNumbering();
-                                                    if (event.key === 'Escape') {
-                                                        setBulkStoryboardOpen(false);
-                                                        setBulkStoryboardPrefix('A');
-                                                        setBulkStoryboardStart(1);
-                                                        setBulkStoryboardDigits(2);
-                                                        setBulkStoryboardStep(1);
-                                                        setBulkStoryboardSkipExisting(false);
-                                                        setBulkStoryboardAvoidExistingNumbers(true);
-                                                    }
-                                                }}
-                                                placeholder="A"
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-amber-300"
-                                            />
-                                            {bulkStoryboardPrefixError && (
-                                                <div className="mt-1 text-[10px] leading-4 text-rose-600">{bulkStoryboardPrefixError}</div>
-                                            )}
-                                        </label>
-                                        <label className="rounded-md border border-amber-200 bg-white px-2.5 py-2 shadow-sm">
-                                            <div className="text-[10px] font-medium text-amber-500">起始号</div>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={9999}
-                                                value={bulkStoryboardStart}
-                                                onChange={(event) => setBulkStoryboardStart(Math.max(1, Number(event.target.value) || 1))}
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none"
-                                            />
-                                        </label>
-                                        <label className="rounded-md border border-amber-200 bg-white px-2.5 py-2 shadow-sm">
-                                            <div className="text-[10px] font-medium text-amber-500">位数</div>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={6}
-                                                value={bulkStoryboardDigits}
-                                                onChange={(event) => setBulkStoryboardDigits(Math.max(1, Math.min(6, Number(event.target.value) || 2)))}
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none"
-                                            />
-                                        </label>
-                                        <label className="rounded-md border border-amber-200 bg-white px-2.5 py-2 shadow-sm">
-                                            <div className="text-[10px] font-medium text-amber-500">步长</div>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={999}
-                                                value={bulkStoryboardStep}
-                                                onChange={(event) => setBulkStoryboardStep(Math.max(1, Math.min(999, Number(event.target.value) || 1)))}
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none"
-                                            />
-                                        </label>
-                                    </div>
-                                    <label className="flex items-center gap-2 rounded-md border border-amber-100 bg-white/80 px-3 py-2 text-[11px] text-amber-700">
-                                        <input
-                                            type="checkbox"
-                                            checked={bulkStoryboardSkipExisting}
-                                            onChange={(event) => setBulkStoryboardSkipExisting(event.target.checked)}
-                                            className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-                                        />
-                                        <span>跳过已有镜头号的图片，仅补齐空缺项</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 rounded-md border border-amber-100 bg-white/80 px-3 py-2 text-[11px] text-amber-700">
-                                        <input
-                                            type="checkbox"
-                                            checked={bulkStoryboardAvoidExistingNumbers}
-                                            onChange={(event) => setBulkStoryboardAvoidExistingNumbers(event.target.checked)}
-                                            className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-                                        />
-                                        <span>自动避让当前已存在的相同前缀编号</span>
-                                    </label>
-                                    <div className={`rounded-md border px-3 py-2 text-[11px] ${bulkStoryboardPrefixError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-100 bg-amber-50/60 text-amber-700'}`}>
-                                        将按当前图层顺序生成镜头号，示例：{(bulkStoryboardPrefix.trim().toUpperCase() || 'A')}{String(Math.max(1, bulkStoryboardStart || 1)).padStart(Math.max(1, bulkStoryboardDigits || 2), '0')}
-                                        {bulkStoryboardStep > 1 ? `，下一项会递增 ${bulkStoryboardStep}` : ''}
-                                        {bulkStoryboardSkipExisting ? '，并跳过已存在编号的图片。' : ''}
-                                        {bulkStoryboardAvoidExistingNumbers ? ' 如遇到相同前缀且已占用的编号，会自动顺延避开。' : ''}
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                                        <span>适合连续镜头快速编号，也可用于隔号排布。</span>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setBulkStoryboardOpen(false);
-                                                    setBulkStoryboardPrefix('A');
-                                                    setBulkStoryboardStart(1);
-                                                    setBulkStoryboardDigits(2);
-                                                    setBulkStoryboardStep(1);
-                                                    setBulkStoryboardSkipExisting(false);
-                                                    setBulkStoryboardAvoidExistingNumbers(true);
-                                                }}
-                                                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-500 transition-colors hover:bg-slate-50"
-                                            >
-                                                取消
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={commitBulkStoryboardNumbering}
-                                                disabled={!!bulkStoryboardPrefixError}
-                                                className="rounded-lg bg-amber-500 px-2.5 py-1 font-medium text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                应用
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={openBulkStoryboardNumberingPanel}
-                                    className="flex w-full items-center justify-between rounded-md border border-amber-200 bg-white px-3 py-2 text-left text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50"
-                                >
-                                    <span className="inline-flex items-center gap-2">
-                                        <Type size={14} />
-                                        批量镜头编号
-                                    </span>
-                                    <span className="text-[11px] text-amber-500">A01 / A02 / A03</span>
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    {bulkStoryboardTargets.length > 1 && (
-                        <div className="mb-3 rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-2.5 shadow-sm">
-                            {bulkStoryboardMetaOpen ? (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between text-[11px] font-medium text-sky-700">
-                                        <span>批量套用分镜字段</span>
-                                        <span>{bulkStoryboardTargets.length} 张图片</span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <label className="rounded-md border border-sky-200 bg-white px-2.5 py-2 shadow-sm">
-                                            <div className="text-[10px] font-medium text-sky-500">景别</div>
-                                            <input
-                                                type="text"
-                                                value={bulkStoryboardSceneType}
-                                                autoFocus
-                                                onChange={(event) => setBulkStoryboardSceneType(event.target.value)}
-                                                onKeyDown={(event) => {
-                                                    event.stopPropagation();
-                                                    if (event.key === 'Enter') commitBulkStoryboardMeta();
-                                                    if (event.key === 'Escape') {
-                                                        setBulkStoryboardMetaOpen(false);
-                                                        setBulkStoryboardSceneType('');
-                                                        setBulkStoryboardCameraMove('');
-                                                        setBulkStoryboardDuration('');
-                                                        setBulkStoryboardNote('');
-                                                    }
-                                                }}
-                                                placeholder="如：中景"
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-sky-300"
-                                            />
-                                        </label>
-                                        <label className="rounded-md border border-sky-200 bg-white px-2.5 py-2 shadow-sm">
-                                            <div className="text-[10px] font-medium text-sky-500">运镜</div>
-                                            <input
-                                                type="text"
-                                                value={bulkStoryboardCameraMove}
-                                                onChange={(event) => setBulkStoryboardCameraMove(event.target.value)}
-                                                placeholder="如：推镜"
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-sky-300"
-                                            />
-                                        </label>
-                                        <label className={`rounded-md border bg-white px-2.5 py-2 shadow-sm ${bulkStoryboardDurationError ? 'border-rose-200 bg-rose-50/50' : 'border-sky-200'}`}>
-                                            <div className="text-[10px] font-medium text-sky-500">时长</div>
-                                            <input
-                                                type="text"
-                                                value={bulkStoryboardDuration}
-                                                onChange={(event) => setBulkStoryboardDuration(event.target.value)}
-                                                placeholder="如：3s"
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-sky-300"
-                                            />
-                                            {bulkStoryboardDurationError && (
-                                                <div className="mt-1 text-[10px] leading-4 text-rose-600">{bulkStoryboardDurationError}</div>
-                                            )}
-                                        </label>
-                                        <label className="rounded-md border border-sky-200 bg-white px-2.5 py-2 shadow-sm">
-                                            <div className="text-[10px] font-medium text-sky-500">备注模板</div>
-                                            <input
-                                                type="text"
-                                                value={bulkStoryboardNote}
-                                                onChange={(event) => setBulkStoryboardNote(event.target.value)}
-                                                placeholder="如：角色转头看向镜头"
-                                                className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-sky-300"
-                                            />
-                                        </label>
-                                    </div>
-                                    <div className={`rounded-md border px-3 py-2 text-[11px] ${bulkStoryboardDurationError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-sky-100 bg-sky-50/70 text-sky-700'}`}>
-                                        仅会覆盖当前填写过的字段；留空项不会修改原值。
-                                        {bulkStoryboardDurationError ? ' 请先修正时长格式。' : ''}
-                                    </div>
-                                    <div className="rounded-2xl border border-sky-100 bg-white/85 p-2.5 shadow-sm">
-                                        <div className="mb-2 flex items-center justify-between text-[11px] font-medium text-sky-700">
-                                            <span>分镜模板预设</span>
-                                            <span className="text-sky-500">保存常用字段组合</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="text"
-                                                value={storyboardTemplateName}
-                                                onChange={(event) => setStoryboardTemplateName(event.target.value)}
-                                                placeholder="例如：对话中景模板"
-                                                className="h-9 flex-1 rounded-md border border-sky-200 bg-white px-3 text-sm font-medium text-slate-800 outline-none placeholder:text-sky-300"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const next = saveStoryboardMetaTemplate(storyboardTemplateName || '分镜模板', {
-                                                        storyboardSceneType: bulkStoryboardSceneType,
-                                                        storyboardCameraMove: bulkStoryboardCameraMove,
-                                                        storyboardDuration: bulkStoryboardDuration,
-                                                        storyboardNote: bulkStoryboardNote,
-                                                    });
-                                                    setStoryboardTemplates(next);
-                                                    setStoryboardTemplateHint('已保存分镜模板');
-                                                    setStoryboardTemplateName('');
-                                                }}
-                                                disabled={(!bulkStoryboardSceneType.trim() && !bulkStoryboardCameraMove.trim() && !bulkStoryboardDuration.trim() && !bulkStoryboardNote.trim()) || !!bulkStoryboardDurationError}
-                                                className="rounded-md border border-sky-200 bg-white px-3 py-2 text-[11px] font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                保存模板
-                                            </button>
-                                        </div>
-                                        {storyboardTemplateHint && (
-                                            <div className="mt-2 text-[11px] text-sky-600">{storyboardTemplateHint}</div>
-                                        )}
-                                        {storyboardTemplates.length > 0 && (
-                                            <div className="mt-3 space-y-1.5 rounded-md border border-sky-100 bg-sky-50/60 p-2">
-                                                {storyboardTemplates.map((template) => (
-                                                    <div key={template.id} className="flex items-center justify-between gap-2 rounded-lg bg-white/90 px-2.5 py-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setBulkStoryboardSceneType(template.value.storyboardSceneType || '');
-                                                                setBulkStoryboardCameraMove(template.value.storyboardCameraMove || '');
-                                                                setBulkStoryboardDuration(template.value.storyboardDuration || '');
-                                                                setBulkStoryboardNote(template.value.storyboardNote || '');
-                                                                setStoryboardTemplateHint(`已载入模板：${template.name}`);
-                                                            }}
-                                                            className="min-w-0 flex-1 truncate text-left text-[11px] font-medium text-sky-800 hover:text-sky-900"
-                                                        >
-                                                            {template.name}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                const next = deleteStoryboardMetaTemplate(template.id);
-                                                                setStoryboardTemplates(next);
-                                                                setStoryboardTemplateHint(`已删除模板：${template.name}`);
-                                                            }}
-                                                            className="text-[11px] text-sky-500 hover:text-red-500"
-                                                        >
-                                                            删除
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                                        <span>适合快速统一镜头参数。</span>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setBulkStoryboardMetaOpen(false);
-                                                    setBulkStoryboardSceneType('');
-                                                    setBulkStoryboardCameraMove('');
-                                                    setBulkStoryboardDuration('');
-                                                    setBulkStoryboardNote('');
-                                                }}
-                                                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-500 transition-colors hover:bg-slate-50"
-                                            >
-                                                取消
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={commitBulkStoryboardMeta}
-                                                disabled={(!bulkStoryboardSceneType.trim() && !bulkStoryboardCameraMove.trim() && !bulkStoryboardDuration.trim() && !bulkStoryboardNote.trim()) || !!bulkStoryboardDurationError}
-                                                className="rounded-lg bg-sky-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                应用
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={openBulkStoryboardMetaPanel}
-                                    className="flex w-full items-center justify-between rounded-md border border-sky-200 bg-white px-3 py-2 text-left text-sm font-medium text-sky-700 transition-colors hover:bg-sky-50"
-                                >
-                                    <span className="inline-flex items-center gap-2">
-                                        <LayoutGrid size={14} />
-                                        批量套用分镜字段
-                                    </span>
-                                    <span className="text-[11px] text-sky-500">景别 / 运镜 / 时长</span>
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    <div className="grid grid-cols-3 gap-2">
-                        <button
-                            type="button"
-                            title={selectedHidden ? '显示所选图层' : '隐藏所选图层'}
-                            onClick={() => onToggleHidden(selectedIds)}
-                            className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-2 text-slate-600 transition-colors hover:bg-slate-100"
-                        >
-                            {selectedHidden ? <Eye size={14} /> : <EyeOff size={14} />}
-                        </button>
-                        <button
-                            type="button"
-                            title={selectedLocked ? '解锁所选图层' : '锁定所选图层'}
-                            onClick={() => onToggleLocked(selectedIds)}
-                            className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-2 text-slate-600 transition-colors hover:bg-slate-100"
-                        >
-                            {selectedLocked ? <Unlock size={14} /> : <Lock size={14} />}
-                        </button>
-                        <button
-                            type="button"
-                            title="移到根层级"
-                            onClick={() => onMoveLayerToParent(selectedIds, undefined)}
-                            className="rounded-md border border-emerald-200 bg-white px-2 py-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
-                        >
-                            根层级
-                        </button>
-                        <button
-                            type="button"
-                            title="上移一层"
-                            onClick={() => onBringForward(selectedIds)}
-                            className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-2 text-slate-600 transition-colors hover:bg-slate-100"
-                        >
-                            <ArrowUp size={14} />
-                        </button>
-                        <button
-                            type="button"
-                            title="下移一层"
-                            onClick={() => onSendBackward(selectedIds)}
-                            className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-2 text-slate-600 transition-colors hover:bg-slate-100"
-                        >
-                            <ArrowDown size={14} />
-                        </button>
-                        <button
-                            type="button"
-                            title="置于顶层"
-                            onClick={() => onBringToFront(selectedIds)}
-                            className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-2 text-slate-600 transition-colors hover:bg-slate-100"
-                        >
-                            <ChevronsUp size={14} />
-                        </button>
-                        <button
-                            type="button"
-                            title="置于底层"
-                            onClick={() => onSendToBack(selectedIds)}
-                            className="flex items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-2 text-slate-600 transition-colors hover:bg-slate-100"
-                        >
-                            <ChevronsDown size={14} />
-                        </button>
-                        <button
-                            type="button"
-                            title="批量删除"
-                            onClick={() => onDeleteSelection(selectedIds)}
-                            className="flex items-center justify-center rounded-md border border-red-200 bg-white px-2 py-2 text-red-500 transition-colors hover:bg-red-50"
-                        >
-                            <Trash2 size={14} />
-                        </button>
-                    </div>
-                        </LayerBulkActions>
+                        <LayerBulkOperations
+                            selectedIds={selectedIds}
+                            selectedParentSummary={selectedParentSummary}
+                            selectedHidden={selectedHidden}
+                            selectedLocked={selectedLocked}
+                            bulkRenameTargetsCount={bulkRenameTargets.length}
+                            bulkStoryboardTargetsCount={bulkStoryboardTargets.length}
+                            bulkRenameOpen={bulkRenameOpen}
+                            bulkRenameValue={bulkRenameValue}
+                            bulkRenameStart={bulkRenameStart}
+                            bulkStoryboardOpen={bulkStoryboardOpen}
+                            bulkStoryboardPrefix={bulkStoryboardPrefix}
+                            bulkStoryboardStart={bulkStoryboardStart}
+                            bulkStoryboardDigits={bulkStoryboardDigits}
+                            bulkStoryboardStep={bulkStoryboardStep}
+                            bulkStoryboardSkipExisting={bulkStoryboardSkipExisting}
+                            bulkStoryboardAvoidExistingNumbers={bulkStoryboardAvoidExistingNumbers}
+                            bulkStoryboardPrefixError={bulkStoryboardPrefixError}
+                            bulkStoryboardMetaOpen={bulkStoryboardMetaOpen}
+                            bulkStoryboardSceneType={bulkStoryboardSceneType}
+                            bulkStoryboardCameraMove={bulkStoryboardCameraMove}
+                            bulkStoryboardDuration={bulkStoryboardDuration}
+                            bulkStoryboardNote={bulkStoryboardNote}
+                            bulkStoryboardDurationError={bulkStoryboardDurationError}
+                            storyboardTemplateName={storyboardTemplateName}
+                            storyboardTemplateHint={storyboardTemplateHint}
+                            storyboardTemplates={storyboardTemplates}
+                            onOpenBulkRenamePanel={openBulkRenamePanel}
+                            onOpenBulkStoryboardNumberingPanel={openBulkStoryboardNumberingPanel}
+                            onOpenBulkStoryboardMetaPanel={openBulkStoryboardMetaPanel}
+                            onCommitBulkRename={commitBulkRename}
+                            onCommitBulkStoryboardNumbering={commitBulkStoryboardNumbering}
+                            onCommitBulkStoryboardMeta={commitBulkStoryboardMeta}
+                            onCancelBulkRename={cancelBulkRename}
+                            onCancelBulkStoryboardNumbering={cancelBulkStoryboardNumbering}
+                            onCancelBulkStoryboardMeta={cancelBulkStoryboardMeta}
+                            onSaveStoryboardTemplate={saveCurrentStoryboardTemplate}
+                            onLoadStoryboardTemplate={loadStoryboardTemplate}
+                            onDeleteStoryboardTemplate={deleteStoryboardTemplate}
+                            onBulkRenameValueChange={setBulkRenameValue}
+                            onBulkRenameStartChange={setBulkRenameStart}
+                            onBulkStoryboardPrefixChange={setBulkStoryboardPrefix}
+                            onBulkStoryboardStartChange={setBulkStoryboardStart}
+                            onBulkStoryboardDigitsChange={setBulkStoryboardDigits}
+                            onBulkStoryboardStepChange={setBulkStoryboardStep}
+                            onBulkStoryboardSkipExistingChange={setBulkStoryboardSkipExisting}
+                            onBulkStoryboardAvoidExistingNumbersChange={setBulkStoryboardAvoidExistingNumbers}
+                            onBulkStoryboardSceneTypeChange={setBulkStoryboardSceneType}
+                            onBulkStoryboardCameraMoveChange={setBulkStoryboardCameraMove}
+                            onBulkStoryboardDurationChange={setBulkStoryboardDuration}
+                            onBulkStoryboardNoteChange={setBulkStoryboardNote}
+                            onStoryboardTemplateNameChange={setStoryboardTemplateName}
+                            onToggleHidden={onToggleHidden}
+                            onToggleLocked={onToggleLocked}
+                            onMoveLayerToParent={onMoveLayerToParent}
+                            onBringForward={onBringForward}
+                            onSendBackward={onSendBackward}
+                            onBringToFront={onBringToFront}
+                            onSendToBack={onSendToBack}
+                            onDeleteSelection={onDeleteSelection}
+                        />
                     )}
                 </div>
             )}

@@ -8,13 +8,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { isEditableShortcutTarget } from './canvas-keyboard-shortcuts';
 import { buildCenteredElementBounds } from './canvas-element-ops';
 import type { CanvasToastType } from './canvas-feedback';
+import { IMAGE_IMPORT_CONCURRENCY } from './canvas-runtime-types';
 import {
-    IMAGE_IMPORT_CONCURRENCY,
     getCanvasDisplaySize,
     getDefaultImagePresentation,
     mapWithConcurrency,
     readImageDimensions,
-} from './canvas-page-utils';
+} from './canvas-media-utils';
 import type { WorkbenchSettings } from '@/lib/workbench-settings';
 
 function isLikelyClipboardImageFile(file: File) {

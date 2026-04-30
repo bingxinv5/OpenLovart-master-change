@@ -20,16 +20,17 @@ import {
 import { buildCenteredElementBounds } from './canvas-element-ops';
 import {
     buildStoryboardPlaceholderDataUrl,
-    getElementBaseName,
     getStoryboardAuditState,
     hasStoryboardGenerationSeed,
-    mapStoryboardFilterToScope,
-    sanitizeFilenameStem,
-    saveBlobToLocalFile,
     sortStoryboardElements,
-    type StoryboardAuditFilter,
-    type StoryboardNavigationScope,
-} from './canvas-page-utils';
+} from './canvas-storyboard-utils';
+import { getElementBaseName, sanitizeFilenameStem } from './canvas-element-naming';
+import { saveBlobToLocalFile } from './canvas-export-utils';
+import { mapStoryboardFilterToScope } from './canvas-session-prefs';
+import type {
+    StoryboardAuditFilter,
+    StoryboardNavigationScope,
+} from './canvas-runtime-types';
 import { clearSubmission, persistGeneration, persistSubmission, removeGeneration } from './generation-persistence';
 
 type CanvasElementBuilder = (attrs: Omit<CanvasElement, 'id' | 'type'>) => CanvasElement;

@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { AlertTriangle, Check } from 'lucide-react';
 import { useUser } from '@/lib/mock-clerk';
-import { debugLog } from '@/lib/debug-log';
 import { useSearchParams } from 'next/navigation';
 import { FloatingToolbar } from '@/components/lovart/FloatingToolbar';
 import { CanvasArea } from '@/components/lovart/CanvasArea';
@@ -12,24 +11,25 @@ import { CropImagePanel } from '@/components/lovart/CropImagePanel';
 import { ImageGeneratorPanel } from '@/components/lovart/ImageGeneratorPanel';
 import { VideoGeneratorPanel } from '@/components/lovart/VideoGeneratorPanel';
 import { SplitStoryboardPanel } from '@/components/lovart/SplitStoryboardPanel';
-import { StoryboardExportPanel } from '@/components/lovart/StoryboardExportPanel';
 import { StoryboardPlannerPanel } from '@/components/lovart/StoryboardPlannerPanel';
 import { AiDesignerPanel } from '@/components/lovart/AiDesignerPanel';
-import { CanvasCommandPalette, type CanvasCommandAction } from '@/components/lovart/CanvasCommandPalette';
+import { CanvasCommandPalette } from '@/components/lovart/CanvasCommandPalette';
 import { CanvasHistorySidebar } from '@/components/lovart/CanvasHistorySidebar';
-import { CanvasShortcutHelp, type CanvasShortcutSection } from '@/components/lovart/CanvasShortcutHelp';
+import { CanvasShortcutHelp } from '@/components/lovart/CanvasShortcutHelp';
 import { LayersPanel } from '@/components/lovart/LayersPanel';
 import { ProjectMediaPanel } from '@/components/lovart/ProjectMediaPanel';
 import { ProjectReferencePanel } from '@/components/lovart/ProjectReferencePanel';
 import { GenerationQueuePanel, type GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
-import { hasCurrentCanvasLegacyMigration, markCanvasLegacyMigrationApplied, type CanvasElement } from '@/components/lovart/canvas-types';
+import { type CanvasElement } from '@/components/lovart/canvas-types';
 import { useLocalDb } from '@/hooks/useLocalDb';
-import { elementStore, isImageRef, getImageBlob, getImageDataUrl, cleanupUnusedImages } from '@/lib/editor-kernel';
+import { isImageRef, getImageBlob, getImageDataUrl } from '@/lib/editor-kernel';
 import { useCanvasFeedback } from './canvas-feedback';
 import { CanvasBenchmarkPanel } from './CanvasBenchmarkPanel';
 import { CanvasHeader } from './CanvasHeader';
+import { StoryboardExportSelection } from './StoryboardExportSelection';
 import { ZoomControl } from './ZoomControl';
-import { buildAiCanvasSelectionSummary, parseAiCanvasPlanActions } from './ai-canvas-plan';
+import { CANVAS_SHORTCUT_SECTIONS } from './canvas-shortcut-sections';
+import { buildAiCanvasSelectionSummary } from './ai-canvas-plan';
 import { buildCanvasAreaDomains } from './buildCanvasAreaDomains';
 import { areChunkResidencyStatesEqual } from './canvas-compare-utils';
 import {
@@ -68,6 +68,10 @@ import { useCanvasBenchmarkActions } from './use-canvas-benchmark-actions';
 import { useCanvasProjectBackflowActions } from './use-canvas-project-backflow-actions';
 import { useCanvasStoryboardActions } from './use-canvas-storyboard-actions';
 import { useCanvasImageToolActions } from './use-canvas-image-tool-actions';
+import { useCanvasAiPlanExecutor } from './use-canvas-ai-plan-executor';
+import { useCanvasFlowConnection } from './use-canvas-flow-connection';
+import { useCanvasCommandActions } from './use-canvas-command-actions';
+import { useCanvasImageMigration } from './use-canvas-image-migration';
 import { persistSubmission, clearSubmission } from './generation-persistence';
 import { saveViewportState } from './viewport-persistence';
 import {
@@ -75,19 +79,26 @@ import {
     type CanvasChunkManifestEntry,
     type CanvasChunkStats,
 } from './project-storage';
-import { collectRetainedLocalImageRefs } from '@/lib/local-image-ref-usage';
 import { DEFAULT_WORKBENCH_SETTINGS, getWorkbenchSettings, hasDirectoryPickerSupport, requestAutoSaveDirectoryHandle, requestPersistentStorage, saveBlobToAutoSaveDirectory, saveWorkbenchSettings, subscribeWorkbenchSettingsChange, type StorageEstimateInfo, type WorkbenchSettings, getStorageEstimateInfo } from '@/lib/workbench-settings';
 import { v4 as uuidv4 } from 'uuid';
 import {
-    BACKGROUND_IMAGE_FIX_CONCURRENCY,
-    BACKGROUND_IMAGE_FIX_BATCH_SIZE,
     STORAGE_WARN_THRESHOLD,
     STORAGE_CRITICAL_THRESHOLD,
     CHUNK_RELEASE_GRACE_MS,
+    type ChunkPreheatState,
+    type ActiveChunkSummary,
+    type ChunkResidencyState,
+    type ElementExportFormat,
+} from './canvas-runtime-types';
+import {
     loadPinnedChunkIds,
     persistPinnedChunkIds,
     resolveElementChunkId,
-    mapWithConcurrency,
+} from './canvas-session-prefs';
+import {
+    getDefaultImagePresentation,
+} from './canvas-media-utils';
+import {
     triggerBrowserDownload,
     saveBlobToLocalFile,
     dataUrlToBlob,
@@ -95,18 +106,10 @@ import {
     convertImageBlobToRasterBlob,
     buildSvgExportBlob,
     makeGeneratedFilename,
-    collectImageRefsFromElements,
-    getDefaultImagePresentation,
-    getViewportBounds,
-    getElementViewportPriority,
+} from './canvas-export-utils';
+import {
     cloneCanvasElement,
-    sanitizeFilenameStem,
-    getElementBaseName,
-    type ChunkPreheatState,
-    type ActiveChunkSummary,
-    type ChunkResidencyState,
-    type ElementExportFormat,
-} from './canvas-page-utils';
+} from './canvas-element-naming';
 import { fetchRemoteBlob } from '@/lib/blob-utils';
 import {
     buildCenteredElementBounds,
@@ -863,150 +866,17 @@ function LovartCanvasContent() {
 
     const mouseCanvasPosRef = useRef<{ x: number; y: number } | null>(null);
 
-    const syncImageStoreCleanup = useCallback(async (currentElements: CanvasElement[]) => {
-        try {
-            const persistedRefs = await elementStore.collectAllImageRefs();
-            const liveRefs = new Set<string>([
-                ...persistedRefs,
-                ...collectImageRefsFromElements(currentElements),
-                ...collectRetainedLocalImageRefs(),
-            ]);
-            const removedCount = await cleanupUnusedImages(liveRefs);
-            if (removedCount > 0) {
-                debugLog(`[ImageStore] Cleaned ${removedCount} orphaned images`);
-            }
-            await refreshStorageEstimate();
-        } catch (error) {
-            console.warn('[ImageStore] Cleanup skipped:', error);
-        }
-    }, [refreshStorageEstimate]);
-
-    const normalizeLoadedImageElements = useCallback(async (
-        loadedElements: CanvasElement[],
-        options?: {
-            onProgress?: (elements: CanvasElement[], normalizedIds: string[]) => void;
-        },
-    ) => {
-        const normalizedIds: string[] = [];
-
-        const viewport = getViewportBounds(scale, pan);
-        const prioritizedElements = loadedElements
-            .map((element, index) => ({
-                element,
-                index,
-                priority: element.type === 'image' ? getElementViewportPriority(element, viewport) : Number.MAX_SAFE_INTEGER,
-            }))
-            .sort((a, b) => a.priority - b.priority);
-
-        const normalizedElements = [...loadedElements];
-
-        for (let start = 0; start < prioritizedElements.length; start += BACKGROUND_IMAGE_FIX_BATCH_SIZE) {
-            const batch = prioritizedElements.slice(start, start + BACKGROUND_IMAGE_FIX_BATCH_SIZE);
-            const batchNormalizedIds: string[] = [];
-
-            const batchResults = await mapWithConcurrency(batch, BACKGROUND_IMAGE_FIX_CONCURRENCY, async ({ element, index }) => {
-            if (element.type !== 'image' || !element.content) {
-                return { index, element, changed: false };
-            }
-
-            const originalContent = element.content;
-            const hasCurrentLegacyMigration = hasCurrentCanvasLegacyMigration(element);
-            let loadBlob: Blob | null = null;
-            const isRemoteUrl = originalContent.startsWith('http://') || originalContent.startsWith('https://');
-            if (isRemoteUrl) {
-                loadBlob = await fetchRemoteBlob(originalContent, 'lovart-load-image');
-            }
-            const localizedContent = isRemoteUrl
-                ? await normalizeGeneratedImageContent(originalContent, 'load-localize', loadBlob)
-                : originalContent;
-
-            const nextElement: CanvasElement = {
-                ...element,
-                content: localizedContent,
-                imageFit: element.imageFit || workbenchSettings.defaultImageFit,
-                imageSurface: element.imageSurface || workbenchSettings.defaultImageSurface,
-            };
-
-            const isLegacyPresentation = !hasCurrentLegacyMigration && (!element.imageFit || !element.imageSurface);
-            const shouldMeasure = isLegacyPresentation;
-            const hasLocalizedContent = localizedContent !== originalContent;
-
-            if (!shouldMeasure) {
-                const changed = hasLocalizedContent || nextElement.imageFit !== element.imageFit || nextElement.imageSurface !== element.imageSurface;
-                if (changed) {
-                    normalizedIds.push(element.id);
-                    batchNormalizedIds.push(element.id);
-                }
-                return { index, element: changed ? markCanvasLegacyMigrationApplied(nextElement) : nextElement, changed };
-            }
-
-            const metrics = await resolveImageDisplayMetrics(localizedContent, 'load-legacy', {
-                maxWidth: element.width || 400,
-                maxHeight: element.height || 400,
-                anchor: {
-                    x: element.x,
-                    y: element.y,
-                    width: element.width || 400,
-                    height: element.height || 400,
-                },
-            }, loadBlob);
-
-            if (!metrics) {
-                const changed = hasLocalizedContent || nextElement.imageFit !== element.imageFit || nextElement.imageSurface !== element.imageSurface;
-                if (changed) {
-                    normalizedIds.push(element.id);
-                    batchNormalizedIds.push(element.id);
-                }
-                return { index, element: changed ? markCanvasLegacyMigrationApplied(nextElement) : nextElement, changed };
-            }
-
-            const hasVisualChange =
-                nextElement.width !== metrics.width ||
-                nextElement.height !== metrics.height ||
-                nextElement.x !== metrics.x ||
-                nextElement.y !== metrics.y ||
-                hasLocalizedContent ||
-                nextElement.imageFit !== element.imageFit ||
-                nextElement.imageSurface !== element.imageSurface;
-
-            if (hasVisualChange) {
-                normalizedIds.push(element.id);
-                batchNormalizedIds.push(element.id);
-            }
-
-            const normalizedElement: CanvasElement = {
-                    ...nextElement,
-                    width: metrics.width,
-                    height: metrics.height,
-                    x: metrics.x ?? nextElement.x,
-                    y: metrics.y ?? nextElement.y,
-                };
-
-            return {
-                index,
-                changed: hasVisualChange,
-                element: hasVisualChange ? markCanvasLegacyMigrationApplied(normalizedElement) : normalizedElement,
-            };
-            });
-
-            for (const result of batchResults) {
-                normalizedElements[result.index] = result.element;
-            }
-
-            if (batchNormalizedIds.length > 0) {
-                options?.onProgress?.([...normalizedElements], batchNormalizedIds);
-            }
-
-            if (start + BACKGROUND_IMAGE_FIX_BATCH_SIZE < prioritizedElements.length) {
-                await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-            }
-        }
-
-        return {
-            elements: normalizedElements,
-            normalizedIds,
-        };
-    }, [normalizeGeneratedImageContent, pan, resolveImageDisplayMetrics, scale, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
+    const {
+        syncImageStoreCleanup,
+        normalizeLoadedImageElements,
+    } = useCanvasImageMigration({
+        scale,
+        pan,
+        workbenchSettings,
+        refreshStorageEstimate,
+        normalizeGeneratedImageContent,
+        resolveImageDisplayMetrics,
+    });
 
     const {
         title,
@@ -1440,155 +1310,17 @@ function LovartCanvasContent() {
         return createGeneratorElement(type, attrs, { uuidFn: uuidv4 });
     }, []);
 
-    const handleApplyAiCanvasPlan = useCallback(async (rawPlan: unknown) => {
-        const actions = parseAiCanvasPlanActions(rawPlan);
-        if (actions.length === 0) {
-            return { summary: '未检测到可执行的画布动作。' };
-        }
-
-        const initialSelectedIds = [...selectedIdsRef.current];
-        const initialSelectedElements = initialSelectedIds
-            .map((id) => elementsMapRef.current.get(id))
-            .filter((element): element is CanvasElement => !!element);
-        const selectionImageContents = Array.from(new Set(
-            initialSelectedElements
-                .filter((element) => element.type === 'image' && !!element.content)
-                .map((element) => element.content as string),
-        ));
-        const groupableSelectionCount = initialSelectedElements.filter((element) => element.type !== 'connector').length;
-
-        const basePlacement = (() => {
-            if (initialSelectedElements.length === 0) {
-                return getPlacementPosition();
-            }
-
-            const minX = Math.min(...initialSelectedElements.map((element) => element.x));
-            const maxX = Math.max(...initialSelectedElements.map((element) => element.x + (element.width || 0)));
-            const maxY = Math.max(...initialSelectedElements.map((element) => element.y + (element.height || 0)));
-            return {
-                x: Math.round((minX + maxX) / 2),
-                y: Math.round(maxY + 120),
-            };
-        })();
-
-        let placementOffsetIndex = 0;
-        const nextPlacementCenter = () => {
-            const offsetIndex = placementOffsetIndex;
-            placementOffsetIndex += 1;
-            return {
-                x: basePlacement.x + offsetIndex * 32,
-                y: basePlacement.y + offsetIndex * 40,
-            };
-        };
-
-        const executed: string[] = [];
-        const skipped: string[] = [];
-
-        for (const action of actions) {
-            switch (action.type) {
-                case 'create-image-generator': {
-                    const center = nextPlacementCenter();
-                    const imageGenerator = buildGeneratorElement('image-generator', {
-                        ...buildCenteredElementBounds(center, 400, 400),
-                        displayName: action.title,
-                        savedPrompt: action.prompt,
-                        savedReferenceImages: action.useSelectionAsReferences && selectionImageContents.length > 0
-                            ? JSON.stringify(selectionImageContents)
-                            : undefined,
-                    });
-
-                    runHistoryTransaction({ label: 'AI 创建图像生成器', source: 'ai-canvas-plan' }, () => {
-                        addAndSelectElement(imageGenerator);
-                        return { selectionAfter: [imageGenerator.id] };
-                    });
-
-                    executed.push(action.useSelectionAsReferences && selectionImageContents.length > 0
-                        ? '创建图像生成器并绑定当前选中图片'
-                        : '创建图像生成器');
-                    break;
-                }
-                case 'create-video-generator': {
-                    const center = nextPlacementCenter();
-                    const selectedFrameImages = action.useSelectionAsReferences && selectionImageContents.length > 0
-                        ? JSON.stringify(selectionImageContents.slice(0, 2))
-                        : undefined;
-                    const videoGenerator = buildGeneratorElement('video-generator', {
-                        ...buildCenteredElementBounds(center, 400, 300),
-                        displayName: action.title,
-                        savedPrompt: action.prompt,
-                        savedFrameImages: selectedFrameImages,
-                    });
-
-                    runHistoryTransaction({ label: 'AI 创建视频生成器', source: 'ai-canvas-plan' }, () => {
-                        addAndSelectElement(videoGenerator);
-                        return { selectionAfter: [videoGenerator.id] };
-                    });
-
-                    executed.push(selectedFrameImages
-                        ? '创建视频生成器并绑定当前选中图片'
-                        : '创建视频生成器');
-                    break;
-                }
-                case 'create-text-note': {
-                    const center = nextPlacementCenter();
-                    const textNote: CanvasElement = {
-                        id: uuidv4(),
-                        type: 'text',
-                        x: center.x - 120,
-                        y: center.y - 24,
-                        content: action.text,
-                    };
-
-                    runHistoryTransaction({ label: 'AI 创建文本说明', source: 'ai-canvas-plan' }, () => {
-                        addAndSelectElement(textNote);
-                        return { selectionAfter: [textNote.id] };
-                    });
-
-                    executed.push('创建文本说明');
-                    break;
-                }
-                case 'frame-selection': {
-                    if (groupableSelectionCount < 2) {
-                        skipped.push('当前选区不足两个元素，无法创建编组');
-                        break;
-                    }
-
-                    handleGroupSelection(initialSelectedIds);
-                    executed.push('将当前选区编组为画板');
-                    break;
-                }
-                case 'save-selection-as-reference': {
-                    if (!currentProjectIdRef.current) {
-                        skipped.push('当前项目尚未保存，无法写入项目参考库');
-                        break;
-                    }
-
-                    if (selectionImageContents.length === 0) {
-                        skipped.push('当前选区没有可加入参考库的图片');
-                        break;
-                    }
-
-                    saveProjectReferenceFromSelection(initialSelectedIds);
-                    executed.push('将当前选中图片加入项目参考库');
-                    break;
-                }
-            }
-        }
-
-        if (executed.length === 0 && skipped.length === 0) {
-            return { summary: '未执行任何画布动作。' };
-        }
-
-        const summaryParts: string[] = [];
-        if (executed.length > 0) {
-            summaryParts.push(`已执行 ${executed.length} 项画布操作：${executed.join('、')}。`);
-        }
-        if (skipped.length > 0) {
-            summaryParts.push(`未执行：${skipped.join('；')}。`);
-        }
-
-        return { summary: summaryParts.join('\n') };
-    }, [addAndSelectElement, buildGeneratorElement, getPlacementPosition, handleGroupSelection, runHistoryTransaction, saveProjectReferenceFromSelection]);
+    const handleApplyAiCanvasPlan = useCanvasAiPlanExecutor({
+        selectedIdsRef,
+        elementsMapRef,
+        currentProjectIdRef,
+        getPlacementPosition,
+        buildGeneratorElement,
+        addAndSelectElement,
+        handleGroupSelection,
+        runHistoryTransaction,
+        saveProjectReferenceFromSelection,
+    });
 
     const resolveCanvasContentBlob = useCallback(async (content: string, remoteFilename: string) => {
         return _resolveCanvasContentBlob(content, remoteFilename, { getImageBlob, dataUrlToBlob, fetchRemoteBlob });
@@ -1710,347 +1442,39 @@ function LovartCanvasContent() {
         finalizeGeneratedImageElement,
     });
 
-    const shortcutSections = useMemo<CanvasShortcutSection[]>(() => [
-        {
-            title: '工作台',
-            items: [
-                { keys: 'Ctrl+K', label: '打开命令面板' },
-                { keys: '?', label: '打开快捷键总览' },
-                { keys: 'Ctrl+S', label: '保存项目' },
-                { keys: 'Shift+1', label: '适应屏幕' },
-            ],
-        },
-        {
-            title: '工具',
-            items: [
-                { keys: 'V', label: '选择工具' },
-                { keys: 'H', label: '拖动画布' },
-                { keys: 'M', label: '标记工具' },
-                { keys: 'F', label: '智能画板' },
-                { keys: 'B', label: '自由绘制' },
-                { keys: 'T', label: '插入文本' },
-                { keys: 'A', label: '图像生成器' },
-            ],
-        },
-        {
-            title: '编辑',
-            items: [
-                { keys: 'Ctrl+Z', label: '撤销' },
-                { keys: 'Ctrl+Shift+Z', label: '重做' },
-                { keys: 'Ctrl+D', label: '复制所选元素' },
-                { keys: 'Ctrl+C / Ctrl+V', label: '复制与粘贴' },
-                { keys: 'Delete', label: '删除所选元素' },
-            ],
-        },
-        {
-            title: '视图',
-            items: [
-                { keys: 'Ctrl++', label: '放大' },
-                { keys: 'Ctrl+-', label: '缩小' },
-                { keys: 'Ctrl+0', label: '重置缩放' },
-                { keys: 'Ctrl+A', label: '全选画布元素' },
-            ],
-        },
-    ], []);
+    const shortcutSections = CANVAS_SHORTCUT_SECTIONS;
 
-    const commandActions = useMemo<CanvasCommandAction[]>(() => [
-        {
-            id: 'save-project',
-            label: '保存当前项目',
-            description: '立即将标题、元素和本地缓存状态落盘。',
-            shortcut: 'Ctrl+S',
-            section: '工作台',
-            keywords: ['保存', 'save', 'project'],
-            perform: () => { void saveProject(); },
-        },
-        {
-            id: 'open-layers',
-            label: showLayers ? '关闭图层面板' : '打开图层面板',
-            description: '查看图层结构、批量改名和分镜字段。',
-            section: '面板',
-            keywords: ['图层', 'layers', '侧栏'],
-            active: showLayers,
-            perform: toggleLayers,
-        },
-        {
-            id: 'open-history',
-            label: showHistory ? '关闭历史侧栏' : '打开历史侧栏',
-            description: '查看撤销时间线、运行态分块和固定激活区。',
-            section: '面板',
-            keywords: ['历史', 'undo', 'redo'],
-            active: showHistory,
-            perform: toggleHistory,
-        },
-        {
-            id: 'open-media',
-            label: showMedia ? '关闭媒体历史' : '打开媒体历史',
-            description: '查看当前项目沉淀的图片与视频结果，并快速回流到画布。',
-            section: '面板',
-            keywords: ['media', 'history', 'library', '媒体', '素材'],
-            active: showMedia,
-            perform: toggleMedia,
-        },
-        {
-            id: 'open-chat',
-            label: showChat ? '关闭 AI 工作台' : '打开 AI 工作台',
-            description: '在侧栏或底部与 AI 设计助手联动。',
-            section: '面板',
-            keywords: ['chat', 'ai', 'sparkles', '对话'],
-            active: showChat,
-            perform: toggleChat,
-        },
-        {
-            id: 'fit-to-screen',
-            label: '适应屏幕',
-            description: '根据当前画布内容重置视图，回到舒适查看区。',
-            shortcut: 'Shift+1',
-            section: '视图',
-            keywords: ['fit', 'screen', '适应'],
-            perform: handleFitToScreen,
-        },
-        {
-            id: 'zoom-in',
-            label: '放大画布',
-            description: '提升当前视图缩放比例。',
-            shortcut: 'Ctrl++',
-            section: '视图',
-            keywords: ['zoom', '放大'],
-            perform: handleZoomIn,
-        },
-        {
-            id: 'zoom-out',
-            label: '缩小画布',
-            description: '降低当前视图缩放比例。',
-            shortcut: 'Ctrl+-',
-            section: '视图',
-            keywords: ['zoom', '缩小'],
-            perform: handleZoomOut,
-        },
-        {
-            id: 'undo',
-            label: '撤销上一步',
-            description: historySummary.canUndo ? `最近动作：${historySummary.lastAction}` : '当前没有可撤销记录。',
-            shortcut: 'Ctrl+Z',
-            section: '编辑',
-            keywords: ['undo', '撤销'],
-            active: historySummary.canUndo,
-            perform: undo,
-        },
-        {
-            id: 'redo',
-            label: '重做下一步',
-            description: historySummary.canRedo ? '恢复刚刚撤销的动作。' : '当前已经是最新状态。',
-            shortcut: 'Ctrl+Shift+Z',
-            section: '编辑',
-            keywords: ['redo', '重做'],
-            active: historySummary.canRedo,
-            perform: redo,
-        },
-        {
-            id: 'set-select-tool',
-            label: '切换到选择工具',
-            description: '恢复常规选取与拖拽编辑。',
-            shortcut: 'V',
-            section: '工具',
-            keywords: ['select', '选择'],
-            active: activeTool === 'select',
-            perform: () => setActiveTool('select'),
-        },
-        {
-            id: 'set-hand-tool',
-            label: '切换到拖动工具',
-            description: '快速平移大画布。',
-            shortcut: 'H',
-            section: '工具',
-            keywords: ['hand', 'pan', '拖动'],
-            active: activeTool === 'hand',
-            perform: () => setActiveTool('hand'),
-        },
-        {
-            id: 'set-mark-tool',
-            label: '切换到标记工具',
-            description: '在画布上快速布点和标记。',
-            shortcut: 'M',
-            section: '工具',
-            keywords: ['mark', '标记'],
-            active: activeTool === 'mark',
-            perform: () => setActiveTool('mark'),
-        },
-        {
-            id: 'set-frame-tool',
-            label: '切换到智能画板工具',
-            description: '创建或布局新的画板容器。',
-            shortcut: 'F',
-            section: '工具',
-            keywords: ['frame', '画板'],
-            active: activeTool === 'frame',
-            perform: () => setActiveTool('frame'),
-        },
-        {
-            id: 'set-draw-tool',
-            label: '切换到画笔工具',
-            description: '进入自由绘制模式。',
-            shortcut: 'B',
-            section: '工具',
-            keywords: ['draw', '画笔'],
-            active: activeTool === 'draw',
-            perform: () => setActiveTool('draw'),
-        },
-        {
-            id: 'add-text',
-            label: '插入文本',
-            description: '在当前视图中心附近添加一个文本元素。',
-            shortcut: 'T',
-            section: '内容',
-            keywords: ['text', '文本'],
-            perform: handleAddText,
-        },
-        {
-            id: 'open-image-generator',
-            label: '打开图像生成器',
-            description: '在画布中心生成一个新的图片生成器面板。',
-            shortcut: 'A',
-            section: '生成',
-            keywords: ['image generator', '生成器', '图片'],
-            perform: handleOpenImageGenerator,
-        },
-        {
-            id: 'open-video-generator',
-            label: '打开视频生成器',
-            description: '在画布中心生成一个新的视频生成器面板。',
-            section: '生成',
-            keywords: ['video generator', '视频'],
-            perform: handleOpenVideoGenerator,
-        },
-        {
-            id: 'open-storyboard-planner',
-            label: '打开分镜规划器',
-            description: '用多参考图生成结构化分镜草稿，并导入画布。',
-            section: '生成',
-            keywords: ['storyboard', 'planner', '分镜', '规划'],
-            perform: handleOpenStoryboardPlanner,
-        },
-    ], [
+    const commandActions = useCanvasCommandActions({
         activeTool,
-        handleAddText,
-        handleFitToScreen,
-        handleOpenImageGenerator,
-        handleOpenStoryboardPlanner,
-        handleOpenVideoGenerator,
-        handleZoomIn,
-        handleZoomOut,
-        historySummary.canRedo,
-        historySummary.canUndo,
-        historySummary.lastAction,
-        redo,
+        setActiveTool,
         saveProject,
-        showChat,
-        showHistory,
         showLayers,
+        showHistory,
         showMedia,
-        toggleChat,
+        showChat,
+        toggleLayers,
         toggleHistory,
         toggleMedia,
-        toggleLayers,
+        toggleChat,
+        handleFitToScreen,
+        handleZoomIn,
+        handleZoomOut,
+        historySummary,
         undo,
-    ]);
+        redo,
+        handleAddText,
+        handleOpenImageGenerator,
+        handleOpenVideoGenerator,
+        handleOpenStoryboardPlanner,
+    });
 
-    const handleConnectFlow = useCallback((sourceElement: CanvasElement) => {
-        const persistedSourceElement = elementsMapRef.current.get(sourceElement.id);
-        const latestSourceElement = persistedSourceElement
-            ? { ...persistedSourceElement, ...sourceElement }
-            : sourceElement;
-        if (!latestSourceElement.content) return;
-
-        const spacing = 120;
-        const groupId = uuidv4();
-        const connectorId = uuidv4();
-        const generatorId = uuidv4();
-        const hasLinkedFlowConnector = latestSourceElement.linkedElements?.some((linkedId) => elementsMapRef.current.get(linkedId)?.type === 'connector') ?? false;
-        const shouldInheritSavedReferences = !(latestSourceElement.type === 'image' && (latestSourceElement.referenceImageId || hasLinkedFlowConnector));
-
-        const appendSerializedReferenceImages = (target: string[], serialized?: string) => {
-            if (!serialized?.trim()) {
-                return;
-            }
-
-            try {
-                const parsed = JSON.parse(serialized);
-                if (!Array.isArray(parsed)) {
-                    return;
-                }
-
-                parsed.forEach((item) => {
-                    if (typeof item === 'string' && item.trim() && !target.includes(item)) {
-                        target.push(item);
-                    }
-                });
-            } catch {
-                // Ignore malformed legacy reference payloads.
-            }
-        };
-
-        const inheritedReferenceImages = (() => {
-            const nextImages = [latestSourceElement.content];
-            if (latestSourceElement.type === 'image' && latestSourceElement.flowReferenceImages?.trim()) {
-                appendSerializedReferenceImages(nextImages, latestSourceElement.flowReferenceImages);
-            } else if (shouldInheritSavedReferences && latestSourceElement.savedReferenceImages?.trim()) {
-                appendSerializedReferenceImages(nextImages, latestSourceElement.savedReferenceImages);
-            }
-
-            return nextImages.length > 0 ? JSON.stringify(nextImages) : undefined;
-        })();
-
-        // Create image generator element
-        const generatorElement: CanvasElement = {
-            ...buildGeneratorElement('image-generator', {
-                x: latestSourceElement.x + (latestSourceElement.width || 400) + spacing,
-                y: latestSourceElement.y,
-                width: latestSourceElement.width || 400,
-                height: latestSourceElement.height || 400,
-                referenceImageId: latestSourceElement.id,
-                savedPrompt: latestSourceElement.savedPrompt || '',
-                savedReferenceImages: inheritedReferenceImages,
-                groupId: groupId,
-                linkedElements: [latestSourceElement.id, connectorId],
-            }),
-            id: generatorId,
-        };
-
-        // Create dashed connector line
-        const connectorElement: CanvasElement = {
-            id: connectorId,
-            type: 'connector',
-            x: 0,
-            y: 0,
-            connectorFrom: latestSourceElement.id,
-            connectorTo: generatorId,
-            connectorStyle: 'dashed',
-            color: '#6B7280',
-            strokeWidth: 2,
-            groupId: groupId,
-        };
-
-        // Update source element with group info AND add new elements in one go
-        setElements(prev => {
-            const updatedPrev = prev.map(el => {
-                if (el.id === sourceElement.id) {
-                    return {
-                        ...el,
-                        groupId: groupId,
-                        linkedElements: [connectorId, generatorId],
-                    };
-                }
-                return el;
-            });
-            return [...updatedPrev, connectorElement, generatorElement];
-        });
-        dirtyTrackerRef.current.markModified(latestSourceElement.id);
-        dirtyTrackerRef.current.markAdded(connectorId);
-        dirtyTrackerRef.current.markAdded(generatorId);
-
-        focusNewElement(generatorId);
-    }, [setElements, focusNewElement, buildGeneratorElement]);
+    const handleConnectFlow = useCanvasFlowConnection({
+        elementsMapRef,
+        dirtyTrackerRef,
+        setElements,
+        focusNewElement,
+        buildGeneratorElement,
+    });
 
     const resolveElementReferenceImages = useCallback(async (element: CanvasElement) => {
         return _resolveElementReferenceImages(element);
@@ -2956,35 +2380,17 @@ function LovartCanvasContent() {
                     />
                 )}
 
-                {isStoryboardExportOpen && selectedStoryboardExportElements.length >= 2 && (
-                    <StoryboardExportPanel
-                        selectedCount={selectedStoryboardExportElements.length}
-                        defaultFileName={sanitizeFilenameStem(
-                            `${getElementBaseName(selectedStoryboardExportElements[0])} 分镜表 ${selectedStoryboardExportElements.length}张`,
-                            'lovart-storyboard',
-                        )}
-                        items={selectedStoryboardExportElements.map((item) => ({
-                            id: item.id,
-                            content: item.content || '',
-                            displayName: item.displayName || '',
-                            prompt: item.savedPrompt || '',
-                            annotationTitle: item.annotationTitle || '',
-                            annotationNote: item.annotationNote || '',
-                            storyboardShotCode: item.storyboardShotCode || '',
-                            storyboardSceneType: item.storyboardSceneType || '',
-                            storyboardCameraMove: item.storyboardCameraMove || '',
-                            storyboardDuration: item.storyboardDuration || '',
-                            storyboardNote: item.storyboardNote || '',
-                        }))}
-                        isSubmitting={isStoryboardExportSubmitting}
-                        submitStatusText={storyboardExportSubmitStatus}
-                        onApplyToCanvas={handleStoryboardExportItemsChange}
-                        onLocateItem={focusCanvasElement}
-                        onCancelSubmit={() => cancelImageWorkerTask('分镜表导出')}
-                        onClose={() => setIsStoryboardExportOpen(false)}
-                        onSubmit={(options, orderedItems) => void handleExportStoryboard(options, orderedItems)}
-                    />
-                )}
+                <StoryboardExportSelection
+                    isOpen={isStoryboardExportOpen}
+                    selectedElements={selectedStoryboardExportElements}
+                    isSubmitting={isStoryboardExportSubmitting}
+                    submitStatusText={storyboardExportSubmitStatus}
+                    onApplyToCanvas={handleStoryboardExportItemsChange}
+                    onLocateItem={focusCanvasElement}
+                    onCancelSubmit={() => cancelImageWorkerTask('分镜表导出')}
+                    onClose={() => setIsStoryboardExportOpen(false)}
+                    onSubmit={(options, orderedItems) => void handleExportStoryboard(options, orderedItems)}
+                />
 
                 {selectedAnnotateImageElement && selectedAnnotateImagePanelStyle && (
                     <AnnotateImagePanel

@@ -10,7 +10,7 @@ import {
     type PatchMetadata,
 } from '@/lib/editor-kernel';
 import { clearSubmission, persistGeneration, removeGeneration } from './generation-persistence';
-import type { HistorySummary } from './canvas-page-utils';
+import type { HistorySummary } from './canvas-runtime-types';
 
 export interface UseCanvasDocumentStateParams {
     isInitializedRef: MutableRefObject<boolean>;

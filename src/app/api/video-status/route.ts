@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        let progressNum = resolveVideoStatusProgress(status, rawProgress);
+        const progressNum = resolveVideoStatusProgress(status, rawProgress);
 
         return NextResponse.json({
             status: 'processing',
@@ -133,7 +133,7 @@ async function fetchVideoStatusWithFallback(params: {
 }
 
 function resolveVideoStatusProgress(status: string, rawProgress: unknown): number {
-    let progressNum = parseTaskProgress(rawProgress);
+    const progressNum = parseTaskProgress(rawProgress);
     if (status === 'not_start') {
         return 0;
     }

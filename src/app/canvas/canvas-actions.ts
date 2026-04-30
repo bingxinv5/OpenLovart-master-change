@@ -10,7 +10,7 @@ import type { WorkbenchSettings } from '@/lib/workbench-settings';
 import {
     collectSelectionWithFrameChildren as _collectSelectionWithFrameChildren,
 } from './canvas-element-ops';
-import { getDefaultImagePresentation } from './canvas-page-utils';
+import { getDefaultImagePresentation } from './canvas-media-utils';
 
 // ---------------------------------------------------------------------------
 // Pure helpers – no React state, safe to call from anywhere

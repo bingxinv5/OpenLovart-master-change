@@ -19,7 +19,7 @@ import {
 } from './project-storage';
 import { loadViewportState } from './viewport-persistence';
 import { loadPendingGenerations, loadPendingSubmissions } from './generation-persistence';
-import { CHUNK_PREHEAT_THRESHOLD } from './canvas-page-utils';
+import { CHUNK_PREHEAT_THRESHOLD } from './canvas-runtime-types';
 
 // ── Types ────────────────────────────────────────────────────
 

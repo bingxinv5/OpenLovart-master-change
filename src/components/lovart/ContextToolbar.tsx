@@ -143,8 +143,6 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
         }
     }, [element.generatingTaskId, element.sourceGenerationTaskId, isRecovering]);
 
-    if (!element) return null;
-
     // ========== Handlers ==========
     const handleCopy = () => {
         onCopy?.(element);

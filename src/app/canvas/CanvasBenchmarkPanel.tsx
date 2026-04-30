@@ -3,9 +3,9 @@ import type { CanvasRenderMetrics } from '@/components/lovart/canvas-area-domain
 import type { CanvasBenchmarkResult } from '@/lib/canvas-benchmark';
 import type { HistoryTimelineEntry } from '@/lib/editor-kernel';
 import type { StorageEstimateInfo } from '@/lib/workbench-settings';
+import { formatBytes } from './canvas-export-utils';
+import { getStorageBadgeClass } from './canvas-media-utils';
 import {
-    formatBytes,
-    getStorageBadgeClass,
     STORAGE_CRITICAL_THRESHOLD,
     STORAGE_INFO_THRESHOLD,
     STORAGE_WARN_THRESHOLD,
@@ -13,7 +13,7 @@ import {
     type ChunkPreheatState,
     type ChunkResidencyState,
     type HistorySummary,
-} from './canvas-page-utils';
+} from './canvas-runtime-types';
 import type { CanvasChunkStats } from './project-storage';
 
 interface CanvasBenchmarkPanelProps {

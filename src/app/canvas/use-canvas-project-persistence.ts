@@ -17,7 +17,8 @@ import {
     createCanvasProject,
     saveExistingCanvasProject,
 } from './project-storage';
-import { deriveProjectThumbnail, type ChunkPreheatState } from './canvas-page-utils';
+import { deriveProjectThumbnail } from './canvas-media-utils';
+import type { ChunkPreheatState } from './canvas-runtime-types';
 
 type SearchParamsLike = {
     get(name: string): string | null;

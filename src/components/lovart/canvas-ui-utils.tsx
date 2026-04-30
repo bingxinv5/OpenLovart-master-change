@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CanvasPoint } from './canvas-types';
 
 interface DragNumberInputProps {
@@ -129,14 +129,7 @@ export function StableColorInput({ value, fallbackValue, title, className, onCha
     const isInteractingRef = useRef(false);
     const pendingValueRef = useRef<string | null>(null);
     const commitFrameRef = useRef<number | null>(null);
-    const commitValueRef = useRef<(input: HTMLInputElement) => void>(() => {});
-
-    useEffect(() => {
-        onChangeRef.current = onChange;
-        fallbackValueRef.current = fallbackValue;
-    }, [fallbackValue, onChange]);
-
-    commitValueRef.current = (input: HTMLInputElement) => {
+    const commitValue = useCallback((input: HTMLInputElement) => {
         const nextValue = normalizeColorInputValue(input.value, fallbackValueRef.current);
         if (nextValue === committedValueRef.current || nextValue === pendingValueRef.current) {
             return;
@@ -157,7 +150,12 @@ export function StableColorInput({ value, fallbackValue, title, className, onCha
             committedValueRef.current = queuedValue;
             onChangeRef.current(queuedValue);
         });
-    };
+    }, []);
+
+    useEffect(() => {
+        onChangeRef.current = onChange;
+        fallbackValueRef.current = fallbackValue;
+    }, [fallbackValue, onChange]);
 
     useEffect(() => {
         return () => {
@@ -174,7 +172,7 @@ export function StableColorInput({ value, fallbackValue, title, className, onCha
         }
 
         const handleNativeChange = () => {
-            commitValueRef.current(input);
+            commitValue(input);
         };
 
         input.addEventListener('input', handleNativeChange);
@@ -184,7 +182,7 @@ export function StableColorInput({ value, fallbackValue, title, className, onCha
             input.removeEventListener('input', handleNativeChange);
             input.removeEventListener('change', handleNativeChange);
         };
-    }, []);
+    }, [commitValue]);
 
     useEffect(() => {
         committedValueRef.current = resolvedValue;
@@ -215,7 +213,7 @@ export function StableColorInput({ value, fallbackValue, title, className, onCha
                 isInteractingRef.current = false;
                 const input = inputRef.current;
                 if (input) {
-                    commitValueRef.current(input);
+                    commitValue(input);
                 }
             }}
             onMouseDown={(e) => {

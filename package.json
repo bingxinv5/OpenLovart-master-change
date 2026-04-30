@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "lint": "eslint",
+    "check:canvas-boundaries": "node scripts/check_canvas_boundaries.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

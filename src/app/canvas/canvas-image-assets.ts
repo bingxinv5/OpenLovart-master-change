@@ -1,13 +1,13 @@
 import { fetchRemoteBlob } from '@/lib/blob-utils';
 import { ensureImageRef, getImageBlob, getImageBlobUrl, isImageRef, saveImageBlob } from '@/lib/editor-kernel';
+import { dataUrlToBlob } from './canvas-export-utils';
 import {
-    dataUrlToBlob,
     fitAspectRatioLabelToBounds,
     fitImageToBounds,
     getCanvasDisplaySize,
     inferImageAspectRatioLabel,
     readImageDimensions,
-} from './canvas-page-utils';
+} from './canvas-media-utils';
 
 export interface ImageMetricsAnchor {
     x: number;

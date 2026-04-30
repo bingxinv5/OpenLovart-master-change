@@ -10,9 +10,11 @@ import type { CanvasToastType } from './canvas-feedback';
 import {
     loadStoryboardOverviewPrefs,
     persistStoryboardOverviewPrefs,
-    type StoryboardAuditFilter,
-    type StoryboardNavigationScope,
-} from './canvas-page-utils';
+} from './canvas-session-prefs';
+import type {
+    StoryboardAuditFilter,
+    StoryboardNavigationScope,
+} from './canvas-runtime-types';
 
 export interface UseCanvasToolPanelsParams {
     currentProjectId: string | null;

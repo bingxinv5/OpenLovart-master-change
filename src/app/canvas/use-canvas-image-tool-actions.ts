@@ -22,13 +22,13 @@ import {
 } from './canvas-generation';
 import { pollGenerationTask } from './generation-polling';
 import { clearSubmission, persistGeneration, removeGeneration } from './generation-persistence';
+import { chooseSplitLayoutOrigin } from './canvas-geometry-utils';
+import { getViewportBounds } from './canvas-media-utils';
 import {
-    chooseSplitLayoutOrigin,
     getElementBaseName,
-    getViewportBounds,
     resolveToolResultNaming,
     sanitizeToolName,
-} from './canvas-page-utils';
+} from './canvas-element-naming';
 
 type SingleImageToolResultOptions = Parameters<typeof createSingleImageToolResultElement>[0];
 type BuildDisplayMetricsOptions = SingleImageToolResultOptions['buildDisplayMetricsOptions'];
