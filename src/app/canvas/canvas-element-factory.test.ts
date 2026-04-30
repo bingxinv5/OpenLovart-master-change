@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { CanvasElement, CanvasImageElement, CanvasStoryboardPlannerElement, CanvasVideoElement } from '@/components/lovart/canvas-types';
 import {
     buildBelowElementDisplayMetricsOptions,
     buildBelowSourceImageResultElement,
@@ -38,7 +38,7 @@ describe('canvas-element-factory', () => {
     });
 
     it('builds image elements with injected id and default presentation', () => {
-        expect(buildImageElement({
+        const element = buildImageElement({
             x: 1,
             y: 2,
             width: 300,
@@ -47,7 +47,10 @@ describe('canvas-element-factory', () => {
         }, {
             uuidFn,
             defaultPresentation: { imageFit: 'contain', imageSurface: 'checker' },
-        })).toMatchObject({
+        });
+
+        expectTypeOf(element).toEqualTypeOf<CanvasImageElement>();
+        expect(element).toMatchObject({
             id: 'fixed-id',
             type: 'image',
             imageFit: 'contain',
@@ -88,11 +91,16 @@ describe('canvas-element-factory', () => {
     });
 
     it('builds video and generator elements', () => {
-        expect(buildVideoElement({ x: 0, y: 0, width: 400, height: 300, content: 'video' }, { uuidFn })).toMatchObject({
+        const videoElement = buildVideoElement({ x: 0, y: 0, width: 400, height: 300, content: 'video' }, { uuidFn });
+        const plannerElement = buildGeneratorElement('storyboard-planner', { x: 0, y: 0, width: 420, height: 320 }, { uuidFn });
+
+        expectTypeOf(videoElement).toEqualTypeOf<CanvasVideoElement>();
+        expectTypeOf(plannerElement).toEqualTypeOf<CanvasStoryboardPlannerElement>();
+        expect(videoElement).toMatchObject({
             id: 'fixed-id',
             type: 'video',
         });
-        expect(buildGeneratorElement('storyboard-planner', { x: 0, y: 0, width: 420, height: 320 }, { uuidFn })).toMatchObject({
+        expect(plannerElement).toMatchObject({
             id: 'fixed-id',
             type: 'storyboard-planner',
         });

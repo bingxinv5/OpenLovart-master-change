@@ -10,6 +10,7 @@ import type {
     CanvasVideoGeneratorElement,
 } from '@/components/lovart/canvas-types';
 import { isCanvasGeneratorElement, isCanvasMediaElement } from '@/components/lovart/canvas-types';
+import { patchGenerationTargetElement } from '@/components/lovart/canvas-element-patch';
 import { summarizeGenerationError } from '@/components/lovart/generator-error-utils';
 import {
     createGenerationFailurePatch,
@@ -82,7 +83,7 @@ export function applyElementGenerationPatch(
 ): CanvasElement[] {
     return elements.map((element) =>
         element.id === elementId
-            ? { ...element, ...patch }
+            ? patchGenerationTargetElement(element, patch)
             : element,
     );
 }

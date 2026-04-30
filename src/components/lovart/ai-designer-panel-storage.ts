@@ -7,6 +7,14 @@ export function getActiveChatStorageKey() {
   return ACTIVE_CHAT_KEY;
 }
 
+export function clearActiveChat() {
+  try {
+    localStorage.removeItem(ACTIVE_CHAT_KEY);
+  } catch {
+    // Ignore storage quota / privacy mode failures.
+  }
+}
+
 // ── Session factory ────────────────────────────────────────
 
 /**

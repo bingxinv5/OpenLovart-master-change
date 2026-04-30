@@ -31,6 +31,17 @@ import {
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
 import type { CanvasElement } from './canvas-types';
+import {
+  STORYBOARD_PLANNER_SAVE_DEBOUNCE_MS,
+  getStoryboardPlannerStorageKey,
+  loadStoryboardPlannerState,
+  loadStoryboardPlannerStateWithLegacyMigration,
+  patchStoryboardPlannerState,
+  removeStoryboardPlannerState,
+  saveStoryboardPlannerState,
+  type PersistedStoryboardPlannerState,
+  type StoryboardPlannerSourceImage as SourceImage,
+} from './storyboard-planner-storage';
 import { runImageGenerationFlow, waitForImageGenerationResult } from './image-generation-flow';
 import { WorkbenchImage } from './WorkbenchImage';
 import { useCanvasImageSelectionEvent } from './generator-panel-shared';
@@ -71,41 +82,11 @@ interface StoryboardPlannerPanelProps {
   onSubmittingChange?: (elementId: string, submitting: boolean, liveParams?: PlannerLiveGenerationParams) => void;
 }
 
-const STORAGE_KEY = 'lovart-storyboard-planner';
-const SAVE_DEBOUNCE_MS = 1500;
-
 const SHOT_COUNT_OPTIONS = [4, 6, 9, 12, 16] as const;
 
 const MAX_SOURCE_IMAGES = 5;
 
-type SourceImage = { content: string; label: string };
-
-interface PersistedPlannerState {
-  mode: StoryboardPlanMode;
-  shotCount: number;
-  sceneDescription: string;
-  storyContext: string;
-  sourceImages: SourceImage[];
-  combinedPrompt: string;
-  promptLang?: 'zh' | 'en';
-  bilingualPrompt?: { zh?: string; en?: string };
-  result: StoryboardPlanResponse | null;
-  generationImageUrl: string | null;
-  pendingTaskId: string | null;
-  isPlanningPending?: boolean;
-  isGeneratingBoardPending?: boolean;
-  // 用户手动选择的生成参数（覆盖全局默认值）
-  userModel?: ImageGenerationDefaults['model'];
-  userModelOverride?: boolean;
-  userAspectRatio?: 'auto' | ImageGenerationDefaults['aspectRatio'];
-  userAspectRatioOverride?: boolean;
-  userImageSize?: string;
-  userImageSizeOverride?: boolean;
-  userQuality?: ImageGenerationDefaults['quality'];
-  userQualityOverride?: boolean;
-}
-
-function getChineseCombinedPrompt(state: Partial<PersistedPlannerState>) {
+function getChineseCombinedPrompt(state: Partial<PersistedStoryboardPlannerState>) {
   const zhPrompt = state.bilingualPrompt?.zh?.trim();
   if (zhPrompt) {
     return state.bilingualPrompt?.zh || '';
@@ -120,31 +101,6 @@ function getChineseCombinedPrompt(state: Partial<PersistedPlannerState>) {
   }
 
   return state.combinedPrompt || '';
-}
-
-function loadPersistedState(key: string): Partial<PersistedPlannerState> {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return {};
-    return JSON.parse(raw) as Partial<PersistedPlannerState>;
-  } catch {
-    return {};
-  }
-}
-
-function savePersistedState(key: string, state: PersistedPlannerState) {
-  try {
-    localStorage.setItem(key, JSON.stringify(state));
-  } catch { /* quota exceeded — ignore */ }
-}
-
-/** Patch specific fields without needing the full state object */
-function patchPersistedState(key: string, patch: Partial<PersistedPlannerState>) {
-  try {
-    const raw = localStorage.getItem(key);
-    const current = raw ? JSON.parse(raw) : {};
-    localStorage.setItem(key, JSON.stringify({ ...current, ...patch }));
-  } catch { /* ignore */ }
 }
 
 function getStoryboardGridColumns(shotCount: number) {
@@ -289,20 +245,10 @@ export function StoryboardPlannerPanel({
   );
 
   // ── 按元素隔离的持久化 key ──
-  const storageKey = useMemo(() => `${STORAGE_KEY}-${elementId}`, [elementId]);
+  const storageKey = useMemo(() => getStoryboardPlannerStorageKey(elementId), [elementId]);
 
   // ── 从 localStorage 恢复持久化状态（含旧全局 key 一次性迁移） ──
-  const persisted = useMemo(() => {
-    const data = loadPersistedState(storageKey);
-    if (data.mode || data.result) return data;
-    // 旧版使用全局 key，迁移后删除
-    const legacy = loadPersistedState(STORAGE_KEY);
-    if (legacy.mode || legacy.result) {
-      try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
-      return legacy;
-    }
-    return data;
-  }, [storageKey]);
+  const persisted = useMemo(() => loadStoryboardPlannerStateWithLegacyMigration(storageKey), [storageKey]);
 
   const [mode, setMode] = useState<StoryboardPlanMode>(persisted.mode || 'shot');
   const [shotCount, setShotCount] = useState<number>(persisted.shotCount || 9);
@@ -542,12 +488,12 @@ export function StoryboardPlannerPanel({
         }));
       },
     }).then((resultUrl) => {
-      patchPersistedState(storageKey, { generationImageUrl: resultUrl, pendingTaskId: null });
+      patchStoryboardPlannerState(storageKey, { generationImageUrl: resultUrl, pendingTaskId: null });
       clearPlannerGenerationState();
       if (activeRunRef.current !== runId) return;
       setGenerationState({ status: 'done', progress: 100, imageUrl: resultUrl, error: null });
     }).catch((error: unknown) => {
-      patchPersistedState(storageKey, { pendingTaskId: null });
+      patchStoryboardPlannerState(storageKey, { pendingTaskId: null });
       const message = error instanceof Error ? error.message : '宫格图片恢复失败';
       clearPlannerGenerationState(message);
       if (activeRunRef.current !== runId) return;
@@ -571,7 +517,7 @@ export function StoryboardPlannerPanel({
   const scheduleSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      savePersistedState(storageKey, {
+      saveStoryboardPlannerState(storageKey, {
         mode,
         shotCount,
         sceneDescription,
@@ -590,7 +536,7 @@ export function StoryboardPlannerPanel({
         userQuality,
         userQualityOverride,
       });
-    }, SAVE_DEBOUNCE_MS);
+    }, STORYBOARD_PLANNER_SAVE_DEBOUNCE_MS);
   }, [mode, shotCount, sceneDescription, storyContext, sourceImages, combinedPrompt, result, generationState.imageUrl, storageKey, userModel, userModelOverride, userAspectRatio, userAspectRatioOverride, userImageSize, userImageSizeOverride, userQuality, userQualityOverride]);
 
   // 每次关键 state 变化时触发自动保存
@@ -609,7 +555,7 @@ export function StoryboardPlannerPanel({
     // 后台闭包可能仍在运行，轮询 localStorage 等待其完成
     setIsPlanning(true);
     const interval = setInterval(() => {
-      const current = loadPersistedState(storageKey);
+      const current = loadStoryboardPlannerState(storageKey);
       if (!current.isPlanningPending) {
         clearInterval(interval);
         clearTimeout(timeout);
@@ -623,7 +569,7 @@ export function StoryboardPlannerPanel({
     // 30 秒超时保护
     const timeout = setTimeout(() => {
       clearInterval(interval);
-      patchPersistedState(storageKey, { isPlanningPending: false });
+      patchStoryboardPlannerState(storageKey, { isPlanningPending: false });
       setIsPlanning(false);
       setErrorMsg('提示词生成超时，请重新生成。');
     }, 30_000);
@@ -636,7 +582,7 @@ export function StoryboardPlannerPanel({
     // 已有 taskId 的情况由下方 pendingTaskId 逻辑处理
     if (!persisted.isGeneratingBoardPending || persisted.pendingTaskId) return;
     if (persisted.generationImageUrl) {
-      patchPersistedState(storageKey, { isGeneratingBoardPending: false });
+      patchStoryboardPlannerState(storageKey, { isGeneratingBoardPending: false });
       clearPlannerGenerationState();
       return;
     }
@@ -651,7 +597,7 @@ export function StoryboardPlannerPanel({
     setIsGeneratingBoard(true);
     setGenerationState({ status: 'rendering', progress: 5, imageUrl: null, error: null });
     const interval = setInterval(() => {
-      const current = loadPersistedState(storageKey);
+      const current = loadStoryboardPlannerState(storageKey);
       if (!current.isGeneratingBoardPending) {
         clearInterval(interval);
         clearTimeout(timeout);
@@ -668,7 +614,7 @@ export function StoryboardPlannerPanel({
         clearInterval(interval);
         clearTimeout(timeout);
         // 触发重新挂载 pendingTaskId 恢复（通过手动启动轮询）
-        patchPersistedState(storageKey, { isGeneratingBoardPending: false });
+        patchStoryboardPlannerState(storageKey, { isGeneratingBoardPending: false });
         const runId = activeRunRef.current + 1;
         activeRunRef.current = runId;
         resumePendingBoardTask(current.pendingTaskId, runId);
@@ -676,7 +622,7 @@ export function StoryboardPlannerPanel({
     }, 500);
     const timeout = setTimeout(() => {
       clearInterval(interval);
-      patchPersistedState(storageKey, { isGeneratingBoardPending: false });
+      patchStoryboardPlannerState(storageKey, { isGeneratingBoardPending: false });
       clearPlannerGenerationState('宫格图生成超时，请重新生成。');
       setIsGeneratingBoard(false);
       setGenerationState({ status: 'error', progress: 0, imageUrl: null, error: '宫格图生成超时，请重新生成。' });
@@ -794,7 +740,7 @@ export function StoryboardPlannerPanel({
     setGenerationState({ status: 'idle', progress: 0, imageUrl: null, error: null });
     setErrorMsg(null);
     clearPlannerGenerationState();
-    try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
+    removeStoryboardPlannerState(storageKey);
   }, [clearPlannerGenerationState, imageDefaults.aspectRatio, imageDefaults.imageSize, imageDefaults.model, imageDefaults.quality, storageKey]);
 
   const handleBuildStoryboardPrompt = useCallback(async () => {
@@ -817,7 +763,7 @@ export function StoryboardPlannerPanel({
     setGenerationState({ status: 'idle', progress: 0, imageUrl: null, error: null });
 
     // 立即标记「提示词生成中」，面板卸载后重新打开可恢复 spinner
-    patchPersistedState(storageKey, { isPlanningPending: true });
+    patchStoryboardPlannerState(storageKey, { isPlanningPending: true });
 
     try {
       const resolvedImages = await Promise.all(imageSeeds.map((s) => resolveReferenceImage(s)));
@@ -833,7 +779,7 @@ export function StoryboardPlannerPanel({
       const nextCombinedPrompt = buildCombinedStoryboardPrompt(plan);
 
       // 无论面板是否卸载，都持久化结果
-      patchPersistedState(storageKey, {
+      patchStoryboardPlannerState(storageKey, {
         isPlanningPending: false,
         result: plan,
         combinedPrompt: nextCombinedPrompt,
@@ -844,7 +790,7 @@ export function StoryboardPlannerPanel({
       setResult(plan);
       setCombinedPrompt(nextCombinedPrompt);
     } catch (error) {
-      patchPersistedState(storageKey, { isPlanningPending: false });
+      patchStoryboardPlannerState(storageKey, { isPlanningPending: false });
       if (activeRunRef.current === runId) {
         setErrorMsg(error instanceof Error ? error.message : '分镜生成失败');
       }
@@ -888,7 +834,7 @@ export function StoryboardPlannerPanel({
     syncPlannerElement(createGenerationIdlePatch({ progress: 0 }));
 
     // 立即标记「宫格图生成中」，面板卸载后重新打开可恢复 spinner
-    patchPersistedState(storageKey, { isGeneratingBoardPending: true });
+    patchStoryboardPlannerState(storageKey, { isGeneratingBoardPending: true });
 
     try {
       const resolvedImages = await Promise.all(imageSeeds.map((s) => resolveReferenceImage(s)));
@@ -905,7 +851,7 @@ export function StoryboardPlannerPanel({
         awaitResult: true,
         missingResultMessage: '宫格图片未返回可用结果',
         onTaskCreated: (taskId) => {
-          patchPersistedState(storageKey, { pendingTaskId: taskId, isGeneratingBoardPending: false });
+          patchStoryboardPlannerState(storageKey, { pendingTaskId: taskId, isGeneratingBoardPending: false });
           onSubmittingChange?.(elementId, false);
           syncPlannerElement(createGenerationTaskPatch(taskId, 'image'));
         },
@@ -930,7 +876,7 @@ export function StoryboardPlannerPanel({
       const finalImageUrl = generation.imageUrl;
 
       // 始终立即持久化结果（即使面板已卸载也不丢失）
-      patchPersistedState(storageKey, { generationImageUrl: finalImageUrl, pendingTaskId: null, isGeneratingBoardPending: false });
+      patchStoryboardPlannerState(storageKey, { generationImageUrl: finalImageUrl, pendingTaskId: null, isGeneratingBoardPending: false });
       clearPlannerGenerationState();
 
       if (activeRunRef.current !== runId) {
@@ -941,7 +887,7 @@ export function StoryboardPlannerPanel({
       onCreateDraft(result, imageSeeds, finalImageUrl, finalPrompt);
     } catch (error) {
       // 清除 pendingTaskId（即使面板已卸载）
-      patchPersistedState(storageKey, { pendingTaskId: null, isGeneratingBoardPending: false });
+      patchStoryboardPlannerState(storageKey, { pendingTaskId: null, isGeneratingBoardPending: false });
       const message = error instanceof Error ? error.message : '宫格图片生成失败';
       clearPlannerGenerationState(message);
 

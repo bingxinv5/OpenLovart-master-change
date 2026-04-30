@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyVideoGenerationSuccess } from './canvas-generation';
+import { applyElementGenerationPatch, applyVideoGenerationSuccess } from './canvas-generation';
+
+describe('applyElementGenerationPatch', () => {
+    it('only applies generation fields to generator or media elements', () => {
+        const elements = [
+            { id: 'image-1', type: 'image', x: 0, y: 0 },
+            { id: 'text-1', type: 'text', x: 0, y: 0, content: 'copy' },
+        ] as never;
+
+        const result = applyElementGenerationPatch(elements, 'text-1', { generatingTaskId: 'task-1' });
+
+        expect(result.find((element) => element.id === 'image-1')).not.toHaveProperty('generatingTaskId');
+        expect(result.find((element) => element.id === 'text-1')).not.toHaveProperty('generatingTaskId');
+    });
+});
 
 describe('applyVideoGenerationSuccess', () => {
     it('stores sourceGenerationTaskId when a video task completes', () => {

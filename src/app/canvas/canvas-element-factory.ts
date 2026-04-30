@@ -1,4 +1,4 @@
-import type { CanvasElement } from '@/components/lovart/canvas-types';
+import type { CanvasElement, CanvasElementOfType } from '@/components/lovart/canvas-types';
 
 type ElementFactoryDeps = {
     uuidFn: () => string;
@@ -7,6 +7,8 @@ type ElementFactoryDeps = {
 type ImageElementFactoryDeps = ElementFactoryDeps & {
     defaultPresentation?: Partial<CanvasElement>;
 };
+
+type CanvasGeneratorElementType = Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>;
 
 export type ImageDisplayMetrics = {
     x?: number;
@@ -33,13 +35,13 @@ export function buildBelowElementDisplayMetricsOptions(element: CanvasElement, m
 export function buildImageElement(
     attrs: Omit<CanvasElement, 'id' | 'type'>,
     deps: ImageElementFactoryDeps,
-) {
+): CanvasElementOfType<'image'> {
     return {
         id: deps.uuidFn(),
         type: 'image' as const,
         ...attrs,
         ...deps.defaultPresentation,
-    } satisfies CanvasElement;
+    } as CanvasElementOfType<'image'>;
 }
 
 export function buildBelowSourceImageResultElement(params: {
@@ -64,22 +66,22 @@ export function buildBelowSourceImageResultElement(params: {
 export function buildVideoElement(
     attrs: Omit<CanvasElement, 'id' | 'type'>,
     deps: ElementFactoryDeps,
-) {
+): CanvasElementOfType<'video'> {
     return {
         id: deps.uuidFn(),
         type: 'video' as const,
         ...attrs,
-    } satisfies CanvasElement;
+    } as CanvasElementOfType<'video'>;
 }
 
-export function buildGeneratorElement(
-    type: Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>,
+export function buildGeneratorElement<TType extends CanvasGeneratorElementType>(
+    type: TType,
     attrs: Omit<CanvasElement, 'id' | 'type'>,
     deps: ElementFactoryDeps,
-) {
+): CanvasElementOfType<TType> {
     return {
         id: deps.uuidFn(),
         type,
         ...attrs,
-    } satisfies CanvasElement;
+    } as CanvasElementOfType<TType>;
 }

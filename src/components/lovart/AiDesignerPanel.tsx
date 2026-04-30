@@ -20,7 +20,7 @@ import {
     formatTime,
 } from './ai-designer-panel-utils';
 import {
-    getActiveChatStorageKey,
+    clearActiveChat,
     loadActiveChat,
     loadChatSessions,
     normalizeRestoredChatMessages,
@@ -652,7 +652,7 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
         resumedTaskKeysRef.current.clear();
         setMessages([]);
         setAttachments([]);
-        localStorage.removeItem(getActiveChatStorageKey());
+        clearActiveChat();
     };
 
     // ========== New Chat ==========
@@ -667,7 +667,7 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
         setAttachments([]);
         setInputValue('');
         // Immediately clear active chat so there's no stale data if the app crashes
-        localStorage.removeItem(getActiveChatStorageKey());
+        clearActiveChat();
         textareaRef.current?.focus();
     };
 
