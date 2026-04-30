@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import type { CanvasElement } from './canvas-types';
 import { clientPointToCanvas } from './canvas-viewport-utils';
-import { getInnermostFrameAtCanvasPoint, getBoxSelectedElementIds } from './canvas-hit-test';
+import { getInnermostFrameAtCanvasPoint } from './canvas-hit-test';
 import {
     computeMoveSnap,
     computeResizeSnap,
@@ -13,17 +13,12 @@ import {
     type ResizeSnapLockState,
 } from './canvas-snap-utils';
 import type { AlignGuide } from './canvas-alignment';
+import { calculatePanInertiaVelocity, stepPanInertia, trimPanVelocityPoints, type CanvasPointWithTime } from './canvas-pan-inertia';
+import { createSelectionBox, getSelectionBoxScreenRect, resolveSelectionBoxSelectedIds, updateSelectionBox, type SelectionBoxState } from './canvas-selection-box-state';
+import { getDragDescendantIds, resolveDragFrameAdoptions } from './canvas-drag-adoption';
+import { calculateResizeBounds } from './canvas-resize-state';
 
 // ── Internal types (mirrors private types in CanvasArea) ──────────────────────
-
-type SelectionBoxState = {
-    startX: number;
-    startY: number;
-    currentX: number;
-    currentY: number;
-    mode: 'replace' | 'add';
-    fallbackSelectionId?: string;
-};
 
 type DragStartState = {
     x: number;
@@ -222,7 +217,7 @@ export function useCanvasPointerInteraction(
     const committedPanRef = useRef(pan);
     const onPanChangeRef = useRef(onPanChange);
     const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
-    const panVelocityPointsRef = useRef<{ x: number; y: number; t: number }[]>([]);
+    const panVelocityPointsRef = useRef<CanvasPointWithTime[]>([]);
     const inertiaRafRef = useRef<number | null>(null);
     const panRafRef = useRef<number | null>(null);
 
@@ -322,15 +317,12 @@ export function useCanvasPointerInteraction(
             overlay.style.display = 'none';
             return;
         }
-        const left = Math.min(box.startX, box.currentX) * scale + pan.x;
-        const top = Math.min(box.startY, box.currentY) * scale + pan.y;
-        const width = Math.abs(box.currentX - box.startX) * scale;
-        const height = Math.abs(box.currentY - box.startY) * scale;
+        const rect = getSelectionBoxScreenRect(box, { scale, pan });
         overlay.style.display = 'block';
-        overlay.style.left = `${left}px`;
-        overlay.style.top = `${top}px`;
-        overlay.style.width = `${width}px`;
-        overlay.style.height = `${height}px`;
+        overlay.style.left = `${rect.left}px`;
+        overlay.style.top = `${rect.top}px`;
+        overlay.style.width = `${rect.width}px`;
+        overlay.style.height = `${rect.height}px`;
     }, [pan.x, pan.y, scale, selectionBoxOverlayRef]);
 
     const beginSelectionBoxFromClient = useCallback((
@@ -342,13 +334,11 @@ export function useCanvasPointerInteraction(
     ) => {
         const { x: startX, y: startY } = toCanvasPoint(startClientX, startClientY);
         const { x: currentX, y: currentY } = toCanvasPoint(currentClientX, currentClientY);
-        const nextSelectionBox: SelectionBoxState = {
-            startX,
-            startY,
-            currentX,
-            currentY,
-            mode: additiveSelection ? 'add' : 'replace',
-        };
+        const nextSelectionBox = createSelectionBox({
+            start: { x: startX, y: startY },
+            current: { x: currentX, y: currentY },
+            additiveSelection,
+        });
         setActiveVideoId(null);
         setIsSelecting(true);
         setSelectionBox(nextSelectionBox);
@@ -576,14 +566,12 @@ export function useCanvasPointerInteraction(
             const additiveSelection = e.shiftKey || e.ctrlKey || e.metaKey;
             setActiveVideoId(null);
             const { x: canvasX, y: canvasY } = toCanvasPoint(e.clientX, e.clientY);
-            const nextSelectionBox: SelectionBoxState = {
-                startX: canvasX,
-                startY: canvasY,
-                currentX: canvasX,
-                currentY: canvasY,
-                mode: additiveSelection ? 'add' : 'replace',
+            const nextSelectionBox = createSelectionBox({
+                start: { x: canvasX, y: canvasY },
+                current: { x: canvasX, y: canvasY },
+                additiveSelection,
                 fallbackSelectionId: options?.fallbackSelectionId,
-            };
+            });
             setIsSelecting(true);
             setSelectionBox(nextSelectionBox);
             syncSelectionBoxOverlay(nextSelectionBox);
@@ -702,7 +690,7 @@ export function useCanvasPointerInteraction(
 
         const activeSelectionBox = selectionBoxRef.current;
         if (isSelectingRef.current && activeSelectionBox) {
-            const nextSelectionBox = { ...activeSelectionBox, currentX: canvasX, currentY: canvasY };
+            const nextSelectionBox = updateSelectionBox(activeSelectionBox, { x: canvasX, y: canvasY });
             selectionBoxRef.current = nextSelectionBox;
             setSelectionBox(nextSelectionBox);
             syncSelectionBoxOverlay(nextSelectionBox);
@@ -718,7 +706,7 @@ export function useCanvasPointerInteraction(
             const now = timeStamp ?? 0;
             const pts = panVelocityPointsRef.current;
             pts.push({ x: clientX, y: clientY, t: now });
-            if (pts.length > 6) pts.shift();
+            panVelocityPointsRef.current = trimPanVelocityPoints(pts, 6);
             return;
         }
 
@@ -816,18 +804,7 @@ export function useCanvasPointerInteraction(
             // Detect drop target frame for visual highlight
             const draggedEl = elements.find(e => e.id === draggedElementIdRef.current);
             if (draggedEl) {
-                const draggedDescendants = new Set<string>();
-                if (draggedEl.type === 'frame') {
-                    const collectDesc = (pid: string) => {
-                        elements.forEach(c => {
-                            if (c.parentFrameId === pid && !draggedDescendants.has(c.id)) {
-                                draggedDescendants.add(c.id);
-                                if (c.type === 'frame') collectDesc(c.id);
-                            }
-                        });
-                    };
-                    collectDesc(draggedEl.id);
-                }
+                const draggedDescendants = draggedEl.type === 'frame' ? getDragDescendantIds(draggedEl.id, elements) : new Set<string>();
                 const excludedFrameIds = new Set([draggedEl.id, ...draggedDescendants]);
                 if (draggedEl.parentFrameId) excludedFrameIds.add(draggedEl.parentFrameId);
                 const targetFrame = getInnermostFrameAtCanvasPoint(elements, canvasX, canvasY, { excludedFrameIds });
@@ -840,27 +817,12 @@ export function useCanvasPointerInteraction(
             const element = elements.find(el => el.id === draggedElementIdRef.current);
             const isImage = element?.type === 'image';
             const resizeHandle = resizeHandleRef.current;
-
-            let newX = elementX;
-            let newY = elementY;
-            let newWidth = width;
-            let newHeight = height;
-
-            if (resizeHandle.includes('e')) newWidth = width + dx;
-            if (resizeHandle.includes('s')) newHeight = height + dy;
-            if (resizeHandle.includes('w')) { newWidth = width - dx; newX = elementX + dx; }
-            if (resizeHandle.includes('n')) { newHeight = height - dy; newY = elementY + dy; }
-
-            if (isImage && aspectRatio) {
-                if (resizeHandle.includes('e') || resizeHandle.includes('w')) {
-                    newHeight = newWidth / aspectRatio;
-                    if (resizeHandle.includes('n')) newY = elementY + (height - newHeight);
-                } else if (resizeHandle.includes('n') || resizeHandle.includes('s')) {
-                    newWidth = newHeight * aspectRatio;
-                    if (resizeHandle.includes('w')) newX = elementX + (width - newWidth);
-                    if (resizeHandle === 'n') newY = elementY + (height - newHeight);
-                }
-            }
+            let { x: newX, y: newY, width: newWidth, height: newHeight } = calculateResizeBounds({
+                start: { elementX, elementY, width, height, aspectRatio },
+                handle: resizeHandle,
+                delta: { dx, dy },
+                preserveAspectRatio: !!(isImage && aspectRatio),
+            });
 
             const resizeSnap = computeResizeSnap({
                 elementId: draggedElementIdRef.current,
@@ -956,25 +918,11 @@ export function useCanvasPointerInteraction(
 
         // Box selection completion
         if (isSelectingRef.current && activeSelectionBox) {
-            const x1 = Math.min(activeSelectionBox.startX, activeSelectionBox.currentX);
-            const y1 = Math.min(activeSelectionBox.startY, activeSelectionBox.currentY);
-            const x2 = Math.max(activeSelectionBox.startX, activeSelectionBox.currentX);
-            const y2 = Math.max(activeSelectionBox.startY, activeSelectionBox.currentY);
-            const selectionWidth = Math.abs(activeSelectionBox.currentX - activeSelectionBox.startX);
-            const selectionHeight = Math.abs(activeSelectionBox.currentY - activeSelectionBox.startY);
-            const newSelectedIds = getBoxSelectedElementIds(elements, { x1, y1, x2, y2 });
-
-            if (selectionWidth < 4 && selectionHeight < 4 && activeSelectionBox.fallbackSelectionId) {
-                if (activeSelectionBox.mode === 'add') {
-                    onSelect(Array.from(new Set([...selectedIds, activeSelectionBox.fallbackSelectionId])));
-                } else {
-                    onSelect([activeSelectionBox.fallbackSelectionId]);
-                }
-            } else if (activeSelectionBox.mode === 'add') {
-                onSelect(Array.from(new Set([...selectedIds, ...newSelectedIds])));
-            } else {
-                onSelect(newSelectedIds);
-            }
+            onSelect(resolveSelectionBoxSelectedIds({
+                box: activeSelectionBox,
+                elements,
+                selectedIds,
+            }));
         }
 
         // Free-draw path completion
@@ -1026,103 +974,31 @@ export function useCanvasPointerInteraction(
 
         // Auto-adopt / release elements to/from frames after drag
         if (isDragging && dragStartRef.current?.initialPositions) {
-            const committedPositions = new Map<string, { x: number; y: number }>();
-            for (const pos of dragStartRef.current.initialPositions) {
-                committedPositions.set(pos.id, { x: pos.x + savedDragDelta.dx, y: pos.y + savedDragDelta.dy });
-            }
-
-            const topDragIds = dragStartRef.current.initialPositions
-                .map(p => p.id)
-                .filter(id => {
-                    const el = elements.find(e => e.id === id);
-                    if (el?.parentFrameId && dragStartRef.current?.initialPositions?.some(p => p.id === el.parentFrameId)) {
-                        return false;
-                    }
-                    return true;
-                });
-
-            const getDescendants = (frameId: string): Set<string> => {
-                const desc = new Set<string>();
-                const collect = (pid: string) => {
-                    elements.forEach(c => {
-                        if (c.parentFrameId === pid && !desc.has(c.id)) {
-                            desc.add(c.id);
-                            if (c.type === 'frame') collect(c.id);
-                        }
-                    });
-                };
-                collect(frameId);
-                return desc;
-            };
-
-            topDragIds.forEach(movedId => {
-                const el = elements.find(e => e.id === movedId);
-                if (!el || el.type === 'connector') return;
-
-                const finalPos = committedPositions.get(movedId);
-                const finalX = finalPos ? finalPos.x : el.x;
-                const finalY = finalPos ? finalPos.y : el.y;
-                const elCenterX = finalX + (el.width || 0) / 2;
-                const elCenterY = finalY + (el.height || 0) / 2;
-
-                const ownDescendants = el.type === 'frame' ? getDescendants(el.id) : new Set<string>();
-
-                const targetCandidates = elements.filter(frame =>
-                    frame.type === 'frame' &&
-                    frame.id !== movedId &&
-                    !ownDescendants.has(frame.id) &&
-                    !topDragIds.includes(frame.id) &&
-                    elCenterX >= frame.x &&
-                    elCenterX <= frame.x + (frame.width || 0) &&
-                    elCenterY >= frame.y &&
-                    elCenterY <= frame.y + (frame.height || 0),
-                );
-                const targetFrame = targetCandidates.length > 0
-                    ? targetCandidates.reduce((best, f) => {
-                        const area = (f.width || 0) * (f.height || 0);
-                        const bestArea = (best.width || 0) * (best.height || 0);
-                        return area < bestArea ? f : best;
-                    })
-                    : null;
-
-                if (targetFrame && targetFrame.id !== el.parentFrameId) {
-                    moveElementToFrame(movedId, targetFrame.id);
-                } else if (!targetFrame && el.parentFrameId) {
-                    moveElementToFrame(movedId, undefined);
-                }
-            });
+            resolveDragFrameAdoptions({
+                elements,
+                initialPositions: dragStartRef.current.initialPositions,
+                dragDelta: savedDragDelta,
+            }).forEach((action) => moveElementToFrame(action.elementId, action.targetFrameId));
         }
 
         // Launch inertia momentum if was panning
         if (isPanning && panVelocityPointsRef.current.length >= 2) {
-            const pts = panVelocityPointsRef.current;
-            const latest = pts[pts.length - 1];
-            const earlier = pts[Math.max(0, pts.length - 4)];
-            const dt = latest.t - earlier.t;
-            if (dt > 0 && dt < 200) {
-                let vx = (latest.x - earlier.x) / dt * 16;
-                let vy = (latest.y - earlier.y) / dt * 16;
-                const speed = Math.sqrt(vx * vx + vy * vy);
-                if (speed > 1) {
-                    const MAX_V = 15;
-                    if (speed > MAX_V) { vx = vx / speed * MAX_V; vy = vy / speed * MAX_V; }
-                    const currentPan = { x: panRef.current.x, y: panRef.current.y };
-                    const FRICTION = 0.82;
-                    const MIN_V = 0.5;
-                    const step = () => {
-                        vx *= FRICTION;
-                        vy *= FRICTION;
-                        if (Math.abs(vx) < MIN_V && Math.abs(vy) < MIN_V) {
-                            inertiaRafRef.current = null;
-                            return;
-                        }
-                        currentPan.x += vx;
-                        currentPan.y += vy;
-                        commitPanChange({ x: currentPan.x, y: currentPan.y });
-                        inertiaRafRef.current = requestAnimationFrame(step);
-                    };
+            const velocity = calculatePanInertiaVelocity(panVelocityPointsRef.current);
+            if (velocity) {
+                let currentPan = { x: panRef.current.x, y: panRef.current.y };
+                let currentVelocity = velocity;
+                const step = () => {
+                    const next = stepPanInertia(currentPan, currentVelocity);
+                    currentVelocity = next.velocity;
+                    if (!next.shouldContinue) {
+                        inertiaRafRef.current = null;
+                        return;
+                    }
+                    currentPan = next.pan;
+                    commitPanChange(currentPan);
                     inertiaRafRef.current = requestAnimationFrame(step);
-                }
+                };
+                inertiaRafRef.current = requestAnimationFrame(step);
             }
             panVelocityPointsRef.current = [];
         }

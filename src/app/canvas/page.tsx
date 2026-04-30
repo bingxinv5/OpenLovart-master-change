@@ -7,7 +7,6 @@ import { debugLog } from '@/lib/debug-log';
 import { useSearchParams } from 'next/navigation';
 import { FloatingToolbar } from '@/components/lovart/FloatingToolbar';
 import { CanvasArea } from '@/components/lovart/CanvasArea';
-import type { CanvasAreaDomains } from '@/components/lovart/canvas-area-domains';
 import { AnnotateImagePanel } from '@/components/lovart/AnnotateImagePanel';
 import { CropImagePanel } from '@/components/lovart/CropImagePanel';
 import { ImageGeneratorPanel } from '@/components/lovart/ImageGeneratorPanel';
@@ -39,6 +38,7 @@ import { CanvasBenchmarkPanel } from './CanvasBenchmarkPanel';
 import { CanvasHeader } from './CanvasHeader';
 import { ZoomControl } from './ZoomControl';
 import { buildAiCanvasSelectionSummary, parseAiCanvasPlanActions } from './ai-canvas-plan';
+import { buildCanvasAreaDomains } from './buildCanvasAreaDomains';
 import { areChunkResidencyStatesEqual } from './canvas-compare-utils';
 import {
     buildBelowElementDisplayMetricsOptions as createBelowElementDisplayMetricsOptions,
@@ -77,6 +77,7 @@ import { useCanvasWorkbenchLayout } from './use-canvas-workbench-layout';
 import { useCanvasSessionRuntime } from './canvas-session-runtime';
 import { useGenerationPollingController } from './canvas-generation-controller';
 import { useImageFinalizer } from './use-image-finalizer';
+import { useCanvasProjectReferenceActions } from './use-canvas-project-reference-actions';
 import { pollGenerationTask } from './generation-polling';
 import { persistGeneration, removeGeneration, persistSubmission, clearSubmission } from './generation-persistence';
 import { saveViewportState } from './viewport-persistence';
@@ -152,7 +153,7 @@ import { upscaleImageBlob, type UpscaleModelId } from '@/lib/upscale-api';
 
 import { cancelActiveWorkerJobs, isWorkerCancelledError } from '@/lib/image-worker-bridge';
 import { appendProjectMediaHistory, clearProjectMediaHistory, readProjectMediaHistory, replaceProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
-import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, saveProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
+import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
 
 function isEditableOverlayTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
@@ -447,75 +448,15 @@ function LovartCanvasContent() {
         showToast,
     });
 
-    const saveProjectReferenceFromElement = useCallback((element: CanvasElement) => {
-        const projectId = currentProjectIdRef.current;
-        if (!projectId || element.type !== 'image' || !element.content) {
-            return;
-        }
-
-        saveProjectReferenceImage({
-            projectId,
-            image: element.content,
-            label: element.displayName || element.savedPrompt,
-            prompt: element.savedPrompt,
-            sourceElementId: element.id,
-        });
-        showToast('当前图片已加入项目参考库', 'success');
-    }, [showToast]);
-
-    const saveProjectReferenceFromSelection = useCallback((ids: string[]) => {
-        const projectId = currentProjectIdRef.current;
-        if (!projectId) {
-            return;
-        }
-
-        const existingImages = new Set(
-            readProjectReferenceLibrary(projectId).map((item) => item.image),
-        );
-        let processed = 0;
-        let added = 0;
-
-        ids.forEach((id) => {
-            const element = elementsMapRef.current.get(id);
-            if (!element || element.type !== 'image' || !element.content) {
-                return;
-            }
-
-            processed += 1;
-            if (!existingImages.has(element.content)) {
-                added += 1;
-                existingImages.add(element.content);
-            }
-
-            saveProjectReferenceImage({
-                projectId,
-                image: element.content,
-                label: element.displayName || element.savedPrompt,
-                prompt: element.savedPrompt,
-                sourceElementId: element.id,
-            });
-        });
-
-        if (processed === 0) {
-            showToast('所选内容里没有可加入参考库的图片', 'info');
-            return;
-        }
-
-        showToast(
-            added === processed
-                ? `已批量加入 ${processed} 张项目参考图`
-                : `已处理 ${processed} 张图片，新增 ${added} 张到项目参考库`,
-            'success',
-        );
-    }, [showToast]);
-
-    const handleUseProjectReferenceImage = useCallback((id: string) => {
-        const projectId = currentProjectIdRef.current;
-        if (!projectId) {
-            return;
-        }
-        touchProjectReferenceImage(projectId, id);
-    }, []);
+    const {
+        handleUseProjectReferenceImage,
+        saveProjectReferenceFromElement,
+        saveProjectReferenceFromSelection,
+    } = useCanvasProjectReferenceActions({
+        currentProjectIdRef,
+        elementsMapRef,
+        showToast,
+    });
 
     const announceShortcut = useCallback((label: string, shortcut: string) => {
         if (shortcutFeedbackTimerRef.current) {
@@ -3807,6 +3748,132 @@ function LovartCanvasContent() {
         return getElementPanelStyle(selectedSplitStoryboardElement, scale, pan);
     }, [pan, scale, selectedSplitStoryboardElement]);
 
+    const handleExportStoryboardSelection = useCallback((ids: string[]) => {
+        const imageCount = ids
+            .map((id) => elementsMapRef.current.get(id))
+            .filter((item) => item?.type === 'image' && !!item.content)
+            .length;
+        if (imageCount >= 2) {
+            setAnnotateImageTargetId(null);
+            setCropImageTargetId(null);
+            setSplitStoryboardTargetId(null);
+            setIsStoryboardExportOpen(true);
+        } else {
+            showToast('请至少选择两张图片', 'info');
+        }
+    }, [showToast]);
+
+    const handleAnnotateImageRequest = useCallback((element: CanvasElement) => {
+        setCropImageTargetId(null);
+        setSplitStoryboardTargetId(null);
+        setAnnotateImageTargetId((current) => current === element.id ? null : element.id);
+    }, []);
+
+    const handleCropImageRequest = useCallback((element: CanvasElement) => {
+        setAnnotateImageTargetId(null);
+        setSplitStoryboardTargetId(null);
+        setCropImageTargetId((current) => current === element.id ? null : element.id);
+    }, []);
+
+    const handleSplitStoryboardRequest = useCallback((element: CanvasElement) => {
+        setAnnotateImageTargetId(null);
+        setCropImageTargetId(null);
+        setSplitStoryboardTargetId((current) => current === element.id ? null : element.id);
+    }, []);
+
+    const canvasAreaDomains = buildCanvasAreaDomains({
+        selection: {
+            selectedIds,
+            highlightedElementIds: highlightedLayerIds,
+            onSelect: setSelectedIds,
+            activeTool,
+            onToolChange: setActiveTool,
+        },
+        view: {
+            scale,
+            pan,
+            onPanChange: setPan,
+            onScaleChange: setScale,
+        },
+        elementCRUD: {
+            elements: canvasRuntimeElements,
+            onElementChange: handleElementChange,
+            onBatchElementChange: handleBatchElementChange,
+            onDelete: handleDelete,
+            onAddElement: addElement,
+        },
+        clipboard: {
+            canPaste: clipboardRef.current.length > 0,
+            onCopyElement: handleCopyElement,
+            onCopySelection: handleCopySelection,
+            onCutSelection: handleCutSelection,
+            onPasteAt: handlePasteAt,
+            onDuplicateSelection: handleDuplicateSelection,
+        },
+        layout: {
+            onGroupSelection: handleGroupSelection,
+            onUngroupSelection: handleUngroupSelection,
+            onMergeSelection: handleMergeSelection,
+            onBringForward: handleBringForward,
+            onSendBackward: handleSendBackward,
+            onBringToFront: handleBringToFront,
+            onSendToBack: handleSendToBack,
+            onToggleElementsHidden: handleToggleElementsHidden,
+            onToggleElementsLocked: handleToggleElementsLocked,
+            onDeleteSelection: removeElementsByIds,
+        },
+        generator: {
+            onOpenImageGenerator: handleOpenImageGenerator,
+            onOpenVideoGenerator: handleOpenVideoGenerator,
+            onGenerateStoryboardSelection: handleGenerateStoryboardSelection,
+            onGenerateStoryboardVideoSelection: handleGenerateStoryboardVideoSelection,
+            onExportStoryboardSelection: handleExportStoryboardSelection,
+            generatorSubmittingMap,
+            highlightedResultId,
+        },
+        media: {
+            projectReferenceImages: projectReferenceItems,
+            onUseProjectReferenceImage: handleUseProjectReferenceImage,
+            onSaveAsProjectReference: saveProjectReferenceFromElement,
+            onSaveSelectionAsProjectReference: saveProjectReferenceFromSelection,
+            onAddImage: handleAddImage,
+            onAddVideo: handleAddVideo,
+        },
+        editingTools: {
+            onAiEditElement: handleAiEditElement,
+            onRecoverImageEditTask: handleRecoverEditedImageTask,
+            onReplaceBackground: handleReplaceBackground,
+            onMockupElement: handleMockupElement,
+            onAnnotateImage: handleAnnotateImageRequest,
+            onCropImage: handleCropImageRequest,
+            onSplitStoryboard: handleSplitStoryboardRequest,
+            onStoryboardPlanFromImage: handleStoryboardPlanFromImage,
+        },
+        export: {
+            onDownloadElement: handleDownloadElement,
+            onSendSelectionToChat: handleSendSelectionToChat,
+        },
+        canvasSelectMode: {
+            canvasSelectMode,
+            onCanvasSelectPick: handleCanvasSelectPick,
+            onCancelCanvasSelect: handleCancelCanvasSelect,
+        },
+        storyboard: {
+            onStoryboardSaved: handleStoryboardFieldsSaved,
+            storyboardAutoAdvanceEnabled: autoAdvanceStoryboardIssues,
+        },
+        misc: {
+            onDragStart: handleDragStart,
+            onDragEnd: handleDragEnd,
+            onConnectFlow: handleConnectFlow,
+            onCanvasMouseMove: handleCanvasMouseMove,
+            spatialIndex: spatialIndexRef.current,
+            resolvedImageSrcMap: runtimeImageRenderSrcs,
+            onRenderMetricsChange: benchmarkMode ? handleRenderMetricsChange : undefined,
+            minimapRightOffset: rightWorkbenchOffset,
+        },
+    });
+
     // 显示加载状态
     if (isLoading) {
         return (
@@ -4125,125 +4192,7 @@ function LovartCanvasContent() {
 
             {/* Main Editor Area */}
             <div className="absolute inset-0">
-                <CanvasArea
-                    {...({
-                        selection: {
-                            selectedIds,
-                            highlightedElementIds: highlightedLayerIds,
-                            onSelect: setSelectedIds,
-                            activeTool,
-                            onToolChange: setActiveTool,
-                        },
-                        view: {
-                            scale,
-                            pan,
-                            onPanChange: setPan,
-                            onScaleChange: setScale,
-                        },
-                        elementCRUD: {
-                            elements: canvasRuntimeElements,
-                            onElementChange: handleElementChange,
-                            onBatchElementChange: handleBatchElementChange,
-                            onDelete: handleDelete,
-                            onAddElement: addElement,
-                        },
-                        clipboard: {
-                            canPaste: clipboardRef.current.length > 0,
-                            onCopyElement: handleCopyElement,
-                            onCopySelection: handleCopySelection,
-                            onCutSelection: handleCutSelection,
-                            onPasteAt: handlePasteAt,
-                            onDuplicateSelection: handleDuplicateSelection,
-                        },
-                        layout: {
-                            onGroupSelection: handleGroupSelection,
-                            onUngroupSelection: handleUngroupSelection,
-                            onMergeSelection: handleMergeSelection,
-                            onBringForward: handleBringForward,
-                            onSendBackward: handleSendBackward,
-                            onBringToFront: handleBringToFront,
-                            onSendToBack: handleSendToBack,
-                            onToggleElementsHidden: handleToggleElementsHidden,
-                            onToggleElementsLocked: handleToggleElementsLocked,
-                            onDeleteSelection: removeElementsByIds,
-                        },
-                        generator: {
-                            onOpenImageGenerator: handleOpenImageGenerator,
-                            onOpenVideoGenerator: handleOpenVideoGenerator,
-                            onGenerateStoryboardSelection: handleGenerateStoryboardSelection,
-                            onGenerateStoryboardVideoSelection: handleGenerateStoryboardVideoSelection,
-                            onExportStoryboardSelection: (ids) => {
-                                const imageCount = ids
-                                    .map((id) => elementsMapRef.current.get(id))
-                                    .filter((item) => item?.type === 'image' && !!item.content)
-                                    .length;
-                                if (imageCount >= 2) {
-                                    setAnnotateImageTargetId(null);
-                                    setCropImageTargetId(null);
-                                    setSplitStoryboardTargetId(null);
-                                    setIsStoryboardExportOpen(true);
-                                } else {
-                                    showToast('请至少选择两张图片', 'info');
-                                }
-                            },
-                            generatorSubmittingMap,
-                            highlightedResultId,
-                        },
-                        media: {
-                            projectReferenceImages: projectReferenceItems,
-                            onUseProjectReferenceImage: handleUseProjectReferenceImage,
-                            onSaveAsProjectReference: saveProjectReferenceFromElement,
-                            onSaveSelectionAsProjectReference: saveProjectReferenceFromSelection,
-                            onAddImage: handleAddImage,
-                            onAddVideo: handleAddVideo,
-                        },
-                        editingTools: {
-                            onAiEditElement: handleAiEditElement,
-                            onRecoverImageEditTask: handleRecoverEditedImageTask,
-                            onReplaceBackground: handleReplaceBackground,
-                            onMockupElement: handleMockupElement,
-                            onAnnotateImage: (element) => {
-                                setCropImageTargetId(null);
-                                setSplitStoryboardTargetId(null);
-                                setAnnotateImageTargetId((current) => current === element.id ? null : element.id);
-                            },
-                            onCropImage: (element) => {
-                                setAnnotateImageTargetId(null);
-                                setSplitStoryboardTargetId(null);
-                                setCropImageTargetId((current) => current === element.id ? null : element.id);
-                            },
-                            onSplitStoryboard: (element) => {
-                                setAnnotateImageTargetId(null);
-                                setCropImageTargetId(null);
-                                setSplitStoryboardTargetId((current) => current === element.id ? null : element.id);
-                            },
-                            onStoryboardPlanFromImage: handleStoryboardPlanFromImage,
-                        },
-                        export: {
-                            onDownloadElement: handleDownloadElement,
-                            onSendSelectionToChat: handleSendSelectionToChat,
-                        },
-                        canvasSelectMode: {
-                            canvasSelectMode,
-                            onCanvasSelectPick: handleCanvasSelectPick,
-                            onCancelCanvasSelect: handleCancelCanvasSelect,
-                        },
-                        storyboard: {
-                            onStoryboardSaved: handleStoryboardFieldsSaved,
-                            storyboardAutoAdvanceEnabled: autoAdvanceStoryboardIssues,
-                        },
-                        misc: {
-                            onDragStart: handleDragStart,
-                            onDragEnd: handleDragEnd,
-                            onConnectFlow: handleConnectFlow,
-                            onCanvasMouseMove: handleCanvasMouseMove,
-                            spatialIndex: spatialIndexRef.current,
-                            resolvedImageSrcMap: runtimeImageRenderSrcs,
-                            onRenderMetricsChange: benchmarkMode ? handleRenderMetricsChange : undefined,
-                            minimapRightOffset: rightWorkbenchOffset,
-                        },
-                    } satisfies CanvasAreaDomains)}
-                />
+                <CanvasArea {...canvasAreaDomains} />
                 <FloatingToolbar
                     activeTool={activeTool}
                     onToolChange={setActiveTool}
