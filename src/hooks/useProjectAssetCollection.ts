@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { ProjectAssetStoreConfig } from '@/lib/project-asset-store';
-import { readItems, subscribeItems } from '@/lib/project-asset-store';
+import { buildStorageKey, normalizeItems, subscribeItems } from '@/lib/project-asset-store';
+
+const EMPTY_PROJECT_ASSET_ITEMS: never[] = [];
 
 /**
  * React hook that reads a project-scoped asset collection and subscribes to
@@ -15,14 +17,29 @@ export function useProjectAssetCollection<TItem>(
     config: ProjectAssetStoreConfig<TItem>,
     projectId: string | null | undefined,
 ): TItem[] {
-    const [items, setItems] = useState<TItem[]>([]);
+    const subscribe = useCallback(
+        (listener: () => void) => subscribeItems(config, projectId, listener),
+        [config, projectId],
+    );
+    const getSnapshot = useCallback(() => {
+        if (typeof window === 'undefined' || !projectId) {
+            return null;
+        }
 
-    useEffect(() => {
-        setItems(readItems(config, projectId));
-        return subscribeItems(config, projectId, () => {
-            setItems(readItems(config, projectId));
-        });
-    }, [config, projectId]);
+        return window.localStorage.getItem(buildStorageKey(config.storageKeyPrefix, projectId));
+    }, [config.storageKeyPrefix, projectId]);
 
-    return items;
+    const rawSnapshot = useSyncExternalStore(subscribe, getSnapshot, () => null);
+
+    return useMemo(() => {
+        if (!rawSnapshot || !projectId) {
+            return EMPTY_PROJECT_ASSET_ITEMS as TItem[];
+        }
+
+        try {
+            return normalizeItems(config, projectId, JSON.parse(rawSnapshot) as unknown);
+        } catch {
+            return EMPTY_PROJECT_ASSET_ITEMS as TItem[];
+        }
+    }, [config, projectId, rawSnapshot]);
 }

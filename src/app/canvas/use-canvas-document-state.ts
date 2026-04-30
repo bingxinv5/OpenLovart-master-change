@@ -33,7 +33,8 @@ export function useCanvasDocumentState({
     const historyNeedsFullRecordRef = useRef(true);
     const historyTransactionRef = useRef<PatchMetadata | null>(null);
     const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const spatialIndexRef = useRef<SpatialIndex>(new SpatialIndex());
+    const [spatialIndex] = useState(() => new SpatialIndex());
+    const spatialIndexRef = useRef<SpatialIndex>(spatialIndex);
     const spatialIndexNeedsRebuildRef = useRef(true);
 
     const [elementsVersion, setElementsVersion] = useState(0);
@@ -412,6 +413,7 @@ export function useCanvasDocumentState({
         runHistoryTransaction,
         undo,
         redo,
+        spatialIndex,
         spatialIndexRef,
         spatialIndexNeedsRebuildRef,
         removeElementsByIds,

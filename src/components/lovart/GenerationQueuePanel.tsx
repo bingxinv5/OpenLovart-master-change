@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock3, ImageIcon, Loader2, LocateFixed, Rows3, Video, Wand2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock3, Loader2, LocateFixed, Rows3, Wand2 } from 'lucide-react';
 
 export interface GenerationQueueItem {
     id: string;
@@ -109,7 +109,6 @@ export function GenerationQueuePanel({
                 <div className="border-t border-slate-100 max-h-[320px] overflow-y-auto panel-scroll">
                     {items.map((item, idx) => {
                         const toneStyles = getToneStyles(item.tone);
-                        const KindIcon = item.kind === 'group' ? Rows3 : item.kind === 'image' ? ImageIcon : Video;
                         const isGroupRow = item.entityType === 'group';
                         const isLast = idx === items.length - 1;
 

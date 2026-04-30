@@ -226,5 +226,5 @@ function downloadBase64Image(base64, filename) {
 
 // 导出
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { UpscaylClient };
+  module.exports = { UpscaylClient, upscaleCanvasImage, splitAndUpscale, downloadBase64Image };
 }

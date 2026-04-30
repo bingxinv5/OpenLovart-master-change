@@ -1,37 +1,27 @@
 ﻿"use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
-import { AlertTriangle, Check } from 'lucide-react';
 import { useUser } from '@/lib/mock-clerk';
 import { useSearchParams } from 'next/navigation';
-import { FloatingToolbar } from '@/components/lovart/FloatingToolbar';
+import { useProjectAssetCollection } from '@/hooks/useProjectAssetCollection';
 import { CanvasArea } from '@/components/lovart/CanvasArea';
-import { AnnotateImagePanel } from '@/components/lovart/AnnotateImagePanel';
-import { CropImagePanel } from '@/components/lovart/CropImagePanel';
-import { ImageGeneratorPanel } from '@/components/lovart/ImageGeneratorPanel';
-import { VideoGeneratorPanel } from '@/components/lovart/VideoGeneratorPanel';
-import { SplitStoryboardPanel } from '@/components/lovart/SplitStoryboardPanel';
-import { StoryboardPlannerPanel } from '@/components/lovart/StoryboardPlannerPanel';
 import { AiDesignerPanel } from '@/components/lovart/AiDesignerPanel';
 import { CanvasCommandPalette } from '@/components/lovart/CanvasCommandPalette';
-import { CanvasHistorySidebar } from '@/components/lovart/CanvasHistorySidebar';
 import { CanvasShortcutHelp } from '@/components/lovart/CanvasShortcutHelp';
-import { LayersPanel } from '@/components/lovart/LayersPanel';
-import { ProjectMediaPanel } from '@/components/lovart/ProjectMediaPanel';
-import { ProjectReferencePanel } from '@/components/lovart/ProjectReferencePanel';
 import { GenerationQueuePanel, type GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
 import { type CanvasElement } from '@/components/lovart/canvas-types';
 import { useLocalDb } from '@/hooks/useLocalDb';
 import { isImageRef, getImageBlob, getImageDataUrl } from '@/lib/editor-kernel';
 import { useCanvasFeedback } from './canvas-feedback';
 import { CanvasBenchmarkPanel } from './CanvasBenchmarkPanel';
+import { CanvasFeedbackOverlays } from './CanvasFeedbackOverlays';
+import { CanvasFloatingToolPanels } from './CanvasFloatingToolPanels';
 import { CanvasHeader } from './CanvasHeader';
-import { StoryboardExportSelection } from './StoryboardExportSelection';
-import { ZoomControl } from './ZoomControl';
+import { CanvasSideDockPanels } from './CanvasSideDockPanels';
 import { CANVAS_SHORTCUT_SECTIONS } from './canvas-shortcut-sections';
 import { buildAiCanvasSelectionSummary } from './ai-canvas-plan';
-import { buildCanvasAreaDomains } from './buildCanvasAreaDomains';
 import { areChunkResidencyStatesEqual } from './canvas-compare-utils';
+import type { CanvasAreaDomains } from '@/components/lovart/canvas-area-domains';
 import {
     buildBelowElementDisplayMetricsOptions as createBelowElementDisplayMetricsOptions,
     buildBelowSourceImageResultElement as createBelowSourceImageResultElement,
@@ -72,6 +62,7 @@ import { useCanvasAiPlanExecutor } from './use-canvas-ai-plan-executor';
 import { useCanvasFlowConnection } from './use-canvas-flow-connection';
 import { useCanvasCommandActions } from './use-canvas-command-actions';
 import { useCanvasImageMigration } from './use-canvas-image-migration';
+import { useCanvasClipboardActions } from './use-canvas-clipboard-actions';
 import { persistSubmission, clearSubmission } from './generation-persistence';
 import { saveViewportState } from './viewport-persistence';
 import {
@@ -79,7 +70,7 @@ import {
     type CanvasChunkManifestEntry,
     type CanvasChunkStats,
 } from './project-storage';
-import { DEFAULT_WORKBENCH_SETTINGS, getWorkbenchSettings, hasDirectoryPickerSupport, requestAutoSaveDirectoryHandle, requestPersistentStorage, saveBlobToAutoSaveDirectory, saveWorkbenchSettings, subscribeWorkbenchSettingsChange, type StorageEstimateInfo, type WorkbenchSettings, getStorageEstimateInfo } from '@/lib/workbench-settings';
+import { getWorkbenchSettings, hasDirectoryPickerSupport, requestAutoSaveDirectoryHandle, requestPersistentStorage, saveBlobToAutoSaveDirectory, saveWorkbenchSettings, subscribeWorkbenchSettingsChange, type StorageEstimateInfo, type WorkbenchSettings, getStorageEstimateInfo } from '@/lib/workbench-settings';
 import { v4 as uuidv4 } from 'uuid';
 import {
     STORAGE_WARN_THRESHOLD,
@@ -122,8 +113,8 @@ import {
 import { useCanvasActions } from './canvas-actions';
 import { buildGeneratorCanvasImages, buildSelectedCanvasImageIds } from './canvas-generator-panel-view-model';
 import { cancelActiveWorkerJobs } from '@/lib/image-worker-bridge';
-import { appendProjectMediaHistory, readProjectMediaHistory, replaceProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
-import { readProjectReferenceLibrary, subscribeProjectReferenceLibrary, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
+import { appendProjectMediaHistory, mediaHistoryStoreConfig, replaceProjectMediaHistory } from '@/lib/project-media-history';
+import { referenceLibraryStoreConfig } from '@/lib/project-reference-library';
 
 function isEditableOverlayTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
@@ -158,7 +149,7 @@ function LovartCanvasContent() {
             saveViewportState(pid, scale, pan);
         }
     }, [scale, pan]);
-    const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(DEFAULT_WORKBENCH_SETTINGS);
+    const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(() => getWorkbenchSettings());
     const [storageEstimate, setStorageEstimate] = useState<StorageEstimateInfo | null>(null);
     const [chunkPreheat, setChunkPreheat] = useState<ChunkPreheatState>({
         active: false,
@@ -200,14 +191,10 @@ function LovartCanvasContent() {
         historySummary,
         historyTimeline,
         historyInitializedRef,
-        historyChangedIdsRef,
-        historyManagerRef,
-        historyTransactionRef,
         runHistoryTransaction,
-        beginHistoryTransaction,
-        commitHistoryTransaction,
         undo,
         redo,
+        spatialIndex,
         spatialIndexRef,
         spatialIndexNeedsRebuildRef,
         removeElementsByIds,
@@ -231,25 +218,10 @@ function LovartCanvasContent() {
     const [isDraggingElement, setIsDraggingElement] = useState(false);
     const [initialPrompt, setInitialPrompt] = useState<string | undefined>(undefined);
     const [generatorSubmittingMap, setGeneratorSubmittingMap] = useState<Record<string, boolean>>({});
-    const [projectMediaItems, setProjectMediaItems] = useState<ProjectMediaHistoryItem[]>([]);
-    const [projectReferenceItems, setProjectReferenceItems] = useState<ProjectReferenceImageItem[]>([]);
-    const clipboardRef = useRef<CanvasElement[]>([]); // internal clipboard for Ctrl+C/V
-    const canvasClipboardPreferredRef = useRef(false);
+    const projectMediaItems = useProjectAssetCollection(mediaHistoryStoreConfig, currentProjectId);
+    const projectReferenceItems = useProjectAssetCollection(referenceLibraryStoreConfig, currentProjectId);
     const pinnedChunkProjectIdRef = useRef<string | null>(projectId);
     const storageWarnedRef = useRef(false);
-
-    const markCanvasClipboardPreferred = useCallback(() => {
-        canvasClipboardPreferredRef.current = true;
-    }, []);
-
-    useEffect(() => {
-        const handleWindowBlur = () => {
-            canvasClipboardPreferredRef.current = false;
-        };
-
-        window.addEventListener('blur', handleWindowBlur);
-        return () => window.removeEventListener('blur', handleWindowBlur);
-    }, []);
 
     const {
         canvasImages,
@@ -282,13 +254,6 @@ function LovartCanvasContent() {
     } = useCanvasWorkbenchPanels({ elements });
 
     useEffect(() => {
-        setProjectMediaItems(readProjectMediaHistory(currentProjectId));
-        return subscribeProjectMediaHistory(currentProjectId, () => {
-            setProjectMediaItems(readProjectMediaHistory(currentProjectId));
-        });
-    }, [currentProjectId]);
-
-    useEffect(() => {
         if (!currentProjectId || projectMediaItems.length === 0) {
             return;
         }
@@ -316,14 +281,7 @@ function LovartCanvasContent() {
         }
 
         replaceProjectMediaHistory(currentProjectId, reconciledItems);
-    }, [currentProjectId, elementsVersion, projectMediaItems]);
-
-    useEffect(() => {
-        setProjectReferenceItems(readProjectReferenceLibrary(currentProjectId));
-        return subscribeProjectReferenceLibrary(currentProjectId, () => {
-            setProjectReferenceItems(readProjectReferenceLibrary(currentProjectId));
-        });
-    }, [currentProjectId]);
+    }, [currentProjectId, elementsMapRef, elementsVersion, projectMediaItems]);
 
     const recordProjectMediaItem = useCallback((params: {
         kind: 'image' | 'video' | 'audio';
@@ -401,13 +359,10 @@ function LovartCanvasContent() {
         splitStoryboardSubmitStatus,
         setSplitStoryboardSubmitStatus,
         autoAdvanceStoryboardIssues,
-        setAutoAdvanceStoryboardIssues,
         autoAdvanceStoryboardScope,
         setAutoAdvanceStoryboardScope,
         storyboardAuditFilter,
         setStoryboardAuditFilter,
-        storyboardOverviewCollapsed,
-        setStoryboardOverviewCollapsed,
         beginImageToolSubmission,
         endImageToolSubmission,
         ensureImageToolSource,
@@ -465,7 +420,6 @@ function LovartCanvasContent() {
         showToast,
     });
 
-    // cloneCanvasElement — now imported from canvas-page-utils
     const chunkSummary = useMemo(() => buildCanvasChunkManifest(elements), [elements]);
     const chunkManifest: CanvasChunkManifestEntry[] = chunkSummary.manifest;
     const chunkStats: CanvasChunkStats = chunkSummary.stats;
@@ -485,9 +439,10 @@ function LovartCanvasContent() {
         labels,
     }), [chunkManifest, chunkMetaById]);
 
-    useEffect(() => {
-        setPinnedChunkIds((prev) => prev.filter((chunkId) => validChunkIdSet.has(chunkId)));
-    }, [validChunkIdSet]);
+    const validPinnedChunkIds = useMemo(
+        () => pinnedChunkIds.filter((chunkId) => validChunkIdSet.has(chunkId)),
+        [pinnedChunkIds, validChunkIdSet],
+    );
 
     useEffect(() => {
         setPinnedChunkIds((prev) => {
@@ -503,8 +458,8 @@ function LovartCanvasContent() {
     }, [currentProjectId]);
 
     useEffect(() => {
-        persistPinnedChunkIds(currentProjectId, pinnedChunkIds);
-    }, [currentProjectId, pinnedChunkIds]);
+        persistPinnedChunkIds(currentProjectId, validPinnedChunkIds);
+    }, [currentProjectId, validPinnedChunkIds]);
 
     const activeChunkSummary = useMemo<ActiveChunkSummary>(() => {
         const viewport = getViewportSize();
@@ -517,13 +472,13 @@ function LovartCanvasContent() {
             selectedIds,
             highlightedLayerIds,
             highlightedResultId,
-            pinnedChunkIds,
+            pinnedChunkIds: validPinnedChunkIds,
             validChunkIdSet,
             pan,
             scale,
             viewportSize: viewport,
         });
-    }, [chunkManifest, elementById, elementChunkIdById, elements, hasRootChunk, highlightedLayerIds, highlightedResultId, pan, pinnedChunkIds, scale, selectedIds, validChunkIdSet]);
+    }, [chunkManifest, elementById, elementChunkIdById, elements, hasRootChunk, highlightedLayerIds, highlightedResultId, pan, scale, selectedIds, validChunkIdSet, validPinnedChunkIds]);
 
     const chunkReleaseTimerRef = useRef<number | null>(null);
     useEffect(() => {
@@ -532,57 +487,64 @@ function LovartCanvasContent() {
             chunkReleaseTimerRef.current = null;
         }
 
-        if (chunkManifest.length === 0) {
-            setChunkResidency((prev) => {
-                const next = {
-                    phase: 'idle',
-                    residentChunkIds: [],
-                    unloadedChunkIds: [],
-                    residentElementCount: elements.length,
-                    unloadedElementCount: 0,
-                } satisfies ChunkResidencyState;
-                return areChunkResidencyStatesEqual(prev, next) ? prev : next;
-            });
-            return;
-        }
+        let cancelled = false;
 
-        const targetChunkIds = activeChunkSummary.activeChunkIds;
-        const targetSet = new Set(targetChunkIds);
+        queueMicrotask(() => {
+            if (cancelled) return;
 
-        setChunkResidency((prev) => {
-            const currentResident = prev.residentChunkIds.length > 0 ? prev.residentChunkIds : targetChunkIds;
-            const residentSet = new Set(currentResident);
-            const toHydrate = targetChunkIds.filter((chunkId) => !residentSet.has(chunkId));
-            const toRelease = currentResident.filter((chunkId) => !targetSet.has(chunkId));
-
-            const next = toHydrate.length === 0 && toRelease.length === 0
-                ? buildChunkResidencyState(currentResident, 'idle', {
-                    lastActivatedChunkLabel: prev.lastActivatedChunkLabel,
-                    lastReleasedChunkLabel: prev.lastReleasedChunkLabel,
-                })
-                : buildChunkResidencyState(Array.from(new Set([...currentResident, ...toHydrate])), toHydrate.length > 0 ? 'hydrating' : 'releasing', {
-                    lastActivatedChunkLabel: toHydrate.length > 0 ? chunkMetaById.get(toHydrate[0])?.label || prev.lastActivatedChunkLabel : prev.lastActivatedChunkLabel,
-                    lastReleasedChunkLabel: toRelease.length > 0 ? chunkMetaById.get(toRelease[0])?.label || prev.lastReleasedChunkLabel : prev.lastReleasedChunkLabel,
+            if (chunkManifest.length === 0) {
+                setChunkResidency((prev) => {
+                    const next = {
+                        phase: 'idle',
+                        residentChunkIds: [],
+                        unloadedChunkIds: [],
+                        residentElementCount: elements.length,
+                        unloadedElementCount: 0,
+                    } satisfies ChunkResidencyState;
+                    return areChunkResidencyStatesEqual(prev, next) ? prev : next;
                 });
+                return;
+            }
 
-            return areChunkResidencyStatesEqual(prev, next) ? prev : next;
-        });
+            const targetChunkIds = activeChunkSummary.activeChunkIds;
+            const targetSet = new Set(targetChunkIds);
 
-        chunkReleaseTimerRef.current = window.setTimeout(() => {
             setChunkResidency((prev) => {
                 const currentResident = prev.residentChunkIds.length > 0 ? prev.residentChunkIds : targetChunkIds;
-                const releasedChunkIds = currentResident.filter((chunkId) => !targetSet.has(chunkId));
-                const keptChunkIds = currentResident.filter((chunkId) => targetSet.has(chunkId));
-                const next = buildChunkResidencyState(keptChunkIds, 'idle', {
-                    lastActivatedChunkLabel: prev.lastActivatedChunkLabel,
-                    lastReleasedChunkLabel: releasedChunkIds.length > 0 ? chunkMetaById.get(releasedChunkIds[0])?.label || prev.lastReleasedChunkLabel : prev.lastReleasedChunkLabel,
-                });
+                const residentSet = new Set(currentResident);
+                const toHydrate = targetChunkIds.filter((chunkId) => !residentSet.has(chunkId));
+                const toRelease = currentResident.filter((chunkId) => !targetSet.has(chunkId));
+
+                const next = toHydrate.length === 0 && toRelease.length === 0
+                    ? buildChunkResidencyState(currentResident, 'idle', {
+                        lastActivatedChunkLabel: prev.lastActivatedChunkLabel,
+                        lastReleasedChunkLabel: prev.lastReleasedChunkLabel,
+                    })
+                    : buildChunkResidencyState(Array.from(new Set([...currentResident, ...toHydrate])), toHydrate.length > 0 ? 'hydrating' : 'releasing', {
+                        lastActivatedChunkLabel: toHydrate.length > 0 ? chunkMetaById.get(toHydrate[0])?.label || prev.lastActivatedChunkLabel : prev.lastActivatedChunkLabel,
+                        lastReleasedChunkLabel: toRelease.length > 0 ? chunkMetaById.get(toRelease[0])?.label || prev.lastReleasedChunkLabel : prev.lastReleasedChunkLabel,
+                    });
+
                 return areChunkResidencyStatesEqual(prev, next) ? prev : next;
             });
-            chunkReleaseTimerRef.current = null;
-        }, CHUNK_RELEASE_GRACE_MS);
+
+            chunkReleaseTimerRef.current = window.setTimeout(() => {
+                setChunkResidency((prev) => {
+                    const currentResident = prev.residentChunkIds.length > 0 ? prev.residentChunkIds : targetChunkIds;
+                    const releasedChunkIds = currentResident.filter((chunkId) => !targetSet.has(chunkId));
+                    const keptChunkIds = currentResident.filter((chunkId) => targetSet.has(chunkId));
+                    const next = buildChunkResidencyState(keptChunkIds, 'idle', {
+                        lastActivatedChunkLabel: prev.lastActivatedChunkLabel,
+                        lastReleasedChunkLabel: releasedChunkIds.length > 0 ? chunkMetaById.get(releasedChunkIds[0])?.label || prev.lastReleasedChunkLabel : prev.lastReleasedChunkLabel,
+                    });
+                    return areChunkResidencyStatesEqual(prev, next) ? prev : next;
+                });
+                chunkReleaseTimerRef.current = null;
+            }, CHUNK_RELEASE_GRACE_MS);
+        });
 
         return () => {
+            cancelled = true;
             if (chunkReleaseTimerRef.current !== null) {
                 window.clearTimeout(chunkReleaseTimerRef.current);
                 chunkReleaseTimerRef.current = null;
@@ -605,9 +567,9 @@ function LovartCanvasContent() {
             chunkManifest,
             activeChunkSummary.activeChunkIds,
             chunkResidency.residentChunkIds,
-            pinnedChunkIds,
+            validPinnedChunkIds,
         );
-    }, [activeChunkSummary.activeChunkIds, chunkManifest, chunkResidency.residentChunkIds, pinnedChunkIds]);
+    }, [activeChunkSummary.activeChunkIds, chunkManifest, chunkResidency.residentChunkIds, validPinnedChunkIds]);
 
     const handleTogglePinnedChunk = useCallback((chunkId: string) => {
         if (!validChunkIdSet.has(chunkId)) return;
@@ -701,10 +663,9 @@ function LovartCanvasContent() {
 
             clearSubmission(pid, elementId);
         }
-    }, []);
+    }, [currentProjectIdRef, dirtyTrackerRef, elementsMapRef]);
 
     useEffect(() => {
-        setWorkbenchSettings(getWorkbenchSettings());
         void requestPersistentStorage();
     }, []);
 
@@ -729,7 +690,9 @@ function LovartCanvasContent() {
     }, [showToast, workbenchSettings.warnOnHighStorage]);
 
     useEffect(() => {
-        void refreshStorageEstimate();
+        queueMicrotask(() => {
+            void refreshStorageEstimate();
+        });
         const timer = window.setInterval(() => {
             void refreshStorageEstimate();
         }, 30000);
@@ -911,9 +874,17 @@ function LovartCanvasContent() {
     });
 
     useEffect(() => {
-        if (isInitializedRef.current) {
-            setIsCanvasReadyForHistory(true);
-        }
+        let cancelled = false;
+
+        queueMicrotask(() => {
+            if (!cancelled && isInitializedRef.current) {
+                setIsCanvasReadyForHistory(true);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
     }, [currentProjectId, isLoading]);
 
     useEffect(() => {
@@ -1021,7 +992,7 @@ function LovartCanvasContent() {
         if (!spatialIndexNeedsRebuildRef.current) return;
         spatialIndexRef.current.load(canvasRuntimeElements);
         spatialIndexNeedsRebuildRef.current = false;
-    }, [canvasRuntimeElements, isDraggingElement]);
+    }, [canvasRuntimeElements, isDraggingElement, spatialIndexNeedsRebuildRef, spatialIndexRef]);
 
     // Space key for temporary hand tool
     const prevToolRef = useRef<string | null>(null);
@@ -1051,7 +1022,7 @@ function LovartCanvasContent() {
             window.removeEventListener('keydown', handleSpaceDown);
             window.removeEventListener('keyup', handleSpaceUp);
         };
-    }, [activeTool]);
+    }, [activeTool, setActiveTool]);
 
     const openImageGeneratorRef = useRef<() => void>(() => {});
 
@@ -1094,113 +1065,24 @@ function LovartCanvasContent() {
         workbenchSettings,
     });
 
-    type DuplicateSelectionResult = {
-        copies: CanvasElement[];
-        sourceToCopyId: Record<string, string>;
-    };
-
-    const duplicateElementsByIds = useCallback((ids: string[], anchor?: { x: number; y: number }): DuplicateSelectionResult => {
-        const sourceElements = elements.filter(el => ids.includes(el.id));
-        if (sourceElements.length === 0) {
-            return {
-                copies: [],
-                sourceToCopyId: {},
-            };
-        }
-
-        const minX = Math.min(...sourceElements.map(el => el.x));
-        const minY = Math.min(...sourceElements.map(el => el.y));
-        const targetX = anchor?.x ?? minX + 30;
-        const targetY = anchor?.y ?? minY + 30;
-        const offsetX = targetX - minX;
-        const offsetY = targetY - minY;
-        const sourceToCopyId: Record<string, string> = {};
-
-        const copies = sourceElements.map(el => ({
-            ...cloneCanvasElement(el),
-            id: (() => {
-                const nextId = uuidv4();
-                sourceToCopyId[el.id] = nextId;
-                return nextId;
-            })(),
-            x: el.x + offsetX,
-            y: el.y + offsetY,
-        }));
-
-        addElements(copies);
-        setSelectedIds(copies.map(copy => copy.id));
-        return {
-            copies,
-            sourceToCopyId,
-        };
-    }, [addElements, elements]);
-
-    const handleCopySelection = useCallback((ids: string[]) => {
-        const expandedIds = collectSelectionWithFrameChildren(ids);
-        clipboardRef.current = elements
-            .filter(el => expandedIds.includes(el.id))
-            .map(cloneCanvasElement);
-        markCanvasClipboardPreferred();
-        showToast(`已复制 ${expandedIds.length} 个元素`, 'success');
-    }, [collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, showToast]);
-
-    const handleCutSelection = useCallback((ids: string[]) => {
-        const expandedIds = collectSelectionWithFrameChildren(ids);
-        clipboardRef.current = elements
-            .filter(el => expandedIds.includes(el.id))
-            .map(cloneCanvasElement);
-        markCanvasClipboardPreferred();
-        runHistoryTransaction({ label: '剪切元素', source: 'clipboard-cut' }, () => {
-            removeElementsByIds(expandedIds);
-            showToast(`已剪切 ${expandedIds.length} 个元素`, 'success');
-            return { selectionAfter: [] };
-        });
-    }, [collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, removeElementsByIds, runHistoryTransaction, showToast]);
-
-    const handlePasteAt = useCallback((position: { x: number; y: number }) => {
-        if (clipboardRef.current.length === 0) {
-            showToast('剪贴板为空', 'info');
-            return;
-        }
-
-        const minX = Math.min(...clipboardRef.current.map(el => el.x));
-        const minY = Math.min(...clipboardRef.current.map(el => el.y));
-        const offsetX = position.x - minX;
-        const offsetY = position.y - minY;
-
-        const copies = clipboardRef.current.map(el => ({
-            ...cloneCanvasElement(el),
-            id: uuidv4(),
-            x: el.x + offsetX,
-            y: el.y + offsetY,
-        }));
-
-        runHistoryTransaction({ label: '粘贴元素', source: 'clipboard-paste' }, () => {
-            addElements(copies);
-            setSelectedIds(copies.map(copy => copy.id));
-            clipboardRef.current = copies.map(cloneCanvasElement);
-            markCanvasClipboardPreferred();
-            showToast(`已粘贴 ${copies.length} 个元素`, 'success');
-            return { selectionAfter: copies.map(copy => copy.id) };
-        });
-    }, [addElements, markCanvasClipboardPreferred, runHistoryTransaction, showToast]);
-
-    const handleDuplicateSelection = useCallback((ids: string[], anchor?: { x: number; y: number }): DuplicateSelectionResult => {
-        let duplicateResult: DuplicateSelectionResult = {
-            copies: [],
-            sourceToCopyId: {},
-        };
-
-        runHistoryTransaction({ label: '复制副本', source: 'selection-duplicate' }, () => {
-            duplicateResult = duplicateElementsByIds(ids, anchor);
-            if (duplicateResult.copies.length > 0) {
-                showToast(`已创建 ${duplicateResult.copies.length} 个副本`, 'success');
-            }
-            return { selectionAfter: duplicateResult.copies.map(copy => copy.id) };
-        });
-
-        return duplicateResult;
-    }, [duplicateElementsByIds, runHistoryTransaction, showToast]);
+    const {
+        canPaste,
+        canvasClipboardPreferredRef,
+        clipboardRef,
+        handleCopySelection,
+        handleCutSelection,
+        handleDuplicateSelection,
+        handlePasteAt,
+        markCanvasClipboardPreferred,
+    } = useCanvasClipboardActions({
+        elements,
+        addElements,
+        collectSelectionWithFrameChildren,
+        removeElementsByIds,
+        runHistoryTransaction,
+        setSelectedIds,
+        showToast,
+    });
 
     const handleDeleteLayerSelection = useCallback((ids: string[]) => {
         const uniqueIds = Array.from(new Set(ids));
@@ -1235,13 +1117,10 @@ function LovartCanvasContent() {
         return buildAiCanvasSelectionSummary(elements, selectedIds);
     }, [elements, selectedIds]);
 
-    // sanitizeToolName, sanitizeFilenameStem, getElementBaseName, buildToolResultNames,
-    // resolveToolResultNaming — now imported from canvas-page-utils
-
     const focusNewElement = useCallback((elementId: string) => {
         setSelectedIds([elementId]);
         setActiveTool('select');
-    }, []);
+    }, [setActiveTool, setSelectedIds]);
 
     const addAndFocusElement = useCallback((element: CanvasElement) => {
         addElement(element);
@@ -1251,7 +1130,7 @@ function LovartCanvasContent() {
     const addAndSelectElement = useCallback((element: CanvasElement) => {
         addElement(element);
         setSelectedIds([element.id]);
-    }, [addElement]);
+    }, [addElement, setSelectedIds]);
 
     const addElementsWithOptionalAutoGroup = useCallback((items: CanvasElement[], groupName: string) => {
         const group = buildAutoGroupFrame(items, groupName);
@@ -1271,7 +1150,7 @@ function LovartCanvasContent() {
 
         addElements(items);
         setSelectedIds(items.map((item) => item.id));
-    }, [addAndSelectElement, addElements, buildAutoGroupFrame, selectSingleElement]);
+    }, [addAndSelectElement, addElements, buildAutoGroupFrame, selectSingleElement, setSelectedIds]);
 
     // buildCenteredElementBounds — imported from canvas-element-ops
 
@@ -1379,7 +1258,10 @@ function LovartCanvasContent() {
         const newElement = buildGeneratorElement('image-generator', buildCenteredElementBounds(center, 400, 400));
         addAndFocusElement(newElement);
     }, [getPlacementPosition, addAndFocusElement, buildGeneratorElement]);
-    openImageGeneratorRef.current = handleOpenImageGenerator;
+
+    useEffect(() => {
+        openImageGeneratorRef.current = handleOpenImageGenerator;
+    }, [handleOpenImageGenerator]);
 
     useCanvasKeyboardShortcuts({
         elements,
@@ -1570,7 +1452,7 @@ function LovartCanvasContent() {
 
         focusCanvasElement(targetId);
         showToast('已定位到对应任务，可调整参数后继续处理', 'info');
-    }, [focusCanvasElement, setElements, showToast, submitStoryboardGeneratorElement, submitStoryboardVideoGeneratorElement]);
+    }, [dirtyTrackerRef, elementsMapRef, focusCanvasElement, setElements, showToast, submitStoryboardGeneratorElement, submitStoryboardVideoGeneratorElement]);
 
     const handleLocateGenerationQueueItem = useCallback((item: GenerationQueueItem) => {
         focusCanvasElement(item.locateTargetId || item.id);
@@ -1752,7 +1634,7 @@ function LovartCanvasContent() {
             },
             normalizedTaskId,
         );
-    }, [selectedIds, getPlacementPosition, announceCompletedResult, buildImageElement, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, addAndSelectElement]);
+    }, [selectedIds, elementsMapRef, getPlacementPosition, announceCompletedResult, buildImageElement, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, addAndSelectElement]);
 
     const addGeneratedImageElementToCanvas = useCallback(async (
         element: CanvasElement,
@@ -1899,13 +1781,13 @@ function LovartCanvasContent() {
     }, [pan, scale, selectedGeneratorElement]);
 
     const generatorPanelCanvasImages = useMemo(
-        () => buildGeneratorCanvasImages(canvasImages, elementsMapRef.current),
-        [canvasImages],
+        () => buildGeneratorCanvasImages(canvasImages, elementById),
+        [canvasImages, elementById],
     );
 
     const selectedCanvasImageIds = useMemo(
-        () => buildSelectedCanvasImageIds(selectedIds, elementsMapRef.current),
-        [selectedIds],
+        () => buildSelectedCanvasImageIds(selectedIds, elementById),
+        [elementById, selectedIds],
     );
 
     const storyboardPlannerSourceElement = useMemo(() => {
@@ -1992,7 +1874,7 @@ function LovartCanvasContent() {
         return getElementPanelStyle(selectedSplitStoryboardElement, scale, pan);
     }, [pan, scale, selectedSplitStoryboardElement]);
 
-    const canvasAreaDomains = buildCanvasAreaDomains({
+    const canvasAreaDomains: CanvasAreaDomains = {
         selection: {
             selectedIds,
             highlightedElementIds: highlightedLayerIds,
@@ -2014,7 +1896,7 @@ function LovartCanvasContent() {
             onAddElement: addElement,
         },
         clipboard: {
-            canPaste: clipboardRef.current.length > 0,
+            canPaste,
             onCopyElement: handleCopyElement,
             onCopySelection: handleCopySelection,
             onCutSelection: handleCutSelection,
@@ -2078,12 +1960,12 @@ function LovartCanvasContent() {
             onDragEnd: handleDragEnd,
             onConnectFlow: handleConnectFlow,
             onCanvasMouseMove: handleCanvasMouseMove,
-            spatialIndex: spatialIndexRef.current,
+            spatialIndex,
             resolvedImageSrcMap: runtimeImageRenderSrcs,
             onRenderMetricsChange: benchmarkMode ? handleRenderMetricsChange : undefined,
             minimapRightOffset: rightWorkbenchOffset,
         },
-    });
+    };
 
     // 显示加载状态
     if (isLoading) {
@@ -2136,7 +2018,7 @@ function LovartCanvasContent() {
                 onClose={() => setShowCommandPalette(false)}
             />
 
-                        <CanvasShortcutHelp
+            <CanvasShortcutHelp
                 visible={showShortcutHelp}
                 sections={shortcutSections}
                 onClose={() => setShowShortcutHelp(false)}
@@ -2171,97 +2053,73 @@ function LovartCanvasContent() {
                 </div>
             )}
 
-            {showLayers && (
-                <div
-                    className="absolute top-20 bottom-4 z-30 animate-in slide-in-from-right-4 duration-300"
-                    style={{ right: `${sideDockOffset}px` }}
-                >
-                    <LayersPanel
-                        elements={elements}
-                        selectedIds={selectedIds}
-                        highlightedIds={highlightedLayerIds}
-                        storyboardAuditFilter={storyboardAuditFilter}
-                        storyboardNavigationScope={autoAdvanceStoryboardScope}
-                        storyboardAutoAdvanceEnabled={autoAdvanceStoryboardIssues}
-                        onStoryboardAuditFilterChange={handleStoryboardAuditFilterChange}
-                        onSelect={setSelectedIds}
-                        onLocate={focusCanvasElement}
-                        onRenameElement={handleElementChange}
-                        onToggleHidden={handleToggleElementsHidden}
-                        onToggleLocked={handleToggleElementsLocked}
-                        onBringForward={handleBringForward}
-                        onSendBackward={handleSendBackward}
-                        onBringToFront={handleBringToFront}
-                        onSendToBack={handleSendToBack}
-                        onReorderLayer={handleReorderLayer}
-                        onMoveLayerToParent={handleMoveLayerToParent}
-                        onDeleteSelection={handleDeleteLayerSelection}
-                        historySummary={historySummary}
-                        historyTimeline={historyTimeline}
-                        onClose={closeLayers}
-                    />
-                </div>
-            )}
-
-            {showHistory && (
-                <div
-                    className="absolute top-20 bottom-4 z-30 animate-in slide-in-from-right-4 duration-300"
-                    style={{ right: `${sideDockOffset + (showLayers ? 328 : 0)}px` }}
-                >
-                    <CanvasHistorySidebar
-                        summary={historySummary}
-                        timeline={historyTimeline}
-                        chunks={chunkPanelEntries}
-                        residency={{
-                            phase: chunkResidency.phase,
-                            residentChunkCount: chunkResidency.residentChunkIds.length,
-                            residentElementCount: chunkResidency.residentElementCount,
-                            unloadedChunkCount: chunkResidency.unloadedChunkIds.length,
-                            unloadedElementCount: chunkResidency.unloadedElementCount,
-                            lastActivatedChunkLabel: chunkResidency.lastActivatedChunkLabel,
-                            lastReleasedChunkLabel: chunkResidency.lastReleasedChunkLabel,
-                        }}
-                        onTogglePinnedChunk={handleTogglePinnedChunk}
-                        onLocateChunk={handleLocateChunk}
-                        onClose={closeHistory}
-                    />
-                </div>
-            )}
-
-            {showMedia && (
-                <div
-                    className="absolute top-20 bottom-4 z-30 animate-in slide-in-from-right-4 duration-300"
-                    style={{ right: `${sideDockOffset + (showLayers ? 328 : 0) + (showHistory ? 328 : 0)}px` }}
-                >
-                    <ProjectMediaPanel
-                        items={projectMediaItems}
-                        referenceImages={projectReferenceItems.map((item) => item.image)}
-                        onClose={closeMedia}
-                        onClearAll={handleClearProjectMediaHistory}
-                        onSaveAsReference={saveProjectReferenceFromMediaItem}
-                        onLocateSource={handleLocateProjectMediaSource}
-                        onInsertItem={handleInsertProjectMediaItem}
-                    />
-                </div>
-            )}
-
-            {showReferences && (
-                <div
-                    className="absolute top-20 bottom-4 z-30 animate-in slide-in-from-right-4 duration-300"
-                    style={{ right: `${sideDockOffset + (showLayers ? 328 : 0) + (showHistory ? 328 : 0) + (showMedia ? 328 : 0)}px` }}
-                >
-                    <ProjectReferencePanel
-                        items={projectReferenceItems}
-                        onClose={closeReferences}
-                        onClearAll={handleClearProjectReferences}
-                        onDeleteItem={handleDeleteProjectReferenceItem}
-                        onDeleteItems={handleDeleteProjectReferenceItems}
-                        onLocateSource={handleLocateProjectReferenceSource}
-                        onInsertItem={handleInsertProjectReferenceItem}
-                        onInsertItems={handleInsertProjectReferenceItems}
-                    />
-                </div>
-            )}
+            <CanvasSideDockPanels
+                showLayers={showLayers}
+                showHistory={showHistory}
+                showMedia={showMedia}
+                showReferences={showReferences}
+                sideDockOffset={sideDockOffset}
+                layersProps={{
+                    elements,
+                    selectedIds,
+                    highlightedIds: highlightedLayerIds,
+                    storyboardAuditFilter,
+                    storyboardNavigationScope: autoAdvanceStoryboardScope,
+                    storyboardAutoAdvanceEnabled: autoAdvanceStoryboardIssues,
+                    onStoryboardAuditFilterChange: handleStoryboardAuditFilterChange,
+                    onSelect: setSelectedIds,
+                    onLocate: focusCanvasElement,
+                    onRenameElement: handleElementChange,
+                    onToggleHidden: handleToggleElementsHidden,
+                    onToggleLocked: handleToggleElementsLocked,
+                    onBringForward: handleBringForward,
+                    onSendBackward: handleSendBackward,
+                    onBringToFront: handleBringToFront,
+                    onSendToBack: handleSendToBack,
+                    onReorderLayer: handleReorderLayer,
+                    onMoveLayerToParent: handleMoveLayerToParent,
+                    onDeleteSelection: handleDeleteLayerSelection,
+                    historySummary,
+                    historyTimeline,
+                    onClose: closeLayers,
+                }}
+                historyProps={{
+                    summary: historySummary,
+                    timeline: historyTimeline,
+                    chunks: chunkPanelEntries,
+                    residency: {
+                        phase: chunkResidency.phase,
+                        residentChunkCount: chunkResidency.residentChunkIds.length,
+                        residentElementCount: chunkResidency.residentElementCount,
+                        unloadedChunkCount: chunkResidency.unloadedChunkIds.length,
+                        unloadedElementCount: chunkResidency.unloadedElementCount,
+                        lastActivatedChunkLabel: chunkResidency.lastActivatedChunkLabel,
+                        lastReleasedChunkLabel: chunkResidency.lastReleasedChunkLabel,
+                    },
+                    onTogglePinnedChunk: handleTogglePinnedChunk,
+                    onLocateChunk: handleLocateChunk,
+                    onClose: closeHistory,
+                }}
+                mediaProps={{
+                    items: projectMediaItems,
+                    referenceImages: projectReferenceItems.map((item) => item.image),
+                    onClose: closeMedia,
+                    onClearAll: handleClearProjectMediaHistory,
+                    onSaveAsReference: saveProjectReferenceFromMediaItem,
+                    onLocateSource: handleLocateProjectMediaSource,
+                    onInsertItem: handleInsertProjectMediaItem,
+                }}
+                referenceProps={{
+                    items: projectReferenceItems,
+                    onClose: closeReferences,
+                    onClearAll: handleClearProjectReferences,
+                    onDeleteItem: handleDeleteProjectReferenceItem,
+                    onDeleteItems: handleDeleteProjectReferenceItems,
+                    onLocateSource: handleLocateProjectReferenceSource,
+                    onInsertItem: handleInsertProjectReferenceItem,
+                    onInsertItems: handleInsertProjectReferenceItems,
+                }}
+            />
 
             {benchmarkMode && (
                 <CanvasBenchmarkPanel
@@ -2294,184 +2152,89 @@ function LovartCanvasContent() {
             {/* Main Editor Area */}
             <div className="absolute inset-0">
                 <CanvasArea {...canvasAreaDomains} />
-                <FloatingToolbar
-                    activeTool={activeTool}
-                    onToolChange={setActiveTool}
-                    onAddImage={handleAddImage}
-                    onAddVideo={handleAddVideo}
-                    onAddText={handleAddText}
-                    onAddShape={handleAddShape}
-                    onOpenImageGenerator={handleOpenImageGenerator}
-                    onOpenVideoGenerator={handleOpenVideoGenerator}
-                    onOpenStoryboardPlanner={handleOpenStoryboardPlanner}
-                />
-
-                {selectedGeneratorElement?.type === 'storyboard-planner' && selectedGeneratorPanelStyle && (
-                    <StoryboardPlannerPanel
-                        key={selectedGeneratorElement.id}
-                        elementId={selectedGeneratorElement.id}
-                        style={selectedGeneratorPanelStyle}
-                        selectedModel={selectedModel}
-                        projectReferenceImages={projectReferenceItems}
-                        onUseProjectReferenceImage={handleUseProjectReferenceImage}
-                        canvasImages={generatorPanelCanvasImages}
-                        selectedCanvasImageIds={selectedCanvasImageIds}
-                        onRequestCanvasSelect={handleRequestCanvasSelectImage}
-                        onElementChange={handleElementChange}
-                        onSubmittingChange={handleGeneratorSubmittingChange}
-                        onClose={() => setSelectedIds([])}
-                        onCreateDraft={handleCreateStoryboardDraft}
-                    />
-                )}
-
-                {storyboardPlannerSourceElement && storyboardPlannerPanelStyle && (
-                    <StoryboardPlannerPanel
-                        key={`image-storyboard-${storyboardPlannerSourceElement.id}`}
-                        elementId={storyboardPlannerSourceElement.id}
-                        style={storyboardPlannerPanelStyle}
-                        selectedModel={selectedModel}
-                        projectReferenceImages={projectReferenceItems}
-                        onUseProjectReferenceImage={handleUseProjectReferenceImage}
-                        canvasImages={generatorPanelCanvasImages}
-                        selectedCanvasImageIds={[storyboardPlannerSourceElement.id]}
-                        onRequestCanvasSelect={() => handleRequestCanvasSelectImage(storyboardPlannerSourceElement.id)}
-                        // 普通图片模式只借用分镜面板能力，不把任务状态同步回原图，避免轮询结果反写覆盖源图。
-                        onClose={() => setStoryboardPlannerSourceElementId(null)}
-                        onCreateDraft={handleCreateStoryboardDraft}
-                    />
-                )}
-
-                {/* Image Generator Panel */}
-                {selectedGeneratorElement?.type === 'image-generator' && selectedGeneratorPanelStyle && (
-                    <ImageGeneratorPanel
-                        key={selectedGeneratorElement.id}
-                        elementId={selectedGeneratorElement.id}
-                        onGenerate={handleGenerateImage}
-                        onRecoverTask={handleRecoverImageTask}
-                        isGenerating={!!generatorSubmittingMap[selectedGeneratorElement.id]}
-                        projectReferenceImages={projectReferenceItems}
-                        onUseProjectReferenceImage={handleUseProjectReferenceImage}
-                        canvasElements={elements}
-                        onElementChange={handleElementChange}
-                        onSubmittingChange={handleGeneratorSubmittingChange}
-                        onAddElement={handleAddGeneratedBatchImageElement}
-                        onRequestCanvasSelect={handleRequestCanvasSelectImage}
-                        style={selectedGeneratorPanelStyle}
-                    />
-                )}
-
-                {/* Video Generator Panel */}
-                {selectedGeneratorElement?.type === 'video-generator' && selectedGeneratorPanelStyle && (
-                    <VideoGeneratorPanel
-                        key={selectedGeneratorElement.id}
-                        elementId={selectedGeneratorElement.id}
-                        onGenerate={handleGenerateVideo}
-                        onRecoverTask={handleRecoverVideoTask}
-                        isGenerating={!!generatorSubmittingMap[selectedGeneratorElement.id]}
-                        projectReferenceImages={projectReferenceItems}
-                        onUseProjectReferenceImage={handleUseProjectReferenceImage}
-                        projectMediaItems={projectMediaItems}
-                        onRecordProjectMediaItem={recordProjectMediaItem}
-                        canvasElements={elements}
-                        onElementChange={handleElementChange}
-                        onSubmittingChange={handleGeneratorSubmittingChange}
-                        onRequestCanvasSelect={handleRequestCanvasSelectVideo}
-                        style={selectedGeneratorPanelStyle}
-                    />
-                )}
-
-                <StoryboardExportSelection
-                    isOpen={isStoryboardExportOpen}
-                    selectedElements={selectedStoryboardExportElements}
-                    isSubmitting={isStoryboardExportSubmitting}
-                    submitStatusText={storyboardExportSubmitStatus}
-                    onApplyToCanvas={handleStoryboardExportItemsChange}
-                    onLocateItem={focusCanvasElement}
-                    onCancelSubmit={() => cancelImageWorkerTask('分镜表导出')}
-                    onClose={() => setIsStoryboardExportOpen(false)}
-                    onSubmit={(options, orderedItems) => void handleExportStoryboard(options, orderedItems)}
-                />
-
-                {selectedAnnotateImageElement && selectedAnnotateImagePanelStyle && (
-                    <AnnotateImagePanel
-                        key={selectedAnnotateImageElement.id}
-                        element={selectedAnnotateImageElement}
-                        style={selectedAnnotateImagePanelStyle}
-                        isSubmitting={isAnnotateImageSubmitting}
-                        submitStatusText={annotateImageSubmitStatus}
-                        onCancelSubmit={() => cancelImageWorkerTask('标注任务')}
-                        onClose={() => setAnnotateImageTargetId(null)}
-                        onSubmit={(options) => void handleAnnotateImage(selectedAnnotateImageElement, options)}
-                    />
-                )}
-
-                {selectedCropImageElement && selectedCropImagePanelStyle && (
-                    <CropImagePanel
-                        key={selectedCropImageElement.id}
-                        element={selectedCropImageElement}
-                        style={selectedCropImagePanelStyle}
-                        isSubmitting={isCropImageSubmitting}
-                        submitStatusText={cropImageSubmitStatus}
-                        onCancelSubmit={() => cancelImageWorkerTask('裁剪任务')}
-                        onClose={() => setCropImageTargetId(null)}
-                        onSubmit={(options) => void handleCropImage(selectedCropImageElement, options)}
-                    />
-                )}
-
-                {selectedSplitStoryboardElement && selectedSplitStoryboardPanelStyle && (
-                    <SplitStoryboardPanel
-                        key={selectedSplitStoryboardElement.id}
-                        element={selectedSplitStoryboardElement}
-                        style={selectedSplitStoryboardPanelStyle}
-                        isSubmitting={isSplitStoryboardSubmitting}
-                        submitStatusText={splitStoryboardSubmitStatus}
-                        onCancelSubmit={() => cancelImageWorkerTask('分镜切割任务')}
-                        onClose={() => setSplitStoryboardTargetId(null)}
-                        onSubmit={(options) => void handleSplitStoryboard(selectedSplitStoryboardElement, options)}
-                    />
-                )}
-
-                {/* Zoom Controls */}
-                <ZoomControl
-                    scale={scale}
-                    onZoomIn={handleZoomIn}
-                    onZoomOut={handleZoomOut}
-                    onZoomTo={handleZoomTo}
-                    onFitToScreen={handleFitToScreen}
+                <CanvasFloatingToolPanels
+                    toolbarProps={{
+                        activeTool,
+                        onToolChange: setActiveTool,
+                        onAddImage: handleAddImage,
+                        onAddVideo: handleAddVideo,
+                        onAddText: handleAddText,
+                        onAddShape: handleAddShape,
+                        onOpenImageGenerator: handleOpenImageGenerator,
+                        onOpenVideoGenerator: handleOpenVideoGenerator,
+                        onOpenStoryboardPlanner: handleOpenStoryboardPlanner,
+                    }}
+                    selectedGeneratorElement={selectedGeneratorElement}
+                    selectedGeneratorPanelStyle={selectedGeneratorPanelStyle}
+                    storyboardPlannerSourceElement={storyboardPlannerSourceElement}
+                    storyboardPlannerPanelStyle={storyboardPlannerPanelStyle}
+                    selectedModel={selectedModel}
+                    projectReferenceItems={projectReferenceItems}
+                    generatorPanelCanvasImages={generatorPanelCanvasImages}
+                    selectedCanvasImageIds={selectedCanvasImageIds}
+                    canvasElements={elements}
+                    generatorSubmittingMap={generatorSubmittingMap}
+                    projectMediaItems={projectMediaItems}
+                    onUseProjectReferenceImage={handleUseProjectReferenceImage}
+                    onRequestCanvasSelectImage={handleRequestCanvasSelectImage}
+                    onRequestCanvasSelectVideo={handleRequestCanvasSelectVideo}
+                    onElementChange={handleElementChange}
+                    onGeneratorSubmittingChange={handleGeneratorSubmittingChange}
+                    onCreateStoryboardDraft={handleCreateStoryboardDraft}
+                    onGenerateImage={handleGenerateImage}
+                    onRecoverImageTask={handleRecoverImageTask}
+                    onAddGeneratedBatchImageElement={handleAddGeneratedBatchImageElement}
+                    onGenerateVideo={handleGenerateVideo}
+                    onRecoverVideoTask={handleRecoverVideoTask}
+                    onRecordProjectMediaItem={recordProjectMediaItem}
+                    onClearSelection={() => setSelectedIds([])}
+                    onCloseStoryboardPlannerSource={() => setStoryboardPlannerSourceElementId(null)}
+                    storyboardExportProps={{
+                        isOpen: isStoryboardExportOpen,
+                        selectedElements: selectedStoryboardExportElements,
+                        isSubmitting: isStoryboardExportSubmitting,
+                        submitStatusText: storyboardExportSubmitStatus,
+                        onApplyToCanvas: handleStoryboardExportItemsChange,
+                        onLocateItem: focusCanvasElement,
+                        onCancelSubmit: () => cancelImageWorkerTask('分镜表导出'),
+                        onClose: () => setIsStoryboardExportOpen(false),
+                        onSubmit: (options, orderedItems) => void handleExportStoryboard(options, orderedItems),
+                    }}
+                    selectedAnnotateImageElement={selectedAnnotateImageElement}
+                    selectedAnnotateImagePanelStyle={selectedAnnotateImagePanelStyle}
+                    isAnnotateImageSubmitting={isAnnotateImageSubmitting}
+                    annotateImageSubmitStatus={annotateImageSubmitStatus}
+                    onCloseAnnotateImage={() => setAnnotateImageTargetId(null)}
+                    onAnnotateImage={handleAnnotateImage}
+                    selectedCropImageElement={selectedCropImageElement}
+                    selectedCropImagePanelStyle={selectedCropImagePanelStyle}
+                    isCropImageSubmitting={isCropImageSubmitting}
+                    cropImageSubmitStatus={cropImageSubmitStatus}
+                    onCloseCropImage={() => setCropImageTargetId(null)}
+                    onCropImage={handleCropImage}
+                    selectedSplitStoryboardElement={selectedSplitStoryboardElement}
+                    selectedSplitStoryboardPanelStyle={selectedSplitStoryboardPanelStyle}
+                    isSplitStoryboardSubmitting={isSplitStoryboardSubmitting}
+                    splitStoryboardSubmitStatus={splitStoryboardSubmitStatus}
+                    onCloseSplitStoryboard={() => setSplitStoryboardTargetId(null)}
+                    onSplitStoryboard={handleSplitStoryboard}
+                    onCancelImageWorkerTask={cancelImageWorkerTask}
+                    zoomProps={{
+                        scale,
+                        onZoomIn: handleZoomIn,
+                        onZoomOut: handleZoomOut,
+                        onZoomTo: handleZoomTo,
+                        onFitToScreen: handleFitToScreen,
+                    }}
                 />
             </div>
 
-            {/* Shortcut Feedback */}
-            {shortcutFeedback && (
-                <div className="shortcut-feedback-enter pointer-events-none fixed top-16 right-4 z-[250] flex items-center gap-2 rounded-xl bg-slate-900/90 px-3 py-2 shadow-lg shadow-slate-900/10 backdrop-blur-sm xl:top-14">
-                    <span className="text-[12px] font-medium text-slate-300">{shortcutFeedback.label}</span>
-                    <kbd className="rounded-md bg-white/10 px-1.5 py-0.5 text-[11px] font-semibold text-white/80">{shortcutFeedback.shortcut}</kbd>
-                </div>
-            )}
-
-            {/* Transcoding Status Toast */}
-            {transcodingStatus && (
-                <div className="canvas-toast-enter pointer-events-none fixed bottom-6 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-2.5 rounded-xl bg-slate-900/90 px-4 py-2.5 shadow-lg shadow-slate-900/10 backdrop-blur-sm">
-                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-[1.5px] border-white/20 border-t-white" />
-                    <span className="text-[13px] font-medium text-white">{transcodingStatus}</span>
-                </div>
-            )}
-
-            {/* General Toast Notification */}
-            {toast && (
-                <div className={`canvas-toast-enter fixed top-16 left-1/2 z-[300] flex -translate-x-1/2 items-center gap-2 rounded-xl px-4 py-2.5 shadow-lg backdrop-blur-sm xl:top-14 ${
-                    toast.type === 'error' ? 'bg-rose-600/90 text-white shadow-rose-600/10' :
-                    toast.type === 'success' ? 'bg-emerald-600/90 text-white shadow-emerald-600/10' :
-                    'bg-slate-900/90 text-white shadow-slate-900/10'
-                }`}>
-                    {toast.type === 'success' && <Check size={14} className="text-emerald-200" />}
-                    {toast.type === 'error' && <AlertTriangle size={14} className="text-rose-200" />}
-                    <span className="text-[13px] font-medium">{toast.message}</span>
-                    <button onClick={clearToast} className="ml-1 flex h-5 w-5 items-center justify-center rounded-md text-white/50 transition-colors hover:bg-white/10 hover:text-white">
-                        <span className="text-xs leading-none">✕</span>
-                    </button>
-                </div>
-            )}
+            <CanvasFeedbackOverlays
+                shortcutFeedback={shortcutFeedback}
+                transcodingStatus={transcodingStatus}
+                toast={toast}
+                onClearToast={clearToast}
+            />
         </div>
     );
 }

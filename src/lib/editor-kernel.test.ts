@@ -13,14 +13,6 @@ import type {
   IHistoryManager,
   IDirtyTracker,
   ISpatialIndex,
-  IImageStore,
-  IElementStore,
-  PatchMetadata,
-  HistoryApplyResult,
-  CanvasElementLike,
-  HistoryTimelineEntry,
-  DirtyTrackerStats,
-  BBox,
 } from './editor-kernel';
 
 // ── Runtime implementations ──────────────────────────────────

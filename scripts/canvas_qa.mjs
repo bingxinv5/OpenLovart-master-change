@@ -688,16 +688,14 @@ try {
       const imageRowCount = await imageRows.count();
       let exportVisible = false;
       if (imageRowCount >= 2) {
-        const canvasElements = page.locator('[data-element-id]');
-        const canvasCount = await canvasElements.count();
-        const firstBox = await canvasElements.nth(Math.max(0, canvasCount - 2)).boundingBox().catch(() => null);
-        const secondBox = await canvasElements.nth(Math.max(0, canvasCount - 1)).boundingBox().catch(() => null);
+        const firstImageLayerId = (await imageRows.nth(Math.max(0, imageRowCount - 2)).getAttribute('data-testid'))?.replace('layer-row-', '') || '';
+        const secondImageLayerId = (await imageRows.nth(Math.max(0, imageRowCount - 1)).getAttribute('data-testid'))?.replace('layer-row-', '') || '';
 
-        if (firstBox && secondBox) {
-          await page.mouse.click(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
-          await page.keyboard.down('Shift');
-          await page.mouse.click(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
-          await page.keyboard.up('Shift');
+        if (firstImageLayerId && secondImageLayerId) {
+          await page.locator(`[data-testid="layer-select-${firstImageLayerId}"]`).click({ force: true });
+          await page.keyboard.down('Control');
+          await page.locator(`[data-testid="layer-select-${secondImageLayerId}"]`).click({ force: true });
+          await page.keyboard.up('Control');
         }
         await page.waitForTimeout(500);
         const exportButton = page.locator('[title="导出分镜表"]').first();

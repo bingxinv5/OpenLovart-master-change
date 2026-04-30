@@ -849,7 +849,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         }
     };
 
-    const addFrameImage = (imageData: string, name: string, imageTypeOverride?: 'first_frame' | 'last_frame' | 'reference') => {
+    const addFrameImage = useCallback((imageData: string, name: string, imageTypeOverride?: 'first_frame' | 'last_frame' | 'reference') => {
         setFrameImages((prev) => {
             const maxImages = maxImageSlots;
             if (prev.length >= maxImages) {
@@ -865,7 +865,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 name,
             }];
         });
-    };
+    }, [maxImageSlots, usesReferenceImages]);
 
     const addReferenceAsset = useCallback((url: string, name: string, kind: ReferenceMediaKind) => {
         const normalizedUrl = url.trim();

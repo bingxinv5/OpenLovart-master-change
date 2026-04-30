@@ -68,6 +68,10 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
     // ── Health tracking ──────────────────────────────────────
 
     const generationHealthRef = useRef<Record<string, GenerationHealthState>>({});
+    const callbacksRef = useRef(callbacks);
+    useEffect(() => {
+        callbacksRef.current = callbacks;
+    }, [callbacks]);
 
     const resolveCompletedImageUrlForElement = useCallback((
         element: CanvasElement,
@@ -135,8 +139,8 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
         setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
         setElements((prev) => applyGenerationFailure(prev, elementId, classifiedMessage));
         dirtyTrackerRef.current.markModified(elementId);
-        callbacks.showToast(`${taskType === 'image' ? '图片' : '视频'}生成失败: ${errorSummary}`, 'error');
-    }, [setElements, callbacks.showToast, setGeneratorSubmittingMap, currentProjectIdRef, dirtyTrackerRef]);
+        callbacksRef.current.showToast(`${taskType === 'image' ? '图片' : '视频'}生成失败: ${errorSummary}`, 'error');
+    }, [setElements, setGeneratorSubmittingMap, currentProjectIdRef, dirtyTrackerRef]);
 
     // ── Active tasks memo ────────────────────────────────────
 
@@ -165,11 +169,6 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
     useEffect(() => {
         activeGenerationTasksRef.current = activeGenerationTasks;
     }, [activeGenerationTasks]);
-
-    const callbacksRef = useRef(callbacks);
-    useEffect(() => {
-        callbacksRef.current = callbacks;
-    }, [callbacks]);
 
     const failGenerationTaskRef = useRef(failGenerationTask);
     useEffect(() => {

@@ -51,8 +51,18 @@ export function CanvasBenchmarkPanel({
     onClearResults,
     onRunBenchmark,
 }: CanvasBenchmarkPanelProps) {
+    const preheatProgressPercent = chunkPreheat.totalElements > 0
+        ? (chunkPreheat.loadedElements / chunkPreheat.totalElements) * 100
+        : 0;
+    const benchmarkPanelStyleSheet = `
+.canvas-benchmark-panel-position { right: ${rightOffset}px; }
+.canvas-benchmark-preheat-progress { width: ${preheatProgressPercent}%; }
+`;
+
     return (
-        <div className="absolute top-20 z-50 w-[360px] rounded-2xl border border-gray-200 bg-white/96 p-4 shadow-2xl backdrop-blur pointer-events-auto" style={{ right: `${rightOffset}px` }} data-testid="benchmark-panel">
+        <>
+        <style>{benchmarkPanelStyleSheet}</style>
+        <div className="canvas-benchmark-panel-position absolute top-20 z-50 w-[360px] rounded-2xl border border-gray-200 bg-white/96 p-4 shadow-2xl backdrop-blur pointer-events-auto" data-testid="benchmark-panel">
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
@@ -179,8 +189,7 @@ export function CanvasBenchmarkPanel({
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-white/80">
                     <div
-                        className="h-full rounded-full bg-sky-500 transition-all"
-                        style={{ width: `${chunkPreheat.totalElements > 0 ? (chunkPreheat.loadedElements / chunkPreheat.totalElements) * 100 : 0}%` }}
+                        className="canvas-benchmark-preheat-progress h-full rounded-full bg-sky-500 transition-all"
                     />
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
@@ -251,5 +260,6 @@ export function CanvasBenchmarkPanel({
                 ))}
             </div>
         </div>
+        </>
     );
 }

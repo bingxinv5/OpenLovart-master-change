@@ -149,10 +149,19 @@ export function WorkbenchImage({
     const [activeLayer, setActiveLayer] = useState<ImageLayer | null>(null);
     const [pendingLayer, setPendingLayer] = useState<(ImageLayer & { visible: boolean }) | null>(null);
     const [loadState, _setLoadState] = useState<LoadState>('loading');
-    const [storedLevelSummary, setStoredLevelSummary] = useState<string | null>(null);
+    const [storedLevelSummaryState, setStoredLevelSummaryState] = useState<{ content: string | null; summary: string | null }>({
+        content: null,
+        summary: null,
+    });
     const [containerSizeSummary, setContainerSizeSummary] = useState<string | null>(null);
-    const [activeNaturalSize, setActiveNaturalSize] = useState<string | null>(null);
-    const [pendingNaturalSize, setPendingNaturalSize] = useState<string | null>(null);
+    const [activeNaturalSizeState, setActiveNaturalSizeState] = useState<{ src: string | null; summary: string | null }>({
+        src: null,
+        summary: null,
+    });
+    const [pendingNaturalSizeState, setPendingNaturalSizeState] = useState<{ src: string | null; summary: string | null }>({
+        src: null,
+        summary: null,
+    });
     const onLoadStateChangeRef = useRef(onLoadStateChange);
     const setLoadState = useCallback((state: LoadState) => {
         _setLoadState(state);
@@ -166,7 +175,6 @@ export function WorkbenchImage({
         return typeof window.IntersectionObserver === 'undefined';
     });
     const [stableCanvasScale, setStableCanvasScale] = useState(canvasScale);
-    const [isScaleSettled, setIsScaleSettled] = useState(true);
     const devicePixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
     const previewDevicePixelRatio = getEffectiveDevicePixelRatio(canvasScale, devicePixelRatio);
     const finalDevicePixelRatio = getEffectiveDevicePixelRatio(stableCanvasScale, devicePixelRatio);
@@ -181,7 +189,7 @@ export function WorkbenchImage({
     const preferredResolvedSrc = resolvedSrc?.trim() || null;
     const shouldUpgradeToFinal = shouldRequestFinalLod({
         isNearViewport,
-        isScaleSettled,
+        isScaleSettled: Math.abs(canvasScale - stableCanvasScale) < 0.001,
         canvasScale: stableCanvasScale,
         previewRequestPixels,
         finalRequestPixels,
@@ -194,6 +202,15 @@ export function WorkbenchImage({
     const loadRequestPixels = usesImageStoreLod
         ? (preferredResolvedSrc ? ORIGINAL_IMAGE_REQUEST_PIXELS : previewRequestPixels)
         : 0;
+    const activeNaturalSize = activeNaturalSizeState.src === (activeLayer?.src ?? null)
+        ? activeNaturalSizeState.summary
+        : null;
+    const pendingNaturalSize = pendingNaturalSizeState.src === (pendingLayer?.src ?? null)
+        ? pendingNaturalSizeState.summary
+        : null;
+    const storedLevelSummary = storedLevelSummaryState.content === content
+        ? storedLevelSummaryState.summary
+        : null;
 
     const imageRenderStyle = useMemo<React.CSSProperties>(() => {
         const renderHints: React.CSSProperties = canvasScale > 1
@@ -278,24 +295,22 @@ export function WorkbenchImage({
     }, []);
 
     useEffect(() => {
-        setActiveNaturalSize(null);
-    }, [activeLayer?.src]);
-
-    useEffect(() => {
-        setPendingNaturalSize(null);
-    }, [pendingLayer?.src]);
-
-    useEffect(() => {
         if (typeof window === 'undefined') {
             return;
         }
 
         const frame = window.requestAnimationFrame(() => {
+            const activeSrc = activeLayer?.src ?? null;
             const nextActiveSize = readLoadedImageSize(primaryImageRef.current);
-            setActiveNaturalSize((current) => current === nextActiveSize ? current : nextActiveSize);
+            setActiveNaturalSizeState((current) => current.src === activeSrc && current.summary === nextActiveSize
+                ? current
+                : { src: activeSrc, summary: nextActiveSize });
 
+            const pendingSrc = pendingLayer?.src ?? null;
             const nextPendingSize = readLoadedImageSize(pendingImageRef.current);
-            setPendingNaturalSize((current) => current === nextPendingSize ? current : nextPendingSize);
+            setPendingNaturalSizeState((current) => current.src === pendingSrc && current.summary === nextPendingSize
+                ? current
+                : { src: pendingSrc, summary: nextPendingSize });
         });
 
         return () => window.cancelAnimationFrame(frame);
@@ -305,7 +320,6 @@ export function WorkbenchImage({
         let cancelled = false;
 
         if (!content || !isImageRef(content)) {
-            setStoredLevelSummary(null);
             return;
         }
 
@@ -315,12 +329,16 @@ export function WorkbenchImage({
             }
 
             if (!summary) {
-                setStoredLevelSummary(null);
+                setStoredLevelSummaryState((current) => current.content === content && current.summary === null
+                    ? current
+                    : { content, summary: null });
                 return;
             }
 
             const nextSummary = `${summary.hasBase ? 'base' : 'no-base'}${summary.levels.length > 0 ? `|${summary.levels.join(',')}` : ''}`;
-            setStoredLevelSummary((current) => current === nextSummary ? current : nextSummary);
+            setStoredLevelSummaryState((current) => current.content === content && current.summary === nextSummary
+                ? current
+                : { content, summary: nextSummary });
         });
 
         return () => {
@@ -377,15 +395,12 @@ export function WorkbenchImage({
         }
 
         if (Math.abs(canvasScale - stableCanvasScale) < 0.001) {
-            setIsScaleSettled(true);
             return;
         }
 
-        setIsScaleSettled(false);
         const settleDelayMs = prioritizeDetail ? PRIORITY_SCALE_SETTLE_DELAY_MS : DEFAULT_SCALE_SETTLE_DELAY_MS;
         const timer = window.setTimeout(() => {
             setStableCanvasScale(canvasScale);
-            setIsScaleSettled(true);
         }, settleDelayMs);
 
         return () => window.clearTimeout(timer);
@@ -498,7 +513,7 @@ export function WorkbenchImage({
             cancelled = true;
             clearTimer(promotionTimerRef);
         };
-    }, [commitResolvedLayer, content, loadRequestPixels, preferredResolvedSrc, setLoadState]);
+    }, [commitResolvedLayer, content, finalRequestPixels, loadRequestPixels, preferredResolvedSrc, setLoadState]);
 
     useEffect(() => {
         if (detailRequestKey === undefined) {
@@ -667,7 +682,9 @@ export function WorkbenchImage({
                     style={imageRenderStyle}
                     onLoad={(e) => {
                         const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
-                        setActiveNaturalSize((current) => current === nextNaturalSize ? current : nextNaturalSize);
+                        setActiveNaturalSizeState((current) => current.src === visiblePrimarySrc && current.summary === nextNaturalSize
+                            ? current
+                            : { src: visiblePrimarySrc, summary: nextNaturalSize });
                         setLoadState('ready');
                         externalOnLoad?.(e);
                     }}
@@ -701,7 +718,9 @@ export function WorkbenchImage({
                     style={imageRenderStyle}
                     onLoad={(e) => {
                         const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
-                        setPendingNaturalSize((current) => current === nextNaturalSize ? current : nextNaturalSize);
+                        setPendingNaturalSizeState((current) => current.src === visiblePendingSrc && current.summary === nextNaturalSize
+                            ? current
+                            : { src: visiblePendingSrc, summary: nextNaturalSize });
                         setPendingLayer((current) => current ? { ...current, visible: true } : current);
                         setLoadState('ready');
                         externalOnLoad?.(e);

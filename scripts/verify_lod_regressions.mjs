@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const workspaceRoot = process.cwd();
 const workbenchImagePath = path.join(workspaceRoot, 'src/components/lovart/WorkbenchImage.tsx');
-const canvasAreaPath = path.join(workspaceRoot, 'src/components/lovart/CanvasArea.tsx');
+const canvasAreaContentLayerPath = path.join(workspaceRoot, 'src/components/lovart/CanvasAreaContentLayer.tsx');
 const canvasElementRendererPath = path.join(workspaceRoot, 'src/components/lovart/CanvasElementRenderer.tsx');
 const pointerInteractionPath = path.join(workspaceRoot, 'src/components/lovart/use-canvas-pointer-interaction.ts');
 const imageStorePath = path.join(workspaceRoot, 'src/lib/image-store.ts');
@@ -11,7 +11,7 @@ const lodRequestUtilsPath = path.join(workspaceRoot, 'src/lib/lod-request-utils.
 const globalsCssPath = path.join(workspaceRoot, 'src/app/globals.css');
 
 const workbenchImageSource = fs.readFileSync(workbenchImagePath, 'utf8');
-const canvasAreaSource = fs.readFileSync(canvasAreaPath, 'utf8');
+const canvasAreaContentLayerSource = fs.readFileSync(canvasAreaContentLayerPath, 'utf8');
 const canvasElementRendererSource = fs.readFileSync(canvasElementRendererPath, 'utf8');
 const pointerInteractionSource = fs.readFileSync(pointerInteractionPath, 'utf8');
 const imageStoreSource = fs.readFileSync(imageStorePath, 'utf8');
@@ -46,12 +46,12 @@ const checks = [
     name: 'resize 过程中可延后 final 升级',
     ok: workbenchImageSource.includes('deferFinalUpgrade')
       && canvasElementRendererSource.includes('deferFinalUpgrade={deferImageDetailUpgrade}')
-      && canvasAreaSource.includes('deferImageDetailUpgrade={isResizing && resizingElementId === el.id}'),
+      && canvasAreaContentLayerSource.includes('deferImageDetailUpgrade={isResizing && resizingElementId === el.id}'),
   },
   {
     name: 'resize 松手触发一次图片高清请求',
     ok: pointerInteractionSource.includes('requestImageDetailUpgrade(resizedElementId);')
-      && canvasAreaSource.includes('imageDetailRequestKey={imageDetailRequestVersions[el.id]}')
+      && canvasAreaContentLayerSource.includes('imageDetailRequestKey={imageDetailRequestVersions[el.id]}')
       && canvasElementRendererSource.includes('detailRequestKey={imageDetailRequestKey}')
       && workbenchImageSource.includes('detailRequestPendingRef.current = true'),
   },

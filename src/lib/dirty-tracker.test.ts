@@ -108,9 +108,6 @@ describe('DirtyTracker', () => {
   });
 
   it('diffAndMark detects added, modified, and removed', () => {
-    const oldElements = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
-    const bModified = { id: 'b' }; // new object ref → counts as modified
-    const newElements = [{ id: 'a' }, bModified, { id: 'd' }];
     // 'a' → same ref won't work because we create new objects in both arrays
     // Let me use the same ref for 'a'
     const aRef = { id: 'a' };

@@ -983,7 +983,7 @@ export const CanvasArea = React.memo(function CanvasArea({
                     onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, onGroupSelection,
                     onUngroupSelection, onMergeSelection, onSaveSelectionAsProjectReference,
                 }}
-                canExportStoryboardSelection={selectedIds.length >= 2 && !!onExportStoryboardSelection}
+                canExportStoryboardSelection={multiReferenceCandidateCount >= 2 && !!onExportStoryboardSelection}
                 canFocusSelection={!!multiSelectionBounds}
                 onPointerDownCapture={handleToolbarSelectionPointerDownCapture}
                 onMouseDownCapture={handleToolbarSelectionMouseDownCapture}

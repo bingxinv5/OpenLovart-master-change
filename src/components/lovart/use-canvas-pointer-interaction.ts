@@ -222,7 +222,7 @@ export function useCanvasPointerInteraction(
 
     // ── Canvas coordinate conversion ───────────────────────────────────────────
 
-    const toCanvasPoint = (clientX: number, clientY: number) => {
+    const toCanvasPoint = useCallback((clientX: number, clientY: number) => {
         return clientPointToCanvas({
             clientX,
             clientY,
@@ -230,7 +230,7 @@ export function useCanvasPointerInteraction(
             pan,
             scale,
         });
-    };
+    }, [outerRef, pan, scale]);
 
     // ── Selection box utilities ────────────────────────────────────────────────
 
@@ -260,7 +260,7 @@ export function useCanvasPointerInteraction(
         overlay.style.top = `${rect.top}px`;
         overlay.style.width = `${rect.width}px`;
         overlay.style.height = `${rect.height}px`;
-    }, [pan.x, pan.y, scale, selectionBoxOverlayRef]);
+    }, [pan, scale, selectionBoxOverlayRef]);
 
     const beginSelectionBoxFromClient = useCallback((
         startClientX: number,
@@ -281,8 +281,7 @@ export function useCanvasPointerInteraction(
         setSelectionBox(nextSelectionBox);
         syncSelectionBoxOverlay(nextSelectionBox);
         setEditingTextId(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [setIsSelecting, setSelectionBox, syncSelectionBoxOverlay, setActiveVideoId, setEditingTextId]);
+    }, [setIsSelecting, setSelectionBox, syncSelectionBoxOverlay, setActiveVideoId, setEditingTextId, toCanvasPoint]);
 
     const {
         handleToolbarSelectionMouseDownCapture,

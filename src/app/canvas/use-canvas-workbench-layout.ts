@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { CanvasRenderMetrics } from '@/components/lovart/canvas-area-domains';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
@@ -41,12 +41,6 @@ export function useCanvasWorkbenchLayout({
         setRenderMetrics((previous) => areCanvasRenderMetricsEqual(previous, nextMetrics) ? previous : nextMetrics);
     }, [benchmarkMode]);
 
-    useEffect(() => {
-        if (!benchmarkMode) {
-            setRenderMetrics(null);
-        }
-    }, [benchmarkMode]);
-
     const sideChatWidth = showChat && chatPanelMode === 'side'
         ? (chatExpanded ? 720 : 420)
         : 0;
@@ -86,7 +80,7 @@ export function useCanvasWorkbenchLayout({
     }, [elements, setPan, setScale]);
 
     return useMemo(() => ({
-        renderMetrics,
+        renderMetrics: benchmarkMode ? renderMetrics : null,
         handleRenderMetricsChange,
         sideChatWidth,
         rightWorkbenchOffset,
@@ -95,5 +89,5 @@ export function useCanvasWorkbenchLayout({
         handleZoomOut,
         handleZoomTo,
         handleFitToScreen,
-    }), [benchmarkPanelRightOffset, handleFitToScreen, handleRenderMetricsChange, handleZoomIn, handleZoomOut, handleZoomTo, renderMetrics, rightWorkbenchOffset, sideChatWidth]);
+    }), [benchmarkMode, benchmarkPanelRightOffset, handleFitToScreen, handleRenderMetricsChange, handleZoomIn, handleZoomOut, handleZoomTo, renderMetrics, rightWorkbenchOffset, sideChatWidth]);
 }

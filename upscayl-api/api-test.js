@@ -3,10 +3,6 @@
  * 测试 Base64 图像放大功能
  */
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-
 // 创建一个简单的 1x1 红色 PNG 图片的 Base64
 // 这是一个最小的有效 PNG 图片
 const minimalPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';

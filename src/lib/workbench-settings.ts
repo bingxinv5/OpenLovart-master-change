@@ -4,11 +4,10 @@ import {
   isOpenAiGptImageModel,
   resolveOpenAiGptImageQuality,
   isStandardImageSize,
-  isSelectableOpenAiGptImageAspectRatio,
   resolveOpenAiGptImageAspectRatio,
   resolveOpenAiGptImageSize,
 } from './image-generation-models';
-import type { OpenAiGptImageQuality, StandardImageSize } from './image-generation-models';
+import type { OpenAiGptImageQuality } from './image-generation-models';
 
 export interface WorkbenchSettings {
   autoSaveGenerated: boolean;

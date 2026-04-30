@@ -180,27 +180,27 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
 
     // ── 2. Unmount flush — save dirty changes on SPA navigation ──
     const saveProjectRef = useRef(saveProject);
-    saveProjectRef.current = saveProject;
     useEffect(() => {
-        const mapRef = elementsMapRef;
-        const dtRef = dirtyTrackerRef;
+        saveProjectRef.current = saveProject;
+    }, [saveProject]);
 
-        return () => {
-            clearSave();
+    const flushSessionBeforeLeave = useCallback(() => {
+        clearSave();
 
-            const pid = currentProjectIdRef.current;
-            if (pid) {
-                syncGenerationsFromElements(pid, Array.from(mapRef.current.values()));
-            }
-            if (pid && isInitializedRef.current) {
-                saveViewportState(pid, scaleRef.current, panRef.current);
-            }
-            if (dtRef.current.isDirty || titleDirtyRef.current) {
-                debugLog('Unmount flush - saving dirty changes before leaving canvas');
-                saveProjectRef.current();
-            }
-        };
-    }, [clearSave, elementsMapRef, currentProjectIdRef, isInitializedRef, scaleRef, panRef, dirtyTrackerRef, titleDirtyRef]);
+        const pid = currentProjectIdRef.current;
+        if (pid) {
+            syncGenerationsFromElements(pid, Array.from(elementsMapRef.current.values()));
+        }
+        if (pid && isInitializedRef.current) {
+            saveViewportState(pid, scaleRef.current, panRef.current);
+        }
+        if (dirtyTrackerRef.current.isDirty || titleDirtyRef.current) {
+            debugLog('Unmount flush - saving dirty changes before leaving canvas');
+            saveProjectRef.current();
+        }
+    }, [clearSave, currentProjectIdRef, dirtyTrackerRef, elementsMapRef, isInitializedRef, panRef, scaleRef, titleDirtyRef]);
+
+    useEffect(() => flushSessionBeforeLeave, [flushSessionBeforeLeave]);
 
     // ── 3. beforeunload — save before page close/refresh ──
     useEffect(() => {

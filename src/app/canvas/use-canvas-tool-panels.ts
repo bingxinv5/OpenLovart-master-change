@@ -41,19 +41,23 @@ export function useCanvasToolPanels({ currentProjectId, showToast }: UseCanvasTo
     const [storyboardOverviewCollapsed, setStoryboardOverviewCollapsed] = useState(false);
 
     useEffect(() => {
-        const prefs = loadStoryboardOverviewPrefs(currentProjectId);
-        if (!prefs) {
-            setStoryboardOverviewCollapsed(false);
-            setAutoAdvanceStoryboardIssues(false);
-            setAutoAdvanceStoryboardScope('issues');
-            setStoryboardAuditFilter('all');
-            return;
-        }
+        let cancelled = false;
 
-        setStoryboardOverviewCollapsed(prefs.collapsed);
-        setAutoAdvanceStoryboardIssues(prefs.autoAdvanceEnabled);
-        setAutoAdvanceStoryboardScope(prefs.autoAdvanceScope);
-        setStoryboardAuditFilter(prefs.auditFilter);
+        queueMicrotask(() => {
+            if (cancelled) {
+                return;
+            }
+
+            const prefs = loadStoryboardOverviewPrefs(currentProjectId);
+            setStoryboardOverviewCollapsed(prefs?.collapsed ?? false);
+            setAutoAdvanceStoryboardIssues(prefs?.autoAdvanceEnabled ?? false);
+            setAutoAdvanceStoryboardScope(prefs?.autoAdvanceScope ?? 'issues');
+            setStoryboardAuditFilter(prefs?.auditFilter ?? 'all');
+        });
+
+        return () => {
+            cancelled = true;
+        };
     }, [currentProjectId]);
 
     useEffect(() => {

@@ -75,9 +75,18 @@ function SplitStoryboardPanelContent({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (options.upscaleEnabled) {
-      void checkApi();
+      queueMicrotask(() => {
+        if (cancelled) return;
+        void checkApi();
+      });
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [options.upscaleEnabled, checkApi]);
 
   const updateField = <K extends keyof StoryboardSplitOptions>(key: K, value: StoryboardSplitOptions[K]) => {
