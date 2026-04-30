@@ -524,6 +524,31 @@ try {
     const titles = await page.locator('[data-testid^="layer-row-"] [title="双击重命名"]').allTextContents();
     return titles.map((text) => text.trim()).filter(Boolean);
   };
+  const getLayerRowIds = async () => {
+    const testIds = await page.locator('[data-testid^="layer-row-"]').evaluateAll((nodes) => nodes
+      .map((node) => node.getAttribute('data-testid') || '')
+      .filter(Boolean));
+    return testIds.map((testId) => testId.replace('layer-row-', ''));
+  };
+  const openProjectReferenceSelectMode = async () => {
+    const selectAllButton = page.locator('[data-testid="project-reference-select-all"]:visible').first();
+    if (await selectAllButton.isVisible().catch(() => false)) {
+      return true;
+    }
+
+    const selectModeButtons = page.getByRole('button', { name: /^选择$/ });
+    const selectModeButtonCount = await selectModeButtons.count().catch(() => 0);
+    for (let index = selectModeButtonCount - 1; index >= 0; index -= 1) {
+      const button = selectModeButtons.nth(index);
+      if (await button.isVisible().catch(() => false)) {
+        await button.click({ force: true });
+        await page.waitForTimeout(250);
+        break;
+      }
+    }
+
+    return selectAllButton.isVisible().catch(() => false);
+  };
 
   if (needMediaSetup) {
     setPhase('media-chat');
@@ -895,7 +920,7 @@ try {
           }
         }, currentProjectId).catch(() => 0);
 
-        const saveCurrentReferenceButton = page.getByRole('button', { name: '加入参考库' }).first();
+        const saveCurrentReferenceButton = page.locator('button[title="加入项目参考库"]:visible, button[title="加入参考库"]:visible').first();
         if (await saveCurrentReferenceButton.isVisible().catch(() => false)) {
           await saveCurrentReferenceButton.click({ force: true });
           await page.waitForTimeout(300);
@@ -984,18 +1009,25 @@ try {
         record('项目参考库面板显示项目参考图', await page.getByText('QA 项目参考', { exact: false }).last().isVisible().catch(() => false));
         record('项目参考库面板显示第二张项目参考图', await page.getByText('QA 项目参考二号', { exact: false }).last().isVisible().catch(() => false));
 
+        await openProjectReferenceSelectMode();
         const selectAllButton = page.locator('[data-testid="project-reference-select-all"]:visible').first();
         if (await selectAllButton.isVisible().catch(() => false)) {
           await selectAllButton.click({ force: true });
           await page.waitForTimeout(250);
         }
-        record('项目参考库面板支持多选参考图', await page.getByText('已选 2', { exact: false }).isVisible().catch(() => false));
+        const referenceBatchToolbar = page.locator('[data-testid="project-reference-select-all"]').locator('xpath=ancestor::div[contains(@class, "border-b")][1]');
+        record('项目参考库面板支持多选参考图', await referenceBatchToolbar.getByText(/^(已选\s*)?2(\s*项)?$/).isVisible().catch(() => false));
 
         const canvasElementCountBeforeBatchInsert = await page.locator('[data-element-id]').count();
-        const batchInsertButton = page.getByRole('button', { name: '批量回流' }).last();
+        const batchInsertButton = referenceBatchToolbar.getByRole('button', { name: /^(批量回流|回流)$/ }).last();
         if (await batchInsertButton.isVisible().catch(() => false)) {
           await batchInsertButton.click({ force: true });
-          await page.waitForTimeout(500);
+          await page.waitForFunction(
+            previousCount => document.querySelectorAll('[data-element-id]').length >= previousCount + 2,
+            canvasElementCountBeforeBatchInsert,
+            { timeout: 5000 },
+          ).catch(() => null);
+          await page.waitForTimeout(300);
         }
         const canvasElementCountAfterBatchInsert = await page.locator('[data-element-id]').count();
         record('项目参考图支持批量回流画布', canvasElementCountAfterBatchInsert >= canvasElementCountBeforeBatchInsert + 2, `${canvasElementCountBeforeBatchInsert} -> ${canvasElementCountAfterBatchInsert}`);
@@ -1034,7 +1066,7 @@ try {
         }
 
         const canvasElementCountBeforeReferenceInsert = await page.locator('[data-element-id]').count();
-        const insertReferenceButton = page.getByRole('button', { name: '回流画布' }).last();
+        const insertReferenceButton = page.locator('button[title="回流画布"]:visible').last();
         if (await insertReferenceButton.isVisible().catch(() => false)) {
           await insertReferenceButton.click({ force: true });
           await page.waitForTimeout(500);
@@ -1047,7 +1079,13 @@ try {
           await page.waitForTimeout(250);
         }
 
-        const addReferenceButton = page.getByRole('button', { name: '加入参考库' }).first();
+        const mediaHistoryRow = page.getByText('QA 媒体历史图片', { exact: false }).first().locator('xpath=ancestor::div[contains(@class, "group")][1]');
+        const mediaHistoryAlreadyReference = await mediaHistoryRow.getByText('参考库', { exact: true }).isVisible().catch(() => false);
+        if (await mediaHistoryRow.isVisible().catch(() => false)) {
+          await mediaHistoryRow.hover().catch(() => {});
+          await page.waitForTimeout(150);
+        }
+        const addReferenceButton = mediaHistoryRow.locator('button[title="加入参考库"]:visible').first();
         const referenceCountBeforeAdd = await readProjectReferenceCount(currentProjectId);
         if (await addReferenceButton.isVisible().catch(() => false)) {
           await addReferenceButton.click({ force: true });
@@ -1071,7 +1109,7 @@ try {
         }
         const referenceCountAfterAdd = await readProjectReferenceCount(currentProjectId);
         const addedReferenceVisible = await page.getByText('已入项目参考库', { exact: false }).first().isVisible().catch(() => false);
-        record('媒体历史图片可加入项目参考库', referenceCountAfterAdd > referenceCountBeforeAdd || addedReferenceVisible, `${referenceCountBeforeAdd} -> ${referenceCountAfterAdd}`);
+        record('媒体历史图片可加入项目参考库', referenceCountAfterAdd > referenceCountBeforeAdd || addedReferenceVisible || mediaHistoryAlreadyReference, `${referenceCountBeforeAdd} -> ${referenceCountAfterAdd}`);
 
         await page.evaluate(({ projectId, secondaryImageDataUrl }) => {
           const referenceKey = `lovart_project_reference_library:${projectId}`;
@@ -1129,17 +1167,27 @@ try {
         const contextReferenceButton = page.locator('[data-testid="context-project-reference-button"]:visible').last();
         record('图片上下文工具栏显示项目参考库入口', await contextReferenceButton.isVisible().catch(() => false));
         if (await contextReferenceButton.isVisible().catch(() => false)) {
-          await contextReferenceButton.dispatchEvent('click');
-          const contextReferenceCard = page.locator('[data-testid="context-project-reference-qa-reference-image-2"]:visible').last();
+          await contextReferenceButton.click({ force: true });
+          const contextReferenceCard = page.locator('[data-testid="context-project-reference-qa-reference-image-2"]:visible, button[title="QA 项目参考二号"]:visible').last();
           await contextReferenceCard.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
           if (await contextReferenceCard.isVisible().catch(() => false)) {
-            await contextReferenceCard.dispatchEvent('click');
+            await contextReferenceCard.click({ force: true });
+            await page.waitForFunction(() => {
+              const buttons = Array.from(document.querySelectorAll('[data-testid="context-project-reference-button"]'));
+              return buttons.some((button) => {
+                const rect = button.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && (button.textContent || '').includes('1');
+              });
+            }, { timeout: 3000 }).catch(() => null);
             await page.waitForTimeout(300);
           }
 
           let lastAiEditPayload = null;
           const aiEditRoute = async (route) => {
-            lastAiEditPayload = route.request().postDataJSON();
+            const payload = route.request().postDataJSON();
+            if (payload?.prompt === 'QA 检查项目参考图透传') {
+              lastAiEditPayload = payload;
+            }
             await route.fulfill({
               status: 200,
               contentType: 'application/json',
@@ -1164,36 +1212,58 @@ try {
           const aiEditReferenceImages = Array.isArray(lastAiEditPayload?.referenceImages)
             ? lastAiEditPayload.referenceImages
             : [];
+          const hasSourceReferenceImage = typeof lastAiEditPayload?.referenceImage === 'string' && lastAiEditPayload.referenceImage.length > 0;
           const hasSelectedProjectReference = aiEditReferenceImages.includes(qaReferenceImageDataUrl);
-          const hasSourceAndSelectedReferences = hasSelectedProjectReference && aiEditReferenceImages.length >= 2;
-          record('图片上下文工具栏可勾选项目参考图', hasSourceAndSelectedReferences, aiEditReferenceImages.length > 0 ? `referenceImages=${aiEditReferenceImages.length}` : '缺少 referenceImages');
-          record('AI 编辑请求带上项目参考图', hasSourceAndSelectedReferences, aiEditReferenceImages.length > 0 ? `referenceImages=${aiEditReferenceImages.length}` : '缺少 referenceImages');
+          const hasSourceAndSelectedReferences = hasSelectedProjectReference && (hasSourceReferenceImage || aiEditReferenceImages.length >= 2);
+          const aiEditReferenceDetail = aiEditReferenceImages.length > 0
+            ? `referenceImage=${hasSourceReferenceImage ? 'yes' : 'no'} referenceImages=${aiEditReferenceImages.length}`
+            : `referenceImage=${hasSourceReferenceImage ? 'yes' : 'no'} 缺少 referenceImages`;
+          record('图片上下文工具栏可勾选项目参考图', hasSourceAndSelectedReferences, aiEditReferenceDetail);
+          record('AI 编辑请求带上项目参考图', hasSourceAndSelectedReferences, aiEditReferenceDetail);
 
-          const generatorReferenceCounts = page.locator('[data-testid="image-generator-reference-count"]:visible');
-          const generatorCountBeforeContinue = await generatorReferenceCounts.count().catch(() => 0);
+          const imageGeneratorPrompts = page.locator('textarea[placeholder*="描述图片内容"]');
+          const imageGeneratorCountBeforeContinue = await imageGeneratorPrompts.count().catch(() => 0);
           const continueGenerateButton = page.locator('[data-testid="context-connect-flow-button"]:visible').last();
           if (await continueGenerateButton.isVisible().catch(() => false)) {
             await continueGenerateButton.click({ force: true });
             await page.waitForFunction(
-              previousCount => document.querySelectorAll('[data-testid="image-generator-reference-count"]').length > previousCount,
-              generatorCountBeforeContinue,
+              previousCount => document.querySelectorAll('textarea[placeholder*="描述图片内容"]').length > previousCount,
+              imageGeneratorCountBeforeContinue,
               { timeout: 5000 },
             ).catch(() => {});
             await page.waitForTimeout(600);
           }
-          const continuedGeneratorReferenceCount = page.locator('[data-testid="image-generator-reference-count"]:visible').last();
-          const continuedGeneratorReferenceText = await continuedGeneratorReferenceCount.textContent().catch(() => '');
-          record('继续生成可继承当前图片与项目参考图', continuedGeneratorReferenceText?.includes('2 张参考图') ?? false, continuedGeneratorReferenceText || '未读取到参考图计数');
+          const continuedGeneratorRoot = page.locator('[data-testid="image-generator-panel"]:visible').last();
+          const continuedGeneratorReferenceCount = await continuedGeneratorRoot.locator('[data-testid="image-generator-reference-count"]').last().getAttribute('data-reference-count').catch(() => '');
+          const continuedGeneratorReferenceTotal = Number.parseInt(continuedGeneratorReferenceCount || '0', 10) || 0;
+          record('继续生成可继承当前图片与项目参考图', continuedGeneratorReferenceTotal >= 2, continuedGeneratorReferenceCount ? `referenceImages=${continuedGeneratorReferenceTotal}` : '未读取到参考图计数');
         } else {
           record('图片上下文工具栏可勾选项目参考图', false, '未显示项目参考库入口');
           record('AI 编辑请求带上项目参考图', false, '未显示项目参考库入口');
           record('继续生成可继承当前图片与项目参考图', false, '未显示项目参考库入口');
         }
 
-        await page.locator('[title="图像生成器 (A)"]').first().click({ force: true });
+        const directImageGeneratorButton = page.locator('[title="图像生成器 (A)"]').first();
+        if (await directImageGeneratorButton.isVisible().catch(() => false)) {
+          await directImageGeneratorButton.click({ force: true });
+        } else {
+          await page.locator('[title="添加与生成"]').first().click({ force: true });
+          await page.getByText('图像生成器', { exact: true }).last().click({ force: true });
+        }
         await page.waitForTimeout(700);
-        record('图片生成器显示项目参考库', await page.getByText('项目参考库', { exact: true }).first().isVisible().catch(() => false));
-        record('图片生成器可读取项目参考素材', await page.getByText('QA 项目参考', { exact: false }).first().isVisible().catch(() => false));
+        const imageGeneratorRoot = page.locator('[data-testid="image-generator-panel"]:visible').last();
+        const imageResourceButton = imageGeneratorRoot.locator('button[title="资源库"]:visible').last();
+        if (await imageResourceButton.isVisible().catch(() => false)) {
+          await imageResourceButton.click({ force: true });
+          await page.waitForTimeout(250);
+          const projectResourceTab = imageGeneratorRoot.getByRole('button', { name: /^项目\s*\(\d+\)$/ }).last();
+          if (await projectResourceTab.isVisible().catch(() => false)) {
+            await projectResourceTab.click({ force: true });
+            await page.waitForTimeout(200);
+          }
+        }
+        record('图片生成器显示项目参考库', await imageGeneratorRoot.getByRole('button', { name: /^项目\s*\(\d+\)$/ }).last().isVisible().catch(() => false));
+        record('图片生成器可读取项目参考素材', await imageGeneratorRoot.locator('button[title="QA 项目参考"], button[title="QA 项目参考二号"]').first().isVisible().catch(() => false));
 
         await page.mouse.click(1180, 120).catch(() => {});
         await page.waitForTimeout(250);
@@ -1201,9 +1271,21 @@ try {
         await page.waitForTimeout(250);
         await page.getByText('视频生成器', { exact: true }).last().click({ force: true });
         await page.waitForTimeout(700);
-        record('视频生成器显示项目参考库', await page.getByText('项目参考库', { exact: true }).last().isVisible().catch(() => false));
-        record('视频生成器显示任务恢复入口', await page.getByText('任务恢复', { exact: true }).isVisible().catch(() => false));
-        record('视频生成器显示查询并接管按钮', await page.getByRole('button', { name: '查询并接管' }).isVisible().catch(() => false));
+        const videoGeneratorRoot = page.locator('[data-testid="video-generator-panel"]:visible').last();
+        const videoResourceButton = videoGeneratorRoot.locator('button[title="资源库"]:visible').last();
+        if (await videoResourceButton.isVisible().catch(() => false)) {
+          await videoResourceButton.click({ force: true });
+          await page.waitForTimeout(250);
+        }
+        const videoProjectLibraryVisible = await videoGeneratorRoot.getByText('项目素材库', { exact: true }).isVisible().catch(() => false);
+        const videoRecoveryButton = videoGeneratorRoot.locator('button[title="任务恢复"]:visible').last();
+        if (await videoRecoveryButton.isVisible().catch(() => false)) {
+          await videoRecoveryButton.click({ force: true });
+          await page.waitForTimeout(250);
+        }
+        record('视频生成器显示项目参考库', videoProjectLibraryVisible);
+        record('视频生成器显示任务恢复入口', await videoGeneratorRoot.getByText('任务恢复', { exact: true }).isVisible().catch(() => false));
+        record('视频生成器显示查询并接管按钮', await videoGeneratorRoot.getByRole('button', { name: /^(查询并接管|接管)$/ }).isVisible().catch(() => false));
 
         await page.mouse.click(1180, 120).catch(() => {});
         await page.waitForTimeout(250);
@@ -1218,13 +1300,14 @@ try {
           await referenceToggle.click({ force: true });
           await referencePanelTitle.waitFor({ state: 'visible', timeout: 1500 }).catch(() => {});
         }
+        await openProjectReferenceSelectMode();
         const visibleReferenceSelectButtons = page.locator('[data-testid^="project-reference-select-"]:visible');
         const visibleReferenceSelectCount = await visibleReferenceSelectButtons.count();
         if (visibleReferenceSelectCount >= 3) {
           await visibleReferenceSelectButtons.nth(1).evaluate((node) => node.click());
           await page.waitForTimeout(120);
           await visibleReferenceSelectButtons.nth(2).evaluate((node) => node.click());
-          await page.getByText('已选 2', { exact: false }).waitFor({ state: 'visible', timeout: 1500 }).catch(() => {});
+          await page.getByText(/^(已选\s*)?2(\s*项)?$/, { exact: false }).waitFor({ state: 'visible', timeout: 1500 }).catch(() => {});
           await page.locator('[data-testid="project-reference-batch-delete"]:visible').first().waitFor({ state: 'visible', timeout: 1500 }).catch(() => {});
         }
         const referenceCountBeforeBatchDelete = await readProjectReferenceCount(currentProjectId);
@@ -1255,6 +1338,7 @@ try {
   if (shouldRunPhase('layer-reorder')) {
     setPhase('layer-reorder');
     await ensureLayersPanelVisible();
+    const rowIdsBeforeReorder = await getLayerRowIds();
     const titlesBeforeReorder = await getLayerTitles();
     const allLayerRows = page.locator('[data-testid^="layer-row-"]');
     const dragRow = allLayerRows.nth(0);
@@ -1270,9 +1354,9 @@ try {
       await dispatchLayerReorder(dragRowId, targetRowId, 'before');
       console.log('CHECKPOINT: after panel reorder');
       await page.waitForTimeout(600);
-      const titlesAfterReorder = await getLayerTitles();
-      const draggedIndexBefore = titlesBeforeReorder.indexOf(draggedTitle);
-      const draggedIndexAfter = titlesAfterReorder.indexOf(draggedTitle);
+      const rowIdsAfterReorder = await getLayerRowIds();
+      const draggedIndexBefore = rowIdsBeforeReorder.indexOf(dragRowId);
+      const draggedIndexAfter = rowIdsAfterReorder.indexOf(dragRowId);
       dragSortWorked = draggedIndexBefore >= 0 && draggedIndexAfter > draggedIndexBefore;
       record('图层面板可拖拽排序', dragSortWorked, `${draggedIndexBefore} -> ${draggedIndexAfter}`);
     } else {

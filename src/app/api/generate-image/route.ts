@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractDataUrlBase64, isDataUrl, parseDataUrl } from '@/lib/data-url';
+import { debugLog } from '@/lib/debug-log';
 import { fetchRemoteAsset, RemoteFetchError } from '../_shared/cdn-cache';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
                 let cleanData = img;
                 let mime = 'image/png';
                 if (img.startsWith('http://') || img.startsWith('https://')) {
-                    console.log(`[generate-image] Fetching reference image from URL: ${img.substring(0, 100)}...`);
+                    debugLog(`[generate-image] Fetching reference image from URL: ${img.substring(0, 100)}...`);
                     try {
                         const { buffer, contentType } = await fetchRemoteAsset(img, {
                             timeoutMs: 20_000,
@@ -109,15 +110,15 @@ export async function POST(request: NextRequest) {
                 ? ''
                 : getOpenAiGptImagePromptCompensation(targetSize, aspectRatio, cleanImages.length > 0);
             const hasRatioPriorityPrompt = !!compensation && typeof body.prompt === 'string' && body.prompt.includes(compensation);
-            console.log(
+            debugLog(
                 `[generate-image][gpt-image-2] requestedSize=${typeof imageSize === 'string' ? imageSize : '-'}, targetSize=${targetSize}, requestedAspect=${typeof aspectRatio === 'string' ? aspectRatio : '-'}, targetAspect=${targetAspectRatio}, references=${cleanImages.length}, ratioPriorityPrompt=${hasRatioPriorityPrompt}`,
             );
             if (compensation) {
-                console.log(`[generate-image][gpt-image-2] ratioPriorityInstruction=${compensation}`);
+                debugLog(`[generate-image][gpt-image-2] ratioPriorityInstruction=${compensation}`);
             }
         }
 
-        console.log(`[generate-image] model=${selectedModel}, baseUrl=${baseUrl}, prompt="${prompt.substring(0, 50)}..."`);
+        debugLog(`[generate-image] model=${selectedModel}, baseUrl=${baseUrl}, prompt="${prompt.substring(0, 50)}..."`);
 
         const usesGptImageEdits = isOpenAiGptImageModel(selectedModel) && normalizedImages.length > 0;
         const targetUrl = `${baseUrl}${usesGptImageEdits ? '/v1/images/edits' : '/v1/images/generations'}${forceAsync === true ? '?async=true' : ''}`;
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest) {
             throw new Error(errorMsg);
         }
 
-        console.log('[generate-image] Response:', JSON.stringify(data).substring(0, 300));
+        debugLog('[generate-image] Response:', JSON.stringify(data).substring(0, 300));
 
         // The API may return taskId in either snake_case or camelCase, and some
         // models complete immediately while still returning a reusable taskId.

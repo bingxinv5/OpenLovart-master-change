@@ -101,12 +101,11 @@ async function cleanupProject(title) {
   await page.goto(projectsUrl, { waitUntil: 'networkidle', timeout: 60000 });
   await page.waitForTimeout(1200);
   const searchInput = page.locator('[data-testid="projects-search-input"]');
-  if (!await searchInput.isVisible().catch(() => false)) {
-    return false;
+  if (await searchInput.isVisible().catch(() => false)) {
+    await searchInput.fill(title);
+    await page.waitForTimeout(400);
   }
 
-  await searchInput.fill(title);
-  await page.waitForTimeout(400);
   const card = page.locator('[data-testid^="project-card-"]', { hasText: title }).first();
   if (!await card.isVisible().catch(() => false)) {
     return false;

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { debugLog } from '@/lib/debug-log';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     createAiHeaders,
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
             throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
         }
 
-        console.log('[image-status] Response:', JSON.stringify(data).substring(0, 500));
+        debugLog('[image-status] Response:', JSON.stringify(data).substring(0, 500));
 
         // The API may return status at root level or nested in data
         const status = getNestedValue(data, 'status') || getNestedValue(data, 'data', 'status');

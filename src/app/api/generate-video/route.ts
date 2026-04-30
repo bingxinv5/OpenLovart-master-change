@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
+import { debugLog } from '@/lib/debug-log';
 import { encodeVideoTaskId, getVideoGenerationTransport } from '@/lib/video-generation-transport';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
                 tools: normalizedTools,
             });
 
-        console.log(`[generate-video] model=${requestedModel}, upstreamModel=${selectedModel}, transport=${transport}, prompt="${normalizedPrompt.substring(0, 50)}...", images=${normalizedImageEntries.length}, videos=${normalizedVideos.length}, audios=${normalizedAudios.length}`);
+        debugLog(`[generate-video] model=${requestedModel}, upstreamModel=${selectedModel}, transport=${transport}, prompt="${normalizedPrompt.substring(0, 50)}...", images=${normalizedImageEntries.length}, videos=${normalizedVideos.length}, audios=${normalizedAudios.length}`);
 
         const targetUrl = isDomesticOfficialTransport
             ? `${baseUrl}/seedance/v3/contents/generations/tasks`
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
             throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
         }
 
-        console.log('[generate-video] Full response:', JSON.stringify(data));
+        debugLog('[generate-video] Full response:', JSON.stringify(data));
 
         // Try multiple possible paths for task_id in the response.
         const rawTaskId = getNestedValue(data, 'data', 'task_id')

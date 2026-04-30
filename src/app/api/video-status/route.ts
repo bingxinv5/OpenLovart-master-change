@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { debugLog } from '@/lib/debug-log';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     createAiHeaders,
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
             transports: preferredTransports,
         });
 
-        console.log(`[video-status] transport=${resolvedTransport} response:`, JSON.stringify(data).substring(0, 500));
+        debugLog(`[video-status] transport=${resolvedTransport} response:`, JSON.stringify(data).substring(0, 500));
 
         const rawStatus = getNestedValue(data, 'status') || getNestedValue(data, 'data', 'status');
         const status = typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : '';

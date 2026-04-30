@@ -18,6 +18,7 @@
     "qa:canvas:projects": "node scripts/canvas_qa_projects.mjs",
     "qa:canvas:settings": "node scripts/canvas_qa_settings.mjs",
     "qa:canvas:persistence": "node scripts/canvas_qa_canvas_persistence.mjs",
+    "qa:canvas:gpt-mentions": "node scripts/canvas_qa_gpt_mentions.mjs",
     "qa:canvas:autolayout": "node scripts/canvas_qa_autolayout.mjs",
     "qa:canvas:benchmark": "node scripts/canvas_qa_benchmark.mjs",
     "qa:canvas:scenarios": "npm run qa:canvas:layers && npm run qa:canvas:media && npm run qa:canvas:frame && npm run qa:canvas:projects && npm run qa:canvas:settings && npm run qa:canvas:persistence"
