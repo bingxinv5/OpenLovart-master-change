@@ -46,6 +46,20 @@ import {
     type LayerSortMode,
     type StoryboardAuditFilter,
 } from './layers-tree-model';
+import {
+    buildLayerDragHintLabel,
+    buildLayerDragPayload,
+    canApplyLayerDropReorder,
+    canApplyLayerTestReorder,
+    getLayerDropPlacement,
+    normalizeLayerMoveToParentDetail,
+    normalizeLayerReorderDetail,
+    readLayerDragIds,
+    type LayerDropIndicator,
+    type LayerParentDropTarget,
+    type LayersPanelMoveToParentDetail,
+    type LayersPanelReorderDetail,
+} from './layers-dnd-model';
 
 interface LayersPanelProps {
     elements: CanvasElement[];
@@ -80,24 +94,6 @@ interface LayersPanelProps {
         active: boolean;
     }>;
     onClose?: () => void;
-}
-
-interface LayersPanelMoveToParentDetail {
-    draggedId?: string;
-    draggedIds?: string[];
-    parentId?: string | null;
-}
-
-interface LayersPanelReorderDetail {
-    draggedId?: string;
-    draggedIds?: string[];
-    targetId?: string;
-    placement?: 'before' | 'after';
-}
-
-interface LayerDragPayload {
-    primaryId: string;
-    ids: string[];
 }
 
 type StoryboardNavigationScope = 'issues' | 'invalid' | 'partial' | 'untracked';
@@ -289,8 +285,8 @@ export function LayersPanel({
     const [layerSortMode, setLayerSortMode] = useState<LayerSortMode>('canvas');
     const [storyboardOnly, setStoryboardOnly] = useState(false);
     const [draggingId, setDraggingId] = useState<string | null>(null);
-    const [dropIndicator, setDropIndicator] = useState<{ targetId: string; placement: 'before' | 'after' } | null>(null);
-    const [parentDropTarget, setParentDropTarget] = useState<string | 'root' | null>(null);
+    const [dropIndicator, setDropIndicator] = useState<LayerDropIndicator | null>(null);
+    const [parentDropTarget, setParentDropTarget] = useState<LayerParentDropTarget>(null);
     const [scrollTop, setScrollTop] = useState(0);
     const [viewportHeight, setViewportHeight] = useState(0);
     const dragAutoScrollVelocityRef = useRef(0);
@@ -459,19 +455,16 @@ export function LayersPanel({
         return selectedIdSet.has(draggingId) && selectedIds.length > 1 ? selectedIds : [draggingId];
     }, [draggingId, selectedIdSet, selectedIds]);
     const dragHintLabel = useMemo(() => {
-        if (!draggingId) return '';
-        if (parentDropTarget === 'root') {
-            return '释放后移到根层级';
-        }
-        if (parentDropTarget && parentDropTarget !== 'root') {
-            const target = elementsById.get(parentDropTarget);
-            return `释放后加入“${target ? getLayerLabel(target) : '画板'}”`;
-        }
-        if (dropIndicator) {
-            const target = elementsById.get(dropIndicator.targetId);
-            return `${dropIndicator.placement === 'before' ? '释放后排到前面' : '释放后排到后面'} · ${target ? getLayerLabel(target) : '目标图层'}`;
-        }
-        return draggingSelectionIds.length > 1 ? `正在拖动 ${draggingSelectionIds.length} 个图层` : '正在拖动图层';
+        return buildLayerDragHintLabel({
+            draggingId,
+            parentDropTarget,
+            dropIndicator,
+            draggedCount: draggingSelectionIds.length,
+            getLabel: (id) => {
+                const target = elementsById.get(id);
+                return target ? getLayerLabel(target) : null;
+            },
+        });
     }, [draggingId, draggingSelectionIds.length, dropIndicator, elementsById, parentDropTarget]);
 
     const toggleExpanded = (id: string) => {
@@ -737,28 +730,22 @@ export function LayersPanel({
     };
 
     const handleDragStart = (event: React.DragEvent<HTMLDivElement>, id: string) => {
-        const dragIds = selectedIdSet.has(id) && selectedIds.length > 1 ? selectedIds : [id];
+        const dragPayload = buildLayerDragPayload({
+            primaryId: id,
+            selectedIds,
+            isPrimarySelected: selectedIdSet.has(id),
+        });
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', id);
-        event.dataTransfer.setData('application/json', JSON.stringify({ primaryId: id, ids: dragIds } satisfies LayerDragPayload));
+        event.dataTransfer.setData('application/json', JSON.stringify(dragPayload));
         setDraggingId(id);
     };
 
     const getDraggedIds = (event: Pick<React.DragEvent<HTMLDivElement>, 'dataTransfer'> | { dataTransfer: DataTransfer | null }) => {
-        const jsonPayload = event.dataTransfer?.getData('application/json');
-        if (jsonPayload) {
-            try {
-                const parsed = JSON.parse(jsonPayload) as LayerDragPayload;
-                if (Array.isArray(parsed.ids) && parsed.ids.length > 0) {
-                    return parsed.ids;
-                }
-            } catch {
-                // ignore parse errors
-            }
-        }
-
-        const draggedId = draggingId || event.dataTransfer?.getData('text/plain');
-        return draggedId ? [draggedId] : [];
+        return readLayerDragIds({
+            dataTransfer: event.dataTransfer,
+            fallbackDraggingId: draggingId,
+        });
     };
 
     const handleDragEnd = () => {
@@ -772,13 +759,11 @@ export function LayersPanel({
         event.preventDefault();
         event.stopPropagation();
         const draggedIds = getDraggedIds(event);
-        if (draggedIds.length === 0 || draggedIds.includes(targetId)) {
-            handleDragEnd();
-            return;
-        }
-
-        const hasDraggedElement = draggedIds.some((id) => elementsById.has(id));
-        if (!hasDraggedElement) {
+        if (!canApplyLayerDropReorder({
+            draggedIds,
+            targetId,
+            hasElement: (id) => elementsById.has(id),
+        })) {
             handleDragEnd();
             return;
         }
@@ -792,7 +777,7 @@ export function LayersPanel({
         if (!draggingId || draggingId === targetId) return;
         updateDragAutoScroll(event.clientY);
         const rect = event.currentTarget.getBoundingClientRect();
-        const placement: 'before' | 'after' = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+        const placement = getLayerDropPlacement(event.clientY, rect.top, rect.height);
         setDropIndicator({ targetId, placement });
         setParentDropTarget(null);
     };
@@ -815,37 +800,26 @@ export function LayersPanel({
 
         const handleTestMoveToParent = (event: Event) => {
             const customEvent = event as CustomEvent<LayersPanelMoveToParentDetail>;
-            const draggedId = customEvent.detail?.draggedId?.trim();
-            const draggedIds = Array.isArray(customEvent.detail?.draggedIds)
-                ? customEvent.detail?.draggedIds.map((id) => id.trim()).filter(Boolean)
-                : draggedId ? [draggedId] : [];
-            const parentId = customEvent.detail?.parentId ?? undefined;
-            if (draggedIds.length === 0) {
+            const moveDetail = normalizeLayerMoveToParentDetail(customEvent.detail);
+            if (!moveDetail) {
                 return;
             }
 
-            onMoveLayerToParent(draggedIds, parentId || undefined);
+            onMoveLayerToParent(moveDetail.draggedIds, moveDetail.parentId);
         };
 
         const handleTestReorder = (event: Event) => {
             const customEvent = event as CustomEvent<LayersPanelReorderDetail>;
-            const draggedId = customEvent.detail?.draggedId?.trim();
-            const draggedIds = Array.isArray(customEvent.detail?.draggedIds)
-                ? customEvent.detail?.draggedIds.map((id) => id.trim()).filter(Boolean)
-                : draggedId ? [draggedId] : [];
-            const targetId = customEvent.detail?.targetId?.trim();
-            const placement = customEvent.detail?.placement;
-            if (draggedIds.length === 0 || !targetId || !placement || draggedIds.includes(targetId)) {
+            const reorderDetail = normalizeLayerReorderDetail(customEvent.detail);
+            if (!reorderDetail || !canApplyLayerTestReorder({
+                draggedIds: reorderDetail.draggedIds,
+                targetId: reorderDetail.targetId,
+                hasElement: (id) => elementsById.has(id),
+            })) {
                 return;
             }
 
-            const draggedElement = elementsById.get(draggedIds[0]);
-            const targetElement = elementsById.get(targetId);
-            if (!draggedElement || !targetElement) {
-                return;
-            }
-
-            onReorderLayer(draggedIds, targetId, placement);
+            onReorderLayer(reorderDetail.draggedIds, reorderDetail.targetId, reorderDetail.placement);
         };
 
         const eventTargets = Array.from(new Set([root, root.parentElement].filter((target): target is HTMLElement => !!target)));
@@ -902,7 +876,7 @@ export function LayersPanel({
                     onDragOver={(event) => updateRowDropIndicator(event, element.id)}
                     onDrop={(event) => {
                         const rect = event.currentTarget.getBoundingClientRect();
-                        const placement: 'before' | 'after' = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                        const placement = getLayerDropPlacement(event.clientY, rect.top, rect.height);
                         handleDrop(event, element.id, placement);
                     }}
                     className={`group relative flex items-center gap-1 rounded-md border px-1 py-1 transition-all duration-200 ${selected ? 'border-blue-200 bg-blue-50/70' : 'border-transparent bg-white/80 hover:border-slate-200 hover:bg-white'} ${isHighlighted ? 'border-amber-300 bg-amber-50/95 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]' : ''} ${hidden ? 'opacity-60' : ''} ${isDragging ? 'opacity-40' : ''}`}
