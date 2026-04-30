@@ -15,7 +15,8 @@ import {
     MentionComposerSuggestions,
 } from './generator-panel-sections';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from './generator-error-utils';
-import { createGeneratorTaskUpdate, serializeReferenceImages, useClearGeneratorError, usePersistGeneratorValue } from './generator-panel-hooks';
+import { createGeneratorTaskUpdate, useClearGeneratorError } from './generator-panel-hooks';
+import { useImageGeneratorPanelPersistence } from './useGeneratorPanelPersistence';
 import {
     appendImageGenerationHistory,
     clearImageGenerationHistory,
@@ -61,46 +62,30 @@ import { requestImageGeneration } from '@/lib/ai-client';
 import { isDataUrl } from '@/lib/data-url';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import {
-    describeOpenAiGptImageAspectRatio,
-    OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
-    OPENAI_GPT_IMAGE_SIZE_OPTIONS,
-    STANDARD_IMAGE_SIZE_OPTIONS,
-    getMaxReferenceImagesForImageModel,
     isStandardImageSize,
     resolveOpenAiGptImageAspectRatio,
     resolveOpenAiGptImageQuality,
     resolveOpenAiGptImageSize,
-    shouldUseDomesticImageBatching,
 } from '@/lib/image-generation-models';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
-import { useImageGenerationDefaults, type ImageGenerationDefaults } from '@/lib/generation-defaults';
+import { useImageGenerationDefaults } from '@/lib/generation-defaults';
+import {
+    GROK_IMAGE_ASPECT_RATIOS,
+    describeImageSizeAspectRatio,
+    IMAGE_MODEL_LABELS,
+    IMAGE_MODEL_OPTIONS,
+    IMAGE_QUALITY_LABELS,
+    resolveImageGeneratorModelOptions,
+    type GenerateCount,
+    type ImageAspectRatio as AspectRatio,
+    type ImageModel,
+    type ImageQuality,
+    type ImageSize,
+} from './generator-model-options';
+import { buildImageReferencePreviewItems } from './generator-reference-view-model';
 
-type ImageModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
-type AspectRatio = ImageGenerationDefaults['aspectRatio'];
-type ImageSize = string;
-type ImageQuality = ImageGenerationDefaults['quality'];
-
-const GROK_IMAGE_ASPECT_RATIOS: AspectRatio[] = ['4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
-const GROK_IMAGE_SIZES: ImageSize[] = ['1K', '2K'];
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
-
-const MODEL_LABELS: Record<ImageModel, string> = {
-    'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
-    'nano-banana-2': 'nano-banana-2',
-    'gpt-image-2': 'gpt-image-2',
-    'grok-4.2-image': 'grok-4.2-image',
-    'doubao-seedream-5-0-260128': 'doubao-seedream-5-0-260128',
-};
-
-const IMAGE_QUALITY_LABELS: Record<ImageQuality, string> = {
-    auto: '自动',
-    low: '低',
-    medium: '中',
-    high: '高',
-};
-
-type GenerateCount = 1 | 2 | 3 | 4;
 
 interface ImageGeneratorPanelProps {
     elementId: string;
@@ -235,34 +220,26 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [closeAllMenus]);
 
-    const models: ImageModel[] = ['gemini-3.1-flash-image-preview', 'nano-banana-2', 'gpt-image-2', 'grok-4.2-image', 'doubao-seedream-5-0-260128'];
-    const aspectRatios: AspectRatio[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1', '4:5', '5:4', '21:9'];
-    const imageSizes: ImageSize[] = [...STANDARD_IMAGE_SIZE_OPTIONS];
-    const maxReferenceImages = getMaxReferenceImagesForImageModel(model);
-    const isGrokImageModel = model === 'grok-4.2-image';
-    const isOpenAiGptImageModel = model === 'gpt-image-2';
-    const usesDomesticImageBatching = shouldUseDomesticImageBatching(model);
-    const grokUsesReferenceAspectRatio = isGrokImageModel && referenceImages.length > 0;
-    const availableAspectRatios = isGrokImageModel
-        ? GROK_IMAGE_ASPECT_RATIOS
-        : aspectRatios;
-    const availableImageSizes: ImageSize[] = isOpenAiGptImageModel
-        ? [...OPENAI_GPT_IMAGE_SIZE_OPTIONS]
-        : isGrokImageModel
-            ? GROK_IMAGE_SIZES
-            : imageSizes;
-    const availableImageQualities: ImageQuality[] = [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
-    const derivedOpenAiGptImageAspectRatio = describeOpenAiGptImageAspectRatio(imageSize, aspectRatio);
-    const displayedAspectRatio = grokUsesReferenceAspectRatio
-        ? '参考图比例'
-        : isOpenAiGptImageModel
-            ? derivedOpenAiGptImageAspectRatio
-            : aspectRatio === 'auto'
-            ? '自动'
-            : aspectRatio;
-    const settingsSummary = isOpenAiGptImageModel
-        ? `${imageSize} · ${IMAGE_QUALITY_LABELS[quality]} · ${displayedAspectRatio} · ×${generateCount}`
-        : `${displayedAspectRatio} · ${imageSize} · ×${generateCount}`;
+    const models: ImageModel[] = IMAGE_MODEL_OPTIONS;
+    const {
+        maxReferenceImages,
+        isGrokImageModel,
+        isOpenAiGptImageModel,
+        usesDomesticImageBatching,
+        grokUsesReferenceAspectRatio,
+        availableAspectRatios,
+        availableImageSizes,
+        availableImageQualities,
+        displayedAspectRatio,
+        settingsSummary,
+    } = resolveImageGeneratorModelOptions({
+        model,
+        imageSize,
+        aspectRatio,
+        quality,
+        generateCount,
+        referenceImageCount: referenceImages.length,
+    });
     const fallbackStandardImageSize = isStandardImageSize(imageDefaults.imageSize) ? imageDefaults.imageSize : '4K';
 
     useEffect(() => {
@@ -481,18 +458,15 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setMentionQuery(null);
     }, [clearCanvasReferenceBinding]);
 
-    usePersistGeneratorValue({ elementId, key: 'selectedModel', value: model, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedAspectRatio', value: aspectRatio, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedGenerateCount', value: generateCount, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedImageSize', value: imageSize, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedImageQuality', value: quality, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({
+    useImageGeneratorPanelPersistence({
         elementId,
-        key: 'savedReferenceImages',
-        value: referenceImages,
+        model,
+        aspectRatio,
+        generateCount,
+        imageSize,
+        quality,
+        referenceImages,
         onElementChange,
-        skipInitial: true,
-        serialize: serializeReferenceImages,
     });
 
     useEffect(() => {
@@ -1022,13 +996,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const resourceLibraryCount = projectReferenceImages.length + favoriteReferences.length + recentHistory.length + referenceLibrary.length;
     const canAddMoreImages = referenceImages.length < maxReferenceImages;
-    const referencePreviewItems = useMemo(() => referenceImages.map((image, index) => ({
-        id: `reference-image-${index}`,
-        kind: 'image' as const,
-        title: `参考图 ${index + 1}`,
-        subtitle: `参考图 ${index + 1}`,
-        previewImage: image,
-    })), [referenceImages]);
+    const referencePreviewItems = useMemo(() => buildImageReferencePreviewItems(referenceImages), [referenceImages]);
 
     return (
         <div
@@ -1179,14 +1147,14 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                             <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center flex-shrink-0">
                                 <Sparkles size={8} className="text-white" />
                             </div>
-                            <span className="max-w-[140px] truncate whitespace-nowrap">{MODEL_LABELS[model]}</span>
+                            <span className="max-w-[140px] truncate whitespace-nowrap">{IMAGE_MODEL_LABELS[model]}</span>
                             <ChevronDown size={11} className="text-slate-400" />
                         </button>
                         {showModelMenu && (
                             <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-[14px] shadow-lg border border-slate-200/60 py-1 z-30 min-w-[200px]">
                                 {models.map((m) => (
                                     <div key={m} onClick={() => { setModel(m); setShowModelMenu(false); }} className={`px-3 py-2 cursor-pointer hover:bg-slate-50 rounded-lg mx-1 transition-colors ${model === m ? 'bg-slate-50' : ''}`}>
-                                        <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{MODEL_LABELS[m]}</div>
+                                                    <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{IMAGE_MODEL_LABELS[m]}</div>
                                     </div>
                                 ))}
                             </div>
@@ -1247,7 +1215,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                                                                 className={`rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                                                             >
                                                                 <div>{size}</div>
-                                                                <div className={`mt-0.5 text-[10px] ${imageSize === size ? 'text-white/70' : 'text-slate-400'}`}>{describeOpenAiGptImageAspectRatio(size, aspectRatio)}</div>
+                                                                <div className={`mt-0.5 text-[10px] ${imageSize === size ? 'text-white/70' : 'text-slate-400'}`}>{describeImageSizeAspectRatio(size, aspectRatio)}</div>
                                                             </button>
                                                         ))}
                                                     </div>

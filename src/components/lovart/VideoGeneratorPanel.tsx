@@ -15,7 +15,8 @@ import {
     MentionComposerSuggestions,
 } from './generator-panel-sections';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from './generator-error-utils';
-import { createGeneratorTaskUpdate, useClearGeneratorError, usePersistGeneratorValue } from './generator-panel-hooks';
+import { createGeneratorTaskUpdate, useClearGeneratorError } from './generator-panel-hooks';
+import { useVideoGeneratorPanelPersistence } from './useGeneratorPanelPersistence';
 import {
     findGeneratorElement,
     useCanvasImageSelectionEvent,
@@ -27,14 +28,11 @@ import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import type { ProjectMediaHistoryItem } from '@/lib/project-media-history';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { useVideoGenerationDefaults } from '@/lib/generation-defaults';
-import { VIDEO_DURATION_OPTIONS, type VideoDuration } from '@/lib/workbench-settings';
 import {
     insertTextAtSelection,
     normalizeMentionText,
     removeMentionToken,
     removeMentionTokens,
-    resolveTextareaMentionQuery,
-    type TextareaMentionQuery,
     type TextareaSelection,
 } from './textarea-mention-utils';
 import {
@@ -43,418 +41,50 @@ import {
     materializePromptMentions,
     resolvePromptMentionDeletion,
 } from './generator-mention-view-model';
-
-type VideoModel = 'veo3.1' | 'veo3.1-fast' | 'veo3.1-components' | 'doubao-seedance-2-0-260128';
-type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
-type Duration = VideoDuration;
-type VideoResolution = '480p' | '720p';
-type ResourceLibraryTab = 'image' | 'video' | 'audio';
-type ReferenceMediaKind = 'video' | 'audio';
-type DomesticGenerationMode = 'first-last-frame' | 'omni-reference';
-
-const MODEL_LABELS: Record<VideoModel, string> = {
-    'veo3.1': 'Veo 3.1',
-    'veo3.1-fast': 'Veo 3.1 Fast',
-    'veo3.1-components': 'Veo 3.1 Components',
-    'doubao-seedance-2-0-260128': 'Doubao Seedance 2.0',
-};
-
-const MODEL_DESC: Record<VideoModel, string> = {
-    'veo3.1': '支持首帧/尾帧图片',
-    'veo3.1-fast': '支持首帧/尾帧图片，更便宜，质量低于 Veo 3.1',
-    'veo3.1-components': '支持1-3张参考图',
-    'doubao-seedance-2-0-260128': '国产多模态官方格式，支持首尾帧模式和全能参考模式',
-};
-
-function isComponentsVideoModel(model: VideoModel): boolean {
-    return model === 'veo3.1-components';
-}
-
-function isDomesticMultimodalVideoModel(model: VideoModel): boolean {
-    return model === 'doubao-seedance-2-0-260128';
-}
-
-function getMaxImagesForModel(model: VideoModel): number {
-    if (isComponentsVideoModel(model)) {
-        return 3;
-    }
-
-    if (isDomesticMultimodalVideoModel(model)) {
-        return 9;
-    }
-
-    return 2;
-}
-
-function getAspectRatioOptions(model: VideoModel): AspectRatio[] {
-    if (isDomesticMultimodalVideoModel(model)) {
-        return ['16:9', '9:16', '1:1', '4:3', '3:4'];
-    }
-
-    return ['16:9', '9:16'];
-}
-
-function getDurationOptions(model: VideoModel): Duration[] {
-    if (isDomesticMultimodalVideoModel(model)) {
-        return [...VIDEO_DURATION_OPTIONS];
-    }
-
-    return ['5s', '8s'];
-}
-
-function getAddImageTitle(model: VideoModel, domesticMode?: DomesticGenerationMode): string {
-    if (isComponentsVideoModel(model)) {
-        return '添加参考图 (1-3张)';
-    }
-
-    if (isDomesticMultimodalVideoModel(model)) {
-        return domesticMode === 'first-last-frame' ? '添加首尾帧图片' : '添加全能参考素材';
-    }
-
-    return '添加首帧/尾帧图片';
-}
-
-function getMaxVideosForModel(model: VideoModel): number {
-    return isDomesticMultimodalVideoModel(model) ? 3 : 0;
-}
-
-function getMaxAudiosForModel(model: VideoModel): number {
-    return isDomesticMultimodalVideoModel(model) ? 3 : 0;
-}
-
-function getResolutionOptions(model: VideoModel): VideoResolution[] {
-    return isDomesticMultimodalVideoModel(model) ? ['480p', '720p'] : ['720p'];
-}
-
-interface FrameImage {
-    id: string;
-    image: string; // base64 data URL or raw base64
-    imageType: 'first_frame' | 'last_frame' | 'reference';
-    name: string;
-}
-
-interface ReferenceMediaItem {
-    id: string;
-    url: string;
-    name: string;
-    kind: ReferenceMediaKind;
-}
-
-interface PromptMention {
-    id: string;
-    token: string;
-    replacement: string;
-    label: string;
-    name: string;
-    kind: 'image' | 'video' | 'audio';
-    previewImage?: string;
-    searchText: string;
-}
-
-interface PromptMentionBinding {
-    mentionId: string;
-    token?: string;
-    note?: string;
-}
-
-type PromptMentionQuery = TextareaMentionQuery;
+import {
+    getMaxAudiosForVideoModel,
+    getMaxImagesForVideoModel,
+    getMaxVideosForVideoModel,
+    getVideoAddImageTitle,
+    getVideoAspectRatioOptions,
+    getVideoDurationOptions,
+    getVideoResolutionOptions,
+    isComponentsVideoModel,
+    isDomesticMultimodalVideoModel,
+    VIDEO_MODEL_DESC,
+    VIDEO_MODEL_LABELS,
+    VIDEO_MODEL_OPTIONS,
+    type DomesticGenerationMode,
+    type VideoAspectRatio as AspectRatio,
+    type VideoDurationValue as Duration,
+    type VideoModel,
+    type VideoResolution,
+} from './generator-model-options';
+import {
+    buildFrameSlotSequence,
+    buildVideoPromptMentions,
+    buildVideoReferencePreviewItems,
+    dedupeMediaItems,
+    getAvailableFrameImageTypes,
+    getPromptMentionEmptyState,
+    getPromptMentionPanelTitle,
+    getPromptMentionPlaceholder,
+    parseStoredFrameImages,
+    parseStoredPromptMentionBindings,
+    parseStoredReferenceMedia,
+    resolveInitialDomesticMode,
+    resolveNextFrameSlotType,
+    resolvePromptMentionQuery,
+    type FrameImage,
+    type PromptMention,
+    type PromptMentionBinding,
+    type PromptMentionQuery,
+    type ReferenceMediaItem,
+    type ReferenceMediaKind,
+    type ResourceLibraryTab,
+} from './generator-reference-view-model';
 
 type PromptSelection = TextareaSelection;
-
-// Module-level stable serialize function (avoids new reference each render)
-function serializeFrameImages(value: FrameImage[]): string | undefined {
-    return value.length > 0 ? JSON.stringify(value) : undefined;
-}
-
-function serializeReferenceMedia(value: ReferenceMediaItem[]): string | undefined {
-    return value.length > 0 ? JSON.stringify(value) : undefined;
-}
-
-function parseStoredReferenceMedia(
-    value: string | undefined,
-    kind: ReferenceMediaKind,
-): ReferenceMediaItem[] {
-    if (!value) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(value) as unknown;
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-
-        return parsed.flatMap((item) => {
-            if (typeof item === 'string' && item.trim()) {
-                return [{ id: uuidv4(), url: item.trim(), name: kind === 'video' ? '参考视频' : '参考音频', kind }];
-            }
-
-            if (!item || typeof item !== 'object') {
-                return [];
-            }
-
-            const rawUrl = typeof (item as { url?: unknown }).url === 'string'
-                ? (item as { url: string }).url.trim()
-                : '';
-            if (!rawUrl) {
-                return [];
-            }
-
-            const rawName = typeof (item as { name?: unknown }).name === 'string'
-                ? (item as { name: string }).name.trim()
-                : '';
-
-            return [{
-                id: typeof (item as { id?: unknown }).id === 'string' && (item as { id: string }).id.trim()
-                    ? (item as { id: string }).id.trim()
-                    : uuidv4(),
-                url: rawUrl,
-                name: rawName || (kind === 'video' ? '参考视频' : '参考音频'),
-                kind,
-            }];
-        });
-    } catch {
-        return [];
-    }
-}
-
-function parseStoredStringArray(value: string | undefined): string[] {
-    if (!value) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(value) as unknown;
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-
-        return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-    } catch {
-        return [];
-    }
-}
-
-function parseStoredPromptMentionBindings(value: string | undefined): PromptMentionBinding[] {
-    if (!value) {
-        return [];
-    }
-
-    try {
-        const parsed = JSON.parse(value) as unknown;
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-
-        return parsed.flatMap((item) => {
-            if (typeof item === 'string' && item.trim()) {
-                return [{ mentionId: item.trim() }];
-            }
-
-            if (!item || typeof item !== 'object') {
-                return [];
-            }
-
-            const mentionId = typeof (item as { mentionId?: unknown }).mentionId === 'string'
-                ? (item as { mentionId: string }).mentionId.trim()
-                : '';
-
-            if (!mentionId) {
-                return [];
-            }
-
-            const token = typeof (item as { token?: unknown }).token === 'string'
-                ? (item as { token: string }).token.trim()
-                : '';
-
-            const note = typeof (item as { note?: unknown }).note === 'string'
-                ? (item as { note: string }).note
-                : '';
-
-            return [{
-                mentionId,
-                token: token || undefined,
-                note: note || undefined,
-            }];
-        });
-    } catch {
-        return parseStoredStringArray(value).map((mentionId) => ({ mentionId }));
-    }
-}
-
-function isReusableReferenceAsset(value: string): boolean {
-    return value.startsWith('http://')
-        || value.startsWith('https://')
-        || value.startsWith('asset://')
-        || value.startsWith('data:audio/');
-}
-
-function dedupeMediaItems(items: ProjectMediaHistoryItem[], kind: ReferenceMediaKind): ProjectMediaHistoryItem[] {
-    const seen = new Set<string>();
-    return items.filter((item) => {
-        if (item.kind !== kind || !isReusableReferenceAsset(item.content) || seen.has(item.content)) {
-            return false;
-        }
-
-        seen.add(item.content);
-        return true;
-    });
-}
-
-function resolveInitialDomesticMode(
-    savedMode: unknown,
-    frameImages: FrameImage[],
-    referenceVideos: ReferenceMediaItem[],
-    referenceAudios: ReferenceMediaItem[],
-): DomesticGenerationMode {
-    if (savedMode === 'first-last-frame' || savedMode === 'omni-reference') {
-        return savedMode;
-    }
-
-    if (referenceVideos.length > 0 || referenceAudios.length > 0) {
-        return 'omni-reference';
-    }
-
-    if (frameImages.some((item) => item.imageType === 'first_frame' || item.imageType === 'last_frame')) {
-        return 'first-last-frame';
-    }
-
-    return 'omni-reference';
-}
-
-function buildPromptMentions(params: {
-    useFrameLabels: boolean;
-    frameImages: FrameImage[];
-    referenceVideos: ReferenceMediaItem[];
-    referenceAudios: ReferenceMediaItem[];
-}): PromptMention[] {
-    const { useFrameLabels, frameImages, referenceVideos, referenceAudios } = params;
-    const mentions: PromptMention[] = [];
-
-    frameImages.forEach((item, index) => {
-        const token = `@参考图${index + 1}`;
-        if (useFrameLabels) {
-            const slotLabel = item.imageType === 'last_frame' ? '尾帧' : '首帧';
-            mentions.push({
-                id: item.id,
-                token,
-                replacement: `第${index + 1}张参考图(${slotLabel})`,
-                label: `输入 ${token} 引用这张${slotLabel}参考图`,
-                name: item.name,
-                kind: 'image',
-                previewImage: item.image,
-                searchText: `${token} 参考图${index + 1} ${slotLabel} ${item.name}`.toLowerCase(),
-            });
-            return;
-        }
-
-        mentions.push({
-            id: item.id,
-            token,
-            replacement: `第${index + 1}张参考图`,
-            label: `输入 ${token} 引用这张参考图`,
-            name: item.name,
-            kind: 'image',
-            previewImage: item.image,
-            searchText: `${token} 参考图${index + 1} ${item.name}`.toLowerCase(),
-        });
-    });
-
-    referenceVideos.forEach((item, index) => {
-        const indexLabel = `视频${index + 1}`;
-        mentions.push({
-            id: item.id,
-            token: `@${indexLabel}`,
-            replacement: `参考视频${index + 1}(${item.name})`,
-            label: `输入 @${indexLabel} 引用这条参考视频`,
-            name: item.name,
-            kind: 'video',
-            searchText: `@${indexLabel} 参考视频${index + 1} ${item.name}`.toLowerCase(),
-        });
-    });
-
-    referenceAudios.forEach((item, index) => {
-        const indexLabel = `音频${index + 1}`;
-        mentions.push({
-            id: item.id,
-            token: `@${indexLabel}`,
-            replacement: `参考音频${index + 1}(${item.name})`,
-            label: `输入 @${indexLabel} 引用这条参考音频`,
-            name: item.name,
-            kind: 'audio',
-            searchText: `@${indexLabel} 参考音频${index + 1} ${item.name}`.toLowerCase(),
-        });
-    });
-
-    return mentions;
-}
-
-function resolveNextFrameSlotType(frameImages: FrameImage[]): 'first_frame' | 'last_frame' {
-    const hasFirstFrame = frameImages.some((item) => item.imageType === 'first_frame');
-    return hasFirstFrame ? 'last_frame' : 'first_frame';
-}
-
-function buildFrameSlotSequence(frameImages: FrameImage[], count: number): Array<'first_frame' | 'last_frame'> {
-    const sequence: Array<'first_frame' | 'last_frame'> = [];
-    let hasFirstFrame = frameImages.some((item) => item.imageType === 'first_frame');
-    let hasLastFrame = frameImages.some((item) => item.imageType === 'last_frame');
-
-    for (let index = 0; index < count; index += 1) {
-        if (!hasFirstFrame) {
-            sequence.push('first_frame');
-            hasFirstFrame = true;
-            continue;
-        }
-
-        if (!hasLastFrame) {
-            sequence.push('last_frame');
-            hasLastFrame = true;
-            continue;
-        }
-
-        break;
-    }
-
-    return sequence;
-}
-
-function getPromptMentionPlaceholder(params: {
-    usesFrameImages: boolean;
-    isDomesticOmniMode: boolean;
-}): string {
-    if (params.isDomesticOmniMode) {
-        return '描述视频内容，输入 @ 引用参考图、参考视频或参考音频...';
-    }
-
-    if (params.usesFrameImages) {
-        return '描述视频内容，输入 @ 引用首帧或尾帧参考图...';
-    }
-
-    return '描述视频内容，输入 @ 引用参考图...';
-}
-
-function getPromptMentionPanelTitle(isDomesticOmniMode: boolean): string {
-    return isDomesticOmniMode ? '可引用的参考素材' : '可引用的参考图';
-}
-
-function getPromptMentionEmptyState(params: {
-    usesFrameImages: boolean;
-    isDomesticOmniMode: boolean;
-}): string {
-    if (params.isDomesticOmniMode) {
-        return '先添加参考图、参考视频或参考音频，再输入 @ 进行引用';
-    }
-
-    if (params.usesFrameImages) {
-        return '先添加首帧或尾帧参考图，再输入 @ 进行引用';
-    }
-
-    return '先添加参考图，再输入 @ 进行引用';
-}
-
-function resolvePromptMentionQuery(value: string, caretIndex: number): PromptMentionQuery | null {
-    return resolveTextareaMentionQuery(value, caretIndex);
-}
 
 interface VideoGeneratorPanelProps {
     elementId: string;
@@ -492,17 +122,10 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     // Read initial values from element
     const currentElement = findGeneratorElement(canvasElements, elementId);
-    const initialFrameImages = useMemo<FrameImage[]>(() => {
-        if (!currentElement?.savedFrameImages) {
-            return [];
-        }
-
-        try {
-            return JSON.parse(currentElement.savedFrameImages) as FrameImage[];
-        } catch {
-            return [];
-        }
-    }, [currentElement?.savedFrameImages]);
+    const initialFrameImages = useMemo<FrameImage[]>(
+        () => parseStoredFrameImages(currentElement?.savedFrameImages),
+        [currentElement?.savedFrameImages],
+    );
     const initialReferenceVideos = useMemo(
         () => parseStoredReferenceMedia(currentElement?.savedReferenceVideos, 'video'),
         [currentElement?.savedReferenceVideos],
@@ -585,24 +208,24 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         setShowRecoveryPanel(false);
     }, []);
 
-    const aspectRatios = getAspectRatioOptions(model);
-    const durations = getDurationOptions(model);
-    const resolutionOptions = getResolutionOptions(model);
+    const aspectRatios = getVideoAspectRatioOptions(model);
+    const durations = getVideoDurationOptions(model);
+    const resolutionOptions = getVideoResolutionOptions(model);
     const isDomesticModel = isDomesticMultimodalVideoModel(model);
     const isDomesticFirstLastMode = isDomesticModel && domesticMode === 'first-last-frame';
     const isDomesticOmniMode = isDomesticModel && domesticMode === 'omni-reference';
     const usesReferenceImages = isComponentsVideoModel(model) || isDomesticOmniMode;
     const usesFrameImages = !usesReferenceImages;
-    const maxImageSlots = isDomesticFirstLastMode ? 2 : getMaxImagesForModel(model);
+    const maxImageSlots = isDomesticFirstLastMode ? 2 : getMaxImagesForVideoModel(model);
     const projectVideoLibrary = useMemo(() => dedupeMediaItems(projectMediaItems, 'video'), [projectMediaItems]);
     const projectAudioLibrary = useMemo(() => dedupeMediaItems(projectMediaItems, 'audio'), [projectMediaItems]);
     const resourceLibraryCount = projectReferenceImages.length + (isDomesticModel ? projectVideoLibrary.length + projectAudioLibrary.length : 0);
     const canAddMoreImages = frameImages.length < maxImageSlots;
-    const canAddMoreVideos = isDomesticOmniMode && referenceVideos.length < getMaxVideosForModel(model);
-    const canAddMoreAudios = isDomesticOmniMode && referenceAudios.length < getMaxAudiosForModel(model);
+    const canAddMoreVideos = isDomesticOmniMode && referenceVideos.length < getMaxVideosForVideoModel(model);
+    const canAddMoreAudios = isDomesticOmniMode && referenceAudios.length < getMaxAudiosForVideoModel(model);
     const canAddMoreReferences = canAddMoreImages || canAddMoreVideos || canAddMoreAudios;
     const isReferenceUploadBusy = uploadingReferenceKind !== null;
-    const basePromptMentions = useMemo(() => buildPromptMentions({
+    const basePromptMentions = useMemo(() => buildVideoPromptMentions({
         useFrameLabels: usesFrameImages,
         frameImages,
         referenceVideos,
@@ -732,46 +355,22 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         });
     }, [isDomesticFirstLastMode, isDomesticModel, resourceLibraryTab]);
 
-    usePersistGeneratorValue({ elementId, key: 'selectedModel', value: model, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedAspectRatio', value: aspectRatio, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedDuration', value: duration, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedEnhancePrompt', value: enhancePrompt, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedDomesticMode', value: isDomesticModel ? domesticMode : undefined, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedResolution', value: resolution, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedGenerateAudio', value: generateAudio, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'savedPrompt', value: prompt, onElementChange, skipInitial: true, debounceMs: 160 });
-    usePersistGeneratorValue({
+    useVideoGeneratorPanelPersistence({
         elementId,
-        key: 'savedPromptMentionBindings',
-        value: promptMentionBindings,
+        model,
+        aspectRatio,
+        duration,
+        enhancePrompt,
+        domesticMode,
+        isDomesticModel,
+        resolution,
+        generateAudio,
+        prompt,
+        promptMentionBindings,
+        frameImages,
+        referenceVideos,
+        referenceAudios,
         onElementChange,
-        skipInitial: true,
-        serialize: (value) => value.length > 0 ? JSON.stringify(value) : undefined,
-        debounceMs: 120,
-    });
-    usePersistGeneratorValue({
-        elementId,
-        key: 'savedFrameImages',
-        value: frameImages,
-        onElementChange,
-        skipInitial: true,
-        serialize: serializeFrameImages,
-    });
-    usePersistGeneratorValue({
-        elementId,
-        key: 'savedReferenceVideos',
-        value: referenceVideos,
-        onElementChange,
-        skipInitial: true,
-        serialize: serializeReferenceMedia,
-    });
-    usePersistGeneratorValue({
-        elementId,
-        key: 'savedReferenceAudios',
-        value: referenceAudios,
-        onElementChange,
-        skipInitial: true,
-        serialize: serializeReferenceMedia,
     });
 
     useEffect(() => {
@@ -1302,7 +901,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
         if (kind === 'video') {
             setReferenceVideos((prev) => {
-                if (prev.some((entry) => entry.url === normalizedUrl) || prev.length >= getMaxVideosForModel(model)) {
+                if (prev.some((entry) => entry.url === normalizedUrl) || prev.length >= getMaxVideosForVideoModel(model)) {
                     return prev;
                 }
                 return [...prev, item];
@@ -1311,7 +910,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         }
 
         setReferenceAudios((prev) => {
-            if (prev.some((entry) => entry.url === normalizedUrl) || prev.length >= getMaxAudiosForModel(model)) {
+            if (prev.some((entry) => entry.url === normalizedUrl) || prev.length >= getMaxAudiosForVideoModel(model)) {
                 return prev;
             }
             return [...prev, item];
@@ -1344,13 +943,13 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     }, [addReferenceAsset, onRecordProjectMediaItem]);
 
     const handleVideoFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []).slice(0, Math.max(0, getMaxVideosForModel(model) - referenceVideos.length));
+        const files = Array.from(event.target.files || []).slice(0, Math.max(0, getMaxVideosForVideoModel(model) - referenceVideos.length));
         event.target.value = '';
         await handleUploadReferenceFiles(files, 'video');
     };
 
     const handleAudioFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(event.target.files || []).slice(0, Math.max(0, getMaxAudiosForModel(model) - referenceAudios.length));
+        const files = Array.from(event.target.files || []).slice(0, Math.max(0, getMaxAudiosForVideoModel(model) - referenceAudios.length));
         event.target.value = '';
         await handleUploadReferenceFiles(files, 'audio');
     };
@@ -1400,46 +999,13 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         setReferenceAudios((prev) => prev.filter((item) => item.id !== id));
     };
 
-    const getImageTypeLabel = (type: string) => {
-        switch (type) {
-            case 'first_frame': return '首帧';
-            case 'last_frame': return '尾帧';
-            case 'reference': return '参考';
-            default: return type;
-        }
-    };
-
-    // Available image types for frame-based Veo models and国产首尾帧模式
-    const getAvailableImageTypes = () => {
-        if (usesReferenceImages) return [{ value: 'reference' as const, label: '参考图' }];
-        const types: { value: 'first_frame' | 'last_frame'; label: string }[] = [];
-        if (!frameImages.find(fi => fi.imageType === 'first_frame')) types.push({ value: 'first_frame', label: '首帧' });
-        if (!frameImages.find(fi => fi.imageType === 'last_frame')) types.push({ value: 'last_frame', label: '尾帧' });
-        return types;
-    };
-
     const activeResourceTab: ResourceLibraryTab = isDomesticOmniMode ? resourceLibraryTab : 'image';
-    const referencePreviewItems = useMemo(() => [
-        ...frameImages.map((item) => ({
-            id: item.id,
-            kind: 'image' as const,
-            title: item.name,
-            subtitle: getImageTypeLabel(item.imageType),
-            previewImage: item.image,
-        })),
-        ...referenceVideos.map((item) => ({
-            id: item.id,
-            kind: 'video' as const,
-            title: item.name,
-            subtitle: '视频参考',
-        })),
-        ...referenceAudios.map((item) => ({
-            id: item.id,
-            kind: 'audio' as const,
-            title: item.name,
-            subtitle: '音频参考',
-        })),
-    ], [frameImages, referenceAudios, referenceVideos]);
+    const availableImageTypes = useMemo(() => getAvailableFrameImageTypes(frameImages, usesReferenceImages), [frameImages, usesReferenceImages]);
+    const referencePreviewItems = useMemo(() => buildVideoReferencePreviewItems({
+        frameImages,
+        referenceVideos,
+        referenceAudios,
+    }), [frameImages, referenceAudios, referenceVideos]);
 
     return (
         <div
@@ -1523,12 +1089,11 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                             items={referencePreviewItems}
                             canAddMore={canAddMoreReferences}
                             isAddBusy={isReferenceUploadBusy}
-                            addButtonTitle={getAddImageTitle(model, domesticMode)}
+                            addButtonTitle={getVideoAddImageTitle(model, domesticMode)}
                             confirmClear={confirmClear}
                             clearTitle="清空素材"
                             onAdd={() => {
-                                const types = getAvailableImageTypes();
-                                if (types.length > 0) setAddImageType(types[0].value);
+                                if (availableImageTypes.length > 0) setAddImageType(availableImageTypes[0].value);
                                 const next = !showAddImageMenu;
                                 closeAllMenus();
                                 setShowAddImageMenu(next);
@@ -1549,11 +1114,11 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                     {/* Add image menu (positioned outside overflow container) */}
                     {showAddImageMenu && (
                         <div className="absolute bottom-[48px] left-3 bg-white/96 backdrop-blur-xl rounded-[14px] shadow-lg border border-slate-200/60 py-1 z-50 min-w-[160px]" data-popover-menu>
-                            {usesFrameImages && getAvailableImageTypes().length > 1 && (
+                            {usesFrameImages && availableImageTypes.length > 1 && (
                                 <>
                                     <div className="px-2 py-1 text-[10px] text-slate-400 uppercase">帧类型</div>
                                     <div className="flex gap-1 px-2 pb-1">
-                                        {getAvailableImageTypes().map(t => (
+                                        {availableImageTypes.map(t => (
                                             <button key={t.value} onClick={() => setAddImageType(t.value)} className={`px-2 py-0.5 text-xs rounded-md transition-colors ${addImageType === t.value ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{t.label}</button>
                                         ))}
                                     </div>
@@ -1618,15 +1183,15 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                             <div className="w-3.5 h-3.5 rounded-full bg-black flex items-center justify-center flex-shrink-0">
                                 <Video size={8} className="text-white" />
                             </div>
-                            <span className="whitespace-nowrap">{MODEL_LABELS[model]}</span>
+                            <span className="whitespace-nowrap">{VIDEO_MODEL_LABELS[model]}</span>
                             <ChevronDown size={11} className="text-slate-400" />
                         </button>
                         {showModelMenu && (
                             <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-[14px] shadow-lg border border-slate-200/60 py-1 z-30 min-w-[200px]">
-                                {(Object.keys(MODEL_LABELS) as VideoModel[]).map((m) => (
+                                {VIDEO_MODEL_OPTIONS.map((m) => (
                                     <div key={m} onClick={() => { setModel(m); setShowModelMenu(false); }} className={`px-3 py-2 cursor-pointer hover:bg-slate-50 rounded-lg mx-1 transition-colors ${model === m ? 'bg-slate-50' : ''}`}>
-                                        <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{MODEL_LABELS[m]}</div>
-                                        <div className="text-[10px] text-slate-400 mt-0.5">{MODEL_DESC[m]}</div>
+                                            <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{VIDEO_MODEL_LABELS[m]}</div>
+                                            <div className="text-[10px] text-slate-400 mt-0.5">{VIDEO_MODEL_DESC[m]}</div>
                                     </div>
                                 ))}
                             </div>
@@ -1772,10 +1337,10 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                                         </div>
                                     )}
 
-                                    {activeResourceTab === 'image' && usesFrameImages && getAvailableImageTypes().length > 0 && (
+                                    {activeResourceTab === 'image' && usesFrameImages && availableImageTypes.length > 0 && (
                                         <div className="px-3 py-1.5 border-b border-slate-100 flex items-center gap-1.5">
                                             <span className="text-[10px] text-slate-400">帧类型:</span>
-                                            {getAvailableImageTypes().map((typeOption) => (
+                                            {availableImageTypes.map((typeOption) => (
                                                 <button key={typeOption.value} type="button" onClick={() => setAddImageType(typeOption.value)} className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${addImageType === typeOption.value ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{typeOption.label}</button>
                                             ))}
                                         </div>

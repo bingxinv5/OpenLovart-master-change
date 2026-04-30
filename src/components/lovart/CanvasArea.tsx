@@ -1,28 +1,27 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ContextToolbar } from './ContextToolbar';
 import { v4 as uuidv4 } from 'uuid';
-import { MousePointerClick, Frame, AlignStartVertical, AlignEndVertical, AlignCenterHorizontal, AlignStartHorizontal, AlignEndHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Eye } from 'lucide-react';
+import { MousePointerClick, AlignStartVertical, AlignEndVertical, AlignCenterHorizontal, AlignStartHorizontal, AlignEndHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Eye } from 'lucide-react';
 import { isImageRef, getImageDataUrl, type SpatialIndex } from '@/lib/editor-kernel';
 import { CanvasElementRenderer, type ElementHandlers } from './CanvasElementRenderer';
 import { CanvasMinimap } from './CanvasMinimap';
-import { renderPathPoints } from './canvas-ui-utils';
-import type { CanvasElement, CanvasFrameElement } from './canvas-types';
-import { isCanvasElementOfType } from './canvas-types';
+import type { CanvasElement } from './canvas-types';
 import type { AlignmentDirection, DistributionAxis, LayoutSelectionMode } from './canvas-alignment';
-import { getElementsBounds, computeAlignment, computeDistribution, computeEqualSpacing, computeLayoutSelection, getDescendantIds as _getDescendantIds } from './canvas-alignment';
-import { computeFrameLayout } from './canvas-frame-layout';
 import { buildCanvasElementIndex } from './canvas-element-index';
 import { buildCanvasRenderPlan } from './canvas-render-plan';
 import { getTopElementAtCanvasPoint } from './canvas-hit-test';
 import { computeFitViewport } from './canvas-viewport-utils';
-import { CanvasAlignGuides, useCanvasAlignGuides } from './CanvasAlignGuides';
-import { canUseScreenSpaceResizeOverlayForElement, ScreenSpaceResizeOverlay } from './ScreenSpaceResizeOverlay';
+import { useCanvasAlignGuides } from './CanvasAlignGuides';
+import { canUseScreenSpaceResizeOverlayForElement } from './ScreenSpaceResizeOverlay';
 import { CanvasContextMenu, useCanvasContextMenu } from './CanvasContextMenu';
-import { ImagePreviewPanel, useImageHoverPreview, VideoPlaybackOverlay } from './CanvasMediaOverlays';
+import { useImageHoverPreview } from './CanvasMediaOverlays';
 import { MultiSelectionToolbar } from './MultiSelectionToolbar';
 import { useCanvasPointerInteraction } from './use-canvas-pointer-interaction';
 import type { CanvasAreaDomains, CanvasRenderMetrics } from './canvas-area-domains';
 import { useCanvasTestEventBridge } from './use-canvas-test-event-bridge';
+import { useCanvasSelectionLayoutActions } from './use-canvas-selection-layout-actions';
+import { useCanvasFrameActions } from './use-canvas-frame-actions';
+import { CanvasAreaViewportOverlays, CanvasAreaWorldOverlays } from './CanvasAreaOverlays';
 
 function serializeRenderMetrics(metrics: CanvasRenderMetrics) {
     return JSON.stringify(metrics);
@@ -76,137 +75,22 @@ export const CanvasArea = React.memo(function CanvasArea({
 
     const { alignGuides, flashAlignGuides, setAlignGuidesIfChanged } = useCanvasAlignGuides(ALIGN_GUIDE_FLASH_MS);
 
-    const selectedRenderableElements = useMemo(() => {
-        return elements.filter((element) => selectedIds.includes(element.id) && element.type !== 'connector');
-    }, [elements, selectedIds]);
-
-    const applyElementChanges = useCallback((changes: { id: string; attrs: Partial<CanvasElement> }[]) => {
-        if (changes.length === 0) return;
-
-        if (onBatchElementChange) {
-            onBatchElementChange(changes);
-            return;
-        }
-
-        changes.forEach((change) => onElementChange(change.id, change.attrs));
-    }, [onBatchElementChange, onElementChange]);
-
-    // ========== Alignment & Distribution Functions ==========
-    // Get bounding box for selected elements
-    const getSelectedBounds = useCallback(() => {
-        return getElementsBounds(selectedRenderableElements);
-    }, [selectedRenderableElements]);
-
-    // Align selected elements
-    const alignElements = useCallback((direction: AlignmentDirection) => {
-        const { changes, guides } = computeAlignment(selectedRenderableElements, direction);
-        if (changes.length > 0) applyElementChanges(changes);
-        if (guides.length > 0) flashAlignGuides(guides);
-    }, [selectedRenderableElements, applyElementChanges, flashAlignGuides]);
-
-    // Distribute selected elements evenly
-    const distributeElements = useCallback((axis: DistributionAxis) => {
-        const { changes, guides } = computeDistribution(selectedRenderableElements, axis);
-        if (changes.length > 0) applyElementChanges(changes);
-        if (guides.length > 0) flashAlignGuides(guides);
-    }, [selectedRenderableElements, applyElementChanges, flashAlignGuides]);
-
-    // Equal spacing distribution - set equal gaps between elements
-    const equalSpacing = useCallback((axis: DistributionAxis, spacing?: number) => {
-        const changes = computeEqualSpacing(selectedRenderableElements, axis, spacing);
-        if (changes.length > 0) applyElementChanges(changes);
-    }, [selectedRenderableElements, applyElementChanges]);
-
-    // Pending auto-layout: store frame IDs that need re-layout after state update
-    const pendingAutoLayoutRef = useRef<Set<string>>(new Set());
-
-    // Schedule an auto-layout for a frame (will run after next elements update via useEffect)
-    const scheduleAutoLayout = useCallback((frameId: string) => {
-        pendingAutoLayoutRef.current.add(frameId);
-    }, []);
-
-    // Auto-layout function: arrange all children within a frame using justified row layout
-    // Preserves element aspect ratios; auto-resizes the frame to fit content
-    // Helper: collect all descendant element IDs of a given frame (recursive)
-    const getDescendantIds = useCallback((parentId: string): string[] => {
-        return _getDescendantIds(parentId, elements);
-    }, [elements]);
-
-    const moveElementToFrame = useCallback((elementId: string, targetFrameId?: string) => {
-        const element = elements.find(el => el.id === elementId);
-        if (!element || element.type === 'connector') return;
-
-        const nextFrameId = targetFrameId || undefined;
-        if ((element.parentFrameId || undefined) === nextFrameId) {
-            return;
-        }
-
-        if (nextFrameId) {
-            const targetFrame = elements.find(el => el.id === nextFrameId && el.type === 'frame');
-            if (!targetFrame || elementId === nextFrameId) {
-                return;
-            }
-
-            const ownDescendants = element.type === 'frame'
-                ? new Set(getDescendantIds(element.id))
-                : new Set<string>();
-            if (ownDescendants.has(nextFrameId)) {
-                return;
-            }
-
-            onElementChange(elementId, { parentFrameId: nextFrameId });
-            if (targetFrame.frameAutoLayout) {
-                scheduleAutoLayout(targetFrame.id);
-            }
-
-            if (element.parentFrameId) {
-                const oldFrame = elements.find(frame => frame.id === element.parentFrameId && frame.type === 'frame');
-                if (oldFrame?.frameAutoLayout) {
-                    scheduleAutoLayout(oldFrame.id);
-                }
-            }
-            return;
-        }
-
-        const oldFrameId = element.parentFrameId;
-        onElementChange(elementId, { parentFrameId: undefined });
-        if (oldFrameId) {
-            const oldFrame = elements.find(frame => frame.id === oldFrameId && frame.type === 'frame');
-            if (oldFrame?.frameAutoLayout) {
-                scheduleAutoLayout(oldFrameId);
-            }
-        }
-    }, [elements, getDescendantIds, onElementChange, scheduleAutoLayout]);
-
-    const autoLayoutFrame = useCallback((frameId: string) => {
-        const frame = elements.find((element): element is CanvasFrameElement => element.id === frameId && isCanvasElementOfType(element, 'frame'));
-        if (!frame) return;
-        const children = elements.filter(c => c.parentFrameId === frameId && c.type !== 'connector');
-        if (children.length === 0) return;
-
-        const changes = computeFrameLayout(frame, children, elements);
-        applyElementChanges(changes);
-    }, [applyElementChanges, elements]);
-
-    const layoutSelection = useCallback((mode: LayoutSelectionMode) => {
-        const { changes, guides } = computeLayoutSelection(elements, selectedIds, mode, MULTI_LAYOUT_GAP);
-        if (changes.length > 0) applyElementChanges(changes);
-        if (guides.length > 0) flashAlignGuides(guides);
-    }, [MULTI_LAYOUT_GAP, applyElementChanges, elements, selectedIds, flashAlignGuides]);
-
-    // useEffect: run pending auto-layouts after elements state has updated
-    useEffect(() => {
-        if (pendingAutoLayoutRef.current.size > 0) {
-            const frameIds = Array.from(pendingAutoLayoutRef.current);
-            pendingAutoLayoutRef.current.clear();
-            frameIds.forEach(fid => {
-                const frame = elements.find(e => e.id === fid && e.type === 'frame' && e.frameAutoLayout);
-                if (frame) {
-                    autoLayoutFrame(fid);
-                }
-            });
-        }
-    }, [elements, autoLayoutFrame]);
+    const {
+        selectedRenderableElements,
+        applyElementChanges,
+        getSelectedBounds,
+        alignElements,
+        distributeElements,
+        equalSpacing,
+        layoutSelection,
+    } = useCanvasSelectionLayoutActions({
+        elements,
+        selectedIds,
+        onElementChange,
+        onBatchElementChange,
+        flashAlignGuides,
+        multiLayoutGap: MULTI_LAYOUT_GAP,
+    });
 
     const {
         contextMenu,
@@ -223,36 +107,17 @@ export const CanvasArea = React.memo(function CanvasArea({
     const outerRef = useRef<HTMLDivElement>(null);
     const elementsContainerRef = useRef<HTMLDivElement>(null);
 
-    const addFrameAtPosition = useCallback((cx: number, cy: number, width: number = 400, height: number = 300) => {
-        const frameId = uuidv4();
-        const frameX = cx - Math.round(width / 2);
-        const frameY = cy - Math.round(height / 2);
-        const frame: CanvasElement = {
-            id: frameId,
-            type: 'frame',
-            x: frameX,
-            y: frameY,
-            width,
-            height,
-            framePreset: 'Custom',
-            frameBgColor: '#FFFFFF',
-            frameClip: true,
-            frameName: 'Frame',
-        };
-        onAddElement(frame);
-        onSelect([frame.id]);
-        elements.forEach(el => {
-            if (el.type === 'connector') return;
-            const elCenterX = el.x + (el.width || 0) / 2;
-            const elCenterY = el.y + (el.height || 0) / 2;
-            if (elCenterX >= frameX && elCenterX <= frameX + width &&
-                elCenterY >= frameY && elCenterY <= frameY + height) {
-                if (!el.parentFrameId) {
-                    onElementChange(el.id, { parentFrameId: frameId });
-                }
-            }
-        });
-    }, [elements, onAddElement, onElementChange, onSelect]);
+    const {
+        scheduleAutoLayout,
+        moveElementToFrame,
+        addFrameAtPosition,
+    } = useCanvasFrameActions({
+        elements,
+        onElementChange,
+        onAddElement,
+        onSelect,
+        applyElementChanges,
+    });
 
     useCanvasTestEventBridge({
         rootRef: outerRef,
@@ -440,8 +305,6 @@ export const CanvasArea = React.memo(function CanvasArea({
 
 
     const selectedElement = elements.find(el => selectedIds.includes(el.id)); // For context toolbar (just show first for now)
-
-    const renderPath = renderPathPoints;
 
     // ── Fit single element into viewport (double-click zoom) ──
     const fitViewportToBounds = useCallback((bounds: { minX: number; minY: number; width: number; height: number }, maxScale = 2.5) => {
@@ -1361,77 +1224,25 @@ export const CanvasArea = React.memo(function CanvasArea({
                     )}
                 </div>
 
-                {/* Current Drawing Path */}
-                {currentPath && (
-                    <div className="absolute inset-0 pointer-events-none z-50">
-                        <svg className="w-full h-full overflow-visible">
-                            <path
-                                d={renderPath(currentPath.points)}
-                                stroke="#000000"
-                                strokeWidth={3}
-                                fill="none"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                            />
-                        </svg>
-                    </div>
-                )}
-
-                <CanvasAlignGuides guides={alignGuides} />
-
-                {/* Frame Drawing Preview */}
-                {frameDrawBox && (
-                    <div
-                        className="absolute pointer-events-none z-50"
-                        style={{
-                            left: Math.min(frameDrawBox.startX, frameDrawBox.currentX),
-                            top: Math.min(frameDrawBox.startY, frameDrawBox.currentY),
-                            width: Math.abs(frameDrawBox.currentX - frameDrawBox.startX),
-                            height: Math.abs(frameDrawBox.currentY - frameDrawBox.startY),
-                            border: '2px dashed #3B82F6',
-                            backgroundColor: 'rgba(59,130,246,0.05)',
-                        }}
-                    >
-                        <div className="absolute -top-5 left-0 text-[10px] text-blue-500 font-medium flex items-center gap-1 whitespace-nowrap">
-                            <Frame size={10} />
-                            Frame {Math.round(Math.abs(frameDrawBox.currentX - frameDrawBox.startX))} × {Math.round(Math.abs(frameDrawBox.currentY - frameDrawBox.startY))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Placeholder Content - Removed */}
-                {elements.length === 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        {/* Content removed as per user request */}
-                    </div>
-                )}
+                <CanvasAreaWorldOverlays
+                    currentPath={currentPath}
+                    alignGuides={alignGuides}
+                    frameDrawBox={frameDrawBox}
+                    elementsLength={elements.length}
+                />
             </div>
 
-            <div
-                ref={selectionBoxOverlayRef}
-                data-testid="canvas-selection-box"
-                className="pointer-events-none absolute z-[120] border border-blue-500 bg-blue-500/10"
-                style={{ display: 'none' }}
-            />
-
-            {singleSelectionResizeOverlay && (
-                <ScreenSpaceResizeOverlay
-                    overlay={singleSelectionResizeOverlay}
-                    onResizeStart={handleScreenSpaceResizeStart}
-                />
-            )}
-
-            <VideoPlaybackOverlay
+            <CanvasAreaViewportOverlays
+                selectionBoxOverlayRef={selectionBoxOverlayRef}
+                singleSelectionResizeOverlay={singleSelectionResizeOverlay}
+                onResizeStart={handleScreenSpaceResizeStart}
                 elements={elements}
                 activeVideoId={activeVideoId}
                 scale={scale}
                 pan={pan}
-                onClose={() => setActiveVideoId(null)}
-            />
-
-            <ImagePreviewPanel
-                element={activeImagePreviewElement}
-                metrics={activeImagePreviewMetrics}
+                onCloseVideo={() => setActiveVideoId(null)}
+                activeImagePreviewElement={activeImagePreviewElement}
+                activeImagePreviewMetrics={activeImagePreviewMetrics}
             />
 
             {/* Right-click Context Menu */}
