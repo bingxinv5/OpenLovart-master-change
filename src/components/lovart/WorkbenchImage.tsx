@@ -10,6 +10,7 @@ import {
     getPriorityPreviewRequestPixels,
     getFinalRequestPixels,
     getPriorityFinalRequestPixels,
+    shouldRequestFinalLod,
 } from '@/lib/lod-request-utils';
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -22,6 +23,12 @@ type ImageLayer = {
 
 const ORIGINAL_IMAGE_REQUEST_PIXELS = Number.MAX_SAFE_INTEGER;
 const FINAL_LAYER_RETRY_DELAYS_MS = [0, 320, 800, 1600, 3200, 5000] as const;
+const DEFAULT_SCALE_SETTLE_DELAY_MS = 200;
+const PRIORITY_SCALE_SETTLE_DELAY_MS = 80;
+const DEFAULT_FINAL_UPGRADE_DELAY_MS = 140;
+const PRIORITY_FINAL_UPGRADE_DELAY_MS = 40;
+const DEFAULT_LAYER_PROMOTION_DELAY_MS = 180;
+const PRIORITY_LAYER_PROMOTION_DELAY_MS = 90;
 
 async function resolveImageLayerWithRetry(content: string, displayPixels: number, retries = 2, delayMs = 120): Promise<ImageLayer | null> {
     let result: { url: string; resolvedLevel: number | null } | null = null;
@@ -98,6 +105,8 @@ export interface WorkbenchImageProps extends Omit<React.ImgHTMLAttributes<HTMLIm
     displayPixels?: number;
     canvasScale?: number;
     prioritizeDetail?: boolean;
+    deferFinalUpgrade?: boolean;
+    detailRequestKey?: string | number;
     containerClassName?: string;
     imageClassName?: string;
     fit?: 'contain' | 'cover';
@@ -113,6 +122,8 @@ export function WorkbenchImage({
     displayPixels,
     canvasScale = 1,
     prioritizeDetail = false,
+    deferFinalUpgrade = false,
+    detailRequestKey,
     containerClassName,
     imageClassName,
     fit = 'contain',
@@ -132,6 +143,8 @@ export function WorkbenchImage({
     const currentContentRef = useRef<string | null>(null);
     /** 当前使用的 LOD 请求像素，用于检测降级 */
     const currentLodRef = useRef<number>(0);
+    const lastDetailRequestKeyRef = useRef<string | number | undefined>(undefined);
+    const detailRequestPendingRef = useRef(false);
     const promotionTimerRef = useRef<number | null>(null);
     const [activeLayer, setActiveLayer] = useState<ImageLayer | null>(null);
     const [pendingLayer, setPendingLayer] = useState<(ImageLayer & { visible: boolean }) | null>(null);
@@ -166,7 +179,15 @@ export function WorkbenchImage({
         ? getPriorityFinalRequestPixels(finalDisplayPixels, stableCanvasScale)
         : getFinalRequestPixels(finalDisplayPixels, stableCanvasScale);
     const preferredResolvedSrc = resolvedSrc?.trim() || null;
-    const shouldUpgradeToFinal = isNearViewport && isScaleSettled && stableCanvasScale > 0.18 && finalRequestPixels > previewRequestPixels;
+    const shouldUpgradeToFinal = shouldRequestFinalLod({
+        isNearViewport,
+        isScaleSettled,
+        canvasScale: stableCanvasScale,
+        previewRequestPixels,
+        finalRequestPixels,
+        prioritizeDetail,
+        deferFinalUpgrade,
+    });
     const usesImageStoreLod = !!content && isImageRef(content);
     // Remote/data URLs don't participate in the image-store LOD pipeline.
     // Re-running the load effect on hover would revoke the currently displayed blob URL and cause flicker.
@@ -326,11 +347,14 @@ export function WorkbenchImage({
             hasResolvedSrc: !!preferredResolvedSrc,
             isNearViewport,
             shouldUpgradeToFinal,
+            prioritizeDetail,
+            deferFinalUpgrade,
+            detailRequestKey,
             containerSize: containerSizeSummary,
             storedLevels: storedLevelSummary,
             loadState,
         });
-    }, [activeLayer, activeNaturalSize, classifyRawContent, containerSizeSummary, content, debugId, describeLayerSource, finalRequestPixels, formatLayerPixels, isNearViewport, loadState, pendingLayer, pendingNaturalSize, preferredResolvedSrc, previewRequestPixels, shouldUpgradeToFinal, storedLevelSummary]);
+    }, [activeLayer, activeNaturalSize, classifyRawContent, containerSizeSummary, content, debugId, deferFinalUpgrade, describeLayerSource, detailRequestKey, finalRequestPixels, formatLayerPixels, isNearViewport, loadState, pendingLayer, pendingNaturalSize, preferredResolvedSrc, previewRequestPixels, prioritizeDetail, shouldUpgradeToFinal, storedLevelSummary]);
 
     const commitResolvedLayer = useCallback((nextLayer: ImageLayer) => {
         const shouldKeepCurrentLayer = !!currentSrcRef.current
@@ -358,13 +382,14 @@ export function WorkbenchImage({
         }
 
         setIsScaleSettled(false);
+        const settleDelayMs = prioritizeDetail ? PRIORITY_SCALE_SETTLE_DELAY_MS : DEFAULT_SCALE_SETTLE_DELAY_MS;
         const timer = window.setTimeout(() => {
             setStableCanvasScale(canvasScale);
             setIsScaleSettled(true);
-        }, 200);
+        }, settleDelayMs);
 
         return () => window.clearTimeout(timer);
-    }, [canvasScale, stableCanvasScale]);
+    }, [canvasScale, prioritizeDetail, stableCanvasScale]);
 
     useEffect(() => {
         if (typeof window === 'undefined' || typeof window.IntersectionObserver === 'undefined') {
@@ -476,6 +501,22 @@ export function WorkbenchImage({
     }, [commitResolvedLayer, content, loadRequestPixels, preferredResolvedSrc, setLoadState]);
 
     useEffect(() => {
+        if (detailRequestKey === undefined) {
+            return;
+        }
+
+        if (Object.is(lastDetailRequestKeyRef.current, detailRequestKey)) {
+            return;
+        }
+
+        lastDetailRequestKeyRef.current = detailRequestKey;
+        detailRequestPendingRef.current = true;
+    }, [detailRequestKey]);
+
+    useEffect(() => {
+        const shouldUseImmediateUpgrade = detailRequestPendingRef.current;
+        detailRequestPendingRef.current = false;
+
         if (!content || !isImageRef(content) || !shouldUpgradeToFinal) {
             return;
         }
@@ -527,9 +568,15 @@ export function WorkbenchImage({
             }
         };
 
+        const upgradeDelayMs = shouldUseImmediateUpgrade
+            ? 0
+            : prioritizeDetail
+                ? PRIORITY_FINAL_UPGRADE_DELAY_MS
+                : DEFAULT_FINAL_UPGRADE_DELAY_MS;
+
         upgradeTimer = window.setTimeout(() => {
             void upgrade();
-        }, 140);
+        }, upgradeDelayMs);
 
         return () => {
             cancelled = true;
@@ -537,7 +584,7 @@ export function WorkbenchImage({
                 window.clearTimeout(upgradeTimer);
             }
         };
-    }, [content, finalRequestPixels, loadRequestPixels, setLoadState, shouldUpgradeToFinal]);
+    }, [content, detailRequestKey, finalRequestPixels, loadRequestPixels, prioritizeDetail, setLoadState, shouldUpgradeToFinal]);
 
     useEffect(() => {
         if (!pendingLayer?.visible) {
@@ -545,6 +592,7 @@ export function WorkbenchImage({
         }
 
         clearTimer(promotionTimerRef);
+        const promotionDelayMs = prioritizeDetail ? PRIORITY_LAYER_PROMOTION_DELAY_MS : DEFAULT_LAYER_PROMOTION_DELAY_MS;
         promotionTimerRef.current = window.setTimeout(() => {
             if (
                 currentContentRef.current === pendingLayer.content
@@ -559,10 +607,10 @@ export function WorkbenchImage({
             }
             setActiveLayer({ src: pendingLayer.src, content: pendingLayer.content, requestPixels: pendingLayer.requestPixels });
             setPendingLayer(null);
-        }, 180);
+        }, promotionDelayMs);
 
         return () => clearTimer(promotionTimerRef);
-    }, [pendingLayer]);
+    }, [pendingLayer, prioritizeDetail]);
 
     const surfaceStyle = !showSurface
         ? undefined
@@ -593,6 +641,9 @@ export function WorkbenchImage({
             data-image-has-resolved-src={preferredResolvedSrc ? '1' : '0'}
             data-image-near-viewport={isNearViewport ? '1' : '0'}
             data-image-should-upgrade={shouldUpgradeToFinal ? '1' : '0'}
+            data-image-priority-detail={prioritizeDetail ? '1' : '0'}
+            data-image-defer-final-upgrade={deferFinalUpgrade ? '1' : '0'}
+            data-image-detail-request-key={detailRequestKey === undefined ? undefined : String(detailRequestKey)}
             data-image-store-levels={storedLevelSummary ?? undefined}
             data-image-load-state={loadState}
             data-image-container-size={containerSizeSummary ?? undefined}

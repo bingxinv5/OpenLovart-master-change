@@ -5,7 +5,7 @@
  * its children, returns the position / size changes without side-effects.
  */
 
-import type { CanvasElement, FrameAutoLayoutMode, FrameAutoLayoutAlign } from './canvas-types';
+import type { CanvasElement, CanvasFrameElement, FrameAutoLayoutMode, FrameAutoLayoutAlign } from './canvas-types';
 import type { ElementChange } from './canvas-alignment';
 import { getDescendantIds } from './canvas-alignment';
 
@@ -38,7 +38,7 @@ interface RowInfo {
  * @returns Array of element changes to apply, including potential frame height change.
  */
 export function computeFrameLayout(
-    frame: CanvasElement,
+    frame: CanvasFrameElement,
     children: CanvasElement[],
     allElements: CanvasElement[],
 ): ElementChange[] {

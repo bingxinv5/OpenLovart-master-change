@@ -35,6 +35,7 @@ export type GeneratorCanvasElement = {
 	generatingError?: string;
 	sourceGenerationTaskId?: string;
 	sourceGenerationTaskType?: 'image' | 'video';
+	legacyMigrationVersion?: number;
 };
 
 export type ElementChangeHandler = (id: string, attrs: Record<string, unknown>) => void;

@@ -5,6 +5,7 @@
  */
 
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { isCanvasElementOfType } from '@/components/lovart/canvas-types';
 import { validateStoryboardDuration, validateStoryboardShotCode } from '@/lib/storyboard-utils';
 
 // ── Storyboard Utilities ─────────────────────────────────────
@@ -100,7 +101,7 @@ export function getStoryboardAuditState(element: CanvasElement) {
 }
 
 export function hasStoryboardGenerationSeed(element: CanvasElement) {
-    return element.type === 'image'
+    return isCanvasElementOfType(element, 'image')
         && !!element.content
         && !!(
             element.savedPrompt?.trim()

@@ -249,20 +249,6 @@ export function FloatingToolbar({ activeTool, onToolChange, onAddImage, onAddVid
                     </div>
                 </div>
 
-                <div className="h-px w-6 bg-slate-200/80" />
-
-                <button
-                    type="button"
-                    onClick={() => {
-                        setOpenMenu(null);
-                        onOpenImageGenerator();
-                    }}
-                    className="btn-generate flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-violet-700 text-white shadow-lg shadow-violet-600/25 transition-all hover:shadow-xl hover:shadow-violet-600/30 active:scale-95"
-                    title="图像生成器 (A)"
-                >
-                    <Sparkles size={16} />
-                </button>
-
                 {openMenu && (
                     <button
                         type="button"

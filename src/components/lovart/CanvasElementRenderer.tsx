@@ -239,10 +239,362 @@ export interface CanvasElementRendererProps {
     isGeneratorSubmitting: boolean;
     isResultHighlighted: boolean;
     isLayerOrderHighlighted: boolean;
+    deferImageDetailUpgrade?: boolean;
+    imageDetailRequestKey?: number;
     dragPreviewOffset?: { dx: number; dy: number } | null;
     zIndex?: number;
     /** Stable ref — identity never changes → React.memo skips re-render */
     handlersRef: React.RefObject<ElementHandlers>;
+}
+
+function ImageGeneratorElementRenderer({ el, isGeneratorSubmitting }: { el: CanvasElement; isGeneratorSubmitting: boolean }) {
+    const isBusy = !!(el.generatingTaskId || isGeneratorSubmitting);
+
+    return (
+        <div className={`w-full h-full border-2 rounded-xl flex flex-col items-center justify-center ${
+            isBusy ? 'bg-blue-100 border-blue-500' : 'bg-blue-50 border-blue-400'
+        } text-blue-500`}>
+            {isBusy ? (
+                <>
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-500 mb-3" />
+                    <div className="text-sm font-medium">
+                        {isGeneratorSubmitting && !el.generatingTaskId ? '正在提交图片请求...' : '正在生成图片...'}
+                    </div>
+                    {(el.generatingProgress || 0) > 0 && (
+                        <div className="text-xs opacity-70 mt-1">{el.generatingProgress}%</div>
+                    )}
+                </>
+            ) : (
+                <>
+                    <div className="w-20 h-20 mb-4 opacity-50">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
+                        </svg>
+                    </div>
+                    <div className="text-sm font-medium">图片生成器</div>
+                    <div className="text-xs opacity-70">{Math.round(el.width || 0)} x {Math.round(el.height || 0)}</div>
+                </>
+            )}
+        </div>
+    );
+}
+
+function StoryboardPlannerElementRenderer({ el, isGeneratorSubmitting }: { el: CanvasElement; isGeneratorSubmitting: boolean }) {
+    const isBusy = !!(el.generatingTaskId || isGeneratorSubmitting || el.generatingError);
+
+    return (
+        <div className={`h-full w-full rounded-xl border-2 text-sky-600 ${
+            (el.generatingTaskId || isGeneratorSubmitting)
+                ? 'border-sky-500 bg-[linear-gradient(180deg,rgba(224,242,254,0.96),rgba(186,230,253,0.92))]'
+                : el.generatingError
+                    ? 'border-rose-300 bg-[linear-gradient(180deg,rgba(255,241,242,0.96),rgba(255,228,230,0.92))] text-rose-600'
+                    : 'border-sky-400 bg-[linear-gradient(180deg,rgba(239,246,255,0.95),rgba(224,242,254,0.95))]'
+        }`}>
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+                {isBusy ? (
+                    <>
+                        <div className={`mb-4 flex h-20 w-20 items-center justify-center rounded-[26px] shadow-inner shadow-white/50 ${
+                            el.generatingError ? 'bg-rose-100/90 text-rose-600' : 'bg-sky-200/80 text-sky-600'
+                        }`}>
+                            {el.generatingError ? (
+                                <svg viewBox="0 0 24 24" fill="currentColor" className="h-10 w-10">
+                                    <path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 5a1.2 1.2 0 0 0-1.2 1.2v5.1A1.2 1.2 0 0 0 12 14.5a1.2 1.2 0 0 0 1.2-1.2V8.2A1.2 1.2 0 0 0 12 7zm0 10.2a1.35 1.35 0 1 0 0-2.7 1.35 1.35 0 0 0 0 2.7z" />
+                                </svg>
+                            ) : (
+                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-sky-200 border-t-sky-500" />
+                            )}
+                        </div>
+                        <div className="text-sm font-medium">
+                            {el.generatingError
+                                ? '宫格图生成失败'
+                                : isGeneratorSubmitting && !el.generatingTaskId
+                                    ? '正在提交宫格图请求...'
+                                    : '正在生成宫格图...'}
+                        </div>
+                        <div className="mt-1 text-xs opacity-80">
+                            {el.generatingError
+                                ? el.generatingError
+                                : (el.generatingProgress || 0) > 0
+                                    ? `${el.generatingProgress}%`
+                                    : '任务已进入生成队列'}
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-[26px] bg-sky-200/80 text-sky-600 shadow-inner shadow-white/50">
+                            <svg viewBox="0 0 24 24" fill="currentColor" className="h-10 w-10">
+                                <path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm2 3v2h2V8H6zm0 4v2h2v-2H6zm0 4v1h12v-1H6zm4-8v2h8V8h-8zm0 4v2h8v-2h-8z" />
+                            </svg>
+                        </div>
+                        <div className="text-sm font-medium">分镜规划器</div>
+                        <div className="mt-1 text-xs opacity-80">上传主图，拆解提示词，并生成宫格图片</div>
+                        <div className="mt-3 rounded-full bg-white/70 px-3 py-1 text-[11px] font-medium text-sky-700 shadow-sm">
+                            {Math.round(el.width || 0)} x {Math.round(el.height || 0)}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function VideoGeneratorElementRenderer({ el, isGeneratorSubmitting }: { el: CanvasElement; isGeneratorSubmitting: boolean }) {
+    const isBusy = !!(el.generatingTaskId || isGeneratorSubmitting);
+
+    return (
+        <div className={`w-full h-full border-2 rounded-xl flex flex-col items-center justify-center ${
+            isBusy ? 'bg-purple-100 border-purple-500 text-purple-500' : 'bg-blue-50 border-blue-400 text-blue-500'
+        }`}>
+            {isBusy ? (
+                <>
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-200 border-t-purple-500 mb-3" />
+                    <div className="text-sm font-medium">
+                        {isGeneratorSubmitting && !el.generatingTaskId ? '正在提交视频请求...' : '正在生成视频...'}
+                    </div>
+                    {(el.generatingProgress || 0) > 0 && (
+                        <div className="text-xs opacity-70 mt-1">{el.generatingProgress}%</div>
+                    )}
+                </>
+            ) : (
+                <>
+                    <div className="w-20 h-20 mb-4 opacity-50">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+                        </svg>
+                    </div>
+                    <div className="text-sm font-medium">视频生成器</div>
+                    <div className="text-xs opacity-70">{Math.round(el.width || 0)} x {Math.round(el.height || 0)}</div>
+                </>
+            )}
+        </div>
+    );
+}
+
+function ImageElementRenderer({
+    el,
+    resolvedImageSrc,
+    scale,
+    isHovered,
+    isSelected,
+    canGenerateFromImage,
+    storyboardStatus,
+    storyboardChips,
+    storyboardBadgeMeta,
+    shouldPrioritizeImageDetail,
+    shouldShowStoryboardBadge,
+    deferImageDetailUpgrade,
+    imageDetailRequestKey,
+}: {
+    el: CanvasElement;
+    resolvedImageSrc?: string;
+    scale: number;
+    isHovered: boolean;
+    isSelected: boolean;
+    canGenerateFromImage: boolean;
+    storyboardStatus: ReturnType<typeof getStoryboardStatus>;
+    storyboardChips: string[];
+    storyboardBadgeMeta: ReturnType<typeof getStoryboardBadgeMeta>;
+    shouldPrioritizeImageDetail: boolean;
+    shouldShowStoryboardBadge: boolean;
+    deferImageDetailUpgrade?: boolean;
+    imageDetailRequestKey?: number;
+}) {
+    if (!el.content) {
+        if (!el.generatingTaskId) return null;
+        return <ImageGeneratingElementRenderer el={el} />;
+    }
+
+    return (
+        <>
+            <WorkbenchImage
+                content={el.content}
+                debugId={el.id}
+                resolvedSrc={resolvedImageSrc}
+                displayPixels={Math.max(el.width || 400, el.height || 400) * scale}
+                canvasScale={scale}
+                prioritizeDetail={shouldPrioritizeImageDetail}
+                deferFinalUpgrade={deferImageDetailUpgrade}
+                detailRequestKey={imageDetailRequestKey}
+                alt="Upload"
+                containerClassName="w-full h-full rounded-lg"
+                imageClassName={`pointer-events-none rounded-lg transition-transform duration-200 ${isHovered && scale <= 0.18 ? 'scale-[1.08]' : ''}`}
+                fit={el.imageFit || 'contain'}
+                surfaceMode={el.imageSurface || 'checker'}
+                loading="lazy"
+                decoding="async"
+            />
+            {shouldShowStoryboardBadge && (
+                <div className="pointer-events-none absolute right-2 top-2 z-20">
+                    <div className={`rounded-full border px-2 py-1 text-[10px] font-semibold shadow-sm backdrop-blur-sm ${storyboardBadgeMeta.className}`}>
+                        {storyboardBadgeMeta.label}
+                    </div>
+                </div>
+            )}
+            {isSelected && (el.savedPrompt?.trim() || el.selectedModel?.trim() || canGenerateFromImage || storyboardStatus.hasAny) && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
+                    <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/40 to-transparent" />
+                    <div className="relative flex items-start px-3 pt-2.5">
+                        <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-1">
+                                <span className="rounded bg-white/20 px-1.5 py-px text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">AI</span>
+                                {buildImageMetaChips(el).map((chip, i) => (
+                                    <span key={`${el.id}-${chip}`} className="text-[10px] text-white/75">
+                                        {i > 0 ? '' : ''}{chip}
+                                    </span>
+                                ))}
+                            </div>
+                            {storyboardStatus.hasAny && (
+                                <div className="flex items-center gap-1">
+                                    <span className="rounded bg-amber-400/30 px-1.5 py-px text-[10px] font-bold text-amber-200 backdrop-blur-sm">分镜</span>
+                                    {storyboardChips.slice(0, 3).map((chip) => (
+                                        <span key={`${el.id}-sb-${chip}`} className="text-[10px] text-white/65">{chip}</span>
+                                    ))}
+                                    {storyboardStatus.hasValidationError ? (
+                                        <span className="rounded bg-rose-500/50 px-1 py-px text-[9px] font-semibold text-white backdrop-blur-sm">待修正</span>
+                                    ) : storyboardStatus.missingRequired.length > 0 ? (
+                                        <span className="text-[10px] text-amber-300/70">缺{storyboardStatus.missingRequired.join('/')}</span>
+                                    ) : (
+                                        <span className="text-[10px] text-emerald-300">✓</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+            {isSelected && el.savedPrompt?.trim() && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+                    <div className="bg-gradient-to-t from-black/50 to-transparent px-3 pb-3 pt-8">
+                        <div className="line-clamp-2 text-[11px] leading-[1.6] text-white/85 drop-shadow-sm">{el.savedPrompt}</div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}
+
+function ImageGeneratingElementRenderer({ el }: { el: CanvasElement }) {
+    return (
+        <div className="w-full h-full border-2 border-blue-400 bg-blue-50 rounded-xl flex flex-col items-center justify-center text-blue-500">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-500 mb-3" />
+            <div className="text-sm font-medium">正在生成图片...</div>
+            {(el.generatingProgress || 0) > 0 && (
+                <div className="text-xs opacity-70 mt-1">{el.generatingProgress}%</div>
+            )}
+        </div>
+    );
+}
+
+function VideoElementRenderer({ el }: { el: CanvasElement }) {
+    return (
+        <div className="relative w-full h-full rounded-lg overflow-hidden bg-gray-900 flex items-center justify-center">
+            {el.content ? (
+                <CanvasVideoPreview src={el.content} />
+            ) : (
+                <div className="flex flex-col items-center gap-2">
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-white/30 border-t-white/80" />
+                    <div className="text-white/60 text-xs">转码中...</div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function TextElementRenderer({
+    el,
+    isEditingText,
+    handlersRef,
+}: {
+    el: CanvasElement;
+    isEditingText: boolean;
+    handlersRef: React.RefObject<ElementHandlers>;
+}) {
+    const h = handlersRef.current!;
+    const textStyle = {
+        fontSize: el.fontSize || 24,
+        fontFamily: el.fontFamily || 'Inter',
+        color: el.color || '#000000',
+    };
+
+    return isEditingText ? (
+        <textarea
+            autoFocus
+            className="w-full h-full bg-transparent outline-none resize-none overflow-hidden"
+            style={textStyle}
+            value={el.content}
+            onChange={(e) => h.onElementChange(el.id, { content: e.target.value })}
+            onBlur={() => h.setEditingTextId(null)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+        />
+    ) : (
+        <div
+            className="w-full h-full whitespace-nowrap select-none flex items-center"
+            style={textStyle}
+        >
+            {el.content || '双击编辑文本'}
+        </div>
+    );
+}
+
+function ShapeElementRenderer({ el }: { el: CanvasElement }) {
+    return (
+        <div className="w-full h-full flex items-center justify-center">
+            {(!el.shapeType || el.shapeType === 'square') && (
+                <div className="w-full h-full" style={{ backgroundColor: el.color || '#9CA3AF' }} />
+            )}
+            {el.shapeType === 'circle' && (
+                <div className="w-full h-full rounded-full" style={{ backgroundColor: el.color || '#9CA3AF' }} />
+            )}
+            {el.shapeType === 'triangle' && (
+                <div
+                    className="w-0 h-0 border-l-[50px] border-r-[50px] border-b-[100px] border-l-transparent border-r-transparent"
+                    style={{
+                        borderBottomColor: el.color || '#9CA3AF',
+                        borderBottomWidth: el.height,
+                        borderLeftWidth: (el.width || 0) / 2,
+                        borderRightWidth: (el.width || 0) / 2,
+                    }}
+                />
+            )}
+            {el.shapeType === 'message' && (
+                <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}>
+                    <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
+                </svg>
+            )}
+            {el.shapeType === 'arrow-left' && (
+                <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}>
+                    <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                </svg>
+            )}
+            {el.shapeType === 'arrow-right' && (
+                <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}>
+                    <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" />
+                </svg>
+            )}
+        </div>
+    );
+}
+
+function PathElementRenderer({ el }: { el: CanvasElement }) {
+    if (!el.points) return null;
+
+    return (
+        <svg
+            className="w-full h-full overflow-visible pointer-events-none"
+            viewBox={`0 0 ${el.width} ${el.height}`}
+            preserveAspectRatio="none"
+        >
+            <path
+                d={renderPathPoints(el.points)}
+                stroke={el.color || '#000000'}
+                strokeWidth={el.strokeWidth || 3}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    );
 }
 
 /**
@@ -277,6 +629,8 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
         isGeneratorSubmitting,
         isResultHighlighted,
         isLayerOrderHighlighted,
+        deferImageDetailUpgrade = false,
+        imageDetailRequestKey,
         dragPreviewOffset,
         zIndex,
         handlersRef,
@@ -372,117 +726,16 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                         锁定
                     </div>
                 )}
-                {/* ── Image Generator Placeholder ── */}
                 {el.type === 'image-generator' && (
-                    <div className={`w-full h-full border-2 rounded-xl flex flex-col items-center justify-center ${
-                        (el.generatingTaskId || isGeneratorSubmitting) ? 'bg-blue-100 border-blue-500' : 'bg-blue-50 border-blue-400'
-                    } text-blue-500`}>
-                        {(el.generatingTaskId || isGeneratorSubmitting) ? (
-                            <>
-                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-500 mb-3" />
-                                <div className="text-sm font-medium">
-                                    {isGeneratorSubmitting && !el.generatingTaskId ? '正在提交图片请求...' : '正在生成图片...'}
-                                </div>
-                                {(el.generatingProgress || 0) > 0 && (
-                                    <div className="text-xs opacity-70 mt-1">{el.generatingProgress}%</div>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <div className="w-20 h-20 mb-4 opacity-50">
-                                    <svg viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
-                                    </svg>
-                                </div>
-                                <div className="text-sm font-medium">图片生成器</div>
-                                <div className="text-xs opacity-70">{Math.round(el.width || 0)} x {Math.round(el.height || 0)}</div>
-                            </>
-                        )}
-                    </div>
+                    <ImageGeneratorElementRenderer el={el} isGeneratorSubmitting={isGeneratorSubmitting} />
                 )}
 
                 {el.type === 'storyboard-planner' && (
-                    <div className={`h-full w-full rounded-xl border-2 text-sky-600 ${
-                        (el.generatingTaskId || isGeneratorSubmitting)
-                            ? 'border-sky-500 bg-[linear-gradient(180deg,rgba(224,242,254,0.96),rgba(186,230,253,0.92))]'
-                            : el.generatingError
-                                ? 'border-rose-300 bg-[linear-gradient(180deg,rgba(255,241,242,0.96),rgba(255,228,230,0.92))] text-rose-600'
-                                : 'border-sky-400 bg-[linear-gradient(180deg,rgba(239,246,255,0.95),rgba(224,242,254,0.95))]'
-                    }`}>
-                        <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-                            {(el.generatingTaskId || isGeneratorSubmitting || el.generatingError) ? (
-                                <>
-                                    <div className={`mb-4 flex h-20 w-20 items-center justify-center rounded-[26px] shadow-inner shadow-white/50 ${
-                                        el.generatingError ? 'bg-rose-100/90 text-rose-600' : 'bg-sky-200/80 text-sky-600'
-                                    }`}>
-                                        {el.generatingError ? (
-                                            <svg viewBox="0 0 24 24" fill="currentColor" className="h-10 w-10">
-                                                <path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 5a1.2 1.2 0 0 0-1.2 1.2v5.1A1.2 1.2 0 0 0 12 14.5a1.2 1.2 0 0 0 1.2-1.2V8.2A1.2 1.2 0 0 0 12 7zm0 10.2a1.35 1.35 0 1 0 0-2.7 1.35 1.35 0 0 0 0 2.7z" />
-                                            </svg>
-                                        ) : (
-                                            <div className="animate-spin rounded-full h-12 w-12 border-4 border-sky-200 border-t-sky-500" />
-                                        )}
-                                    </div>
-                                    <div className="text-sm font-medium">
-                                        {el.generatingError
-                                            ? '宫格图生成失败'
-                                            : isGeneratorSubmitting && !el.generatingTaskId
-                                                ? '正在提交宫格图请求...'
-                                                : '正在生成宫格图...'}
-                                    </div>
-                                    <div className="mt-1 text-xs opacity-80">
-                                        {el.generatingError
-                                            ? el.generatingError
-                                            : (el.generatingProgress || 0) > 0
-                                                ? `${el.generatingProgress}%`
-                                                : '任务已进入生成队列'}
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-[26px] bg-sky-200/80 text-sky-600 shadow-inner shadow-white/50">
-                                        <svg viewBox="0 0 24 24" fill="currentColor" className="h-10 w-10">
-                                            <path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm2 3v2h2V8H6zm0 4v2h2v-2H6zm0 4v1h12v-1H6zm4-8v2h8V8h-8zm0 4v2h8v-2h-8z" />
-                                        </svg>
-                                    </div>
-                                    <div className="text-sm font-medium">分镜规划器</div>
-                                    <div className="mt-1 text-xs opacity-80">上传主图，拆解提示词，并生成宫格图片</div>
-                                    <div className="mt-3 rounded-full bg-white/70 px-3 py-1 text-[11px] font-medium text-sky-700 shadow-sm">
-                                        {Math.round(el.width || 0)} x {Math.round(el.height || 0)}
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
+                    <StoryboardPlannerElementRenderer el={el} isGeneratorSubmitting={isGeneratorSubmitting} />
                 )}
 
-                {/* ── Video Generator Placeholder ── */}
                 {el.type === 'video-generator' && (
-                    <div className={`w-full h-full border-2 rounded-xl flex flex-col items-center justify-center ${
-                        (el.generatingTaskId || isGeneratorSubmitting) ? 'bg-purple-100 border-purple-500 text-purple-500' : 'bg-blue-50 border-blue-400 text-blue-500'
-                    }`}>
-                        {(el.generatingTaskId || isGeneratorSubmitting) ? (
-                            <>
-                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-200 border-t-purple-500 mb-3" />
-                                <div className="text-sm font-medium">
-                                    {isGeneratorSubmitting && !el.generatingTaskId ? '正在提交视频请求...' : '正在生成视频...'}
-                                </div>
-                                {(el.generatingProgress || 0) > 0 && (
-                                    <div className="text-xs opacity-70 mt-1">{el.generatingProgress}%</div>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <div className="w-20 h-20 mb-4 opacity-50">
-                                    <svg viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
-                                    </svg>
-                                </div>
-                                <div className="text-sm font-medium">视频生成器</div>
-                                <div className="text-xs opacity-70">{Math.round(el.width || 0)} x {Math.round(el.height || 0)}</div>
-                            </>
-                        )}
-                    </div>
+                    <VideoGeneratorElementRenderer el={el} isGeneratorSubmitting={isGeneratorSubmitting} />
                 )}
 
                 {/* ── Linked Element Highlight ── */}
@@ -497,168 +750,34 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     </>
                 )}
 
-                {/* ── Image Content ── */}
-                {el.type === 'image' && el.content && (
-                    <>
-                        <WorkbenchImage
-                            content={el.content}
-                            debugId={el.id}
-                            resolvedSrc={resolvedImageSrc}
-                            displayPixels={Math.max(el.width || 400, el.height || 400) * scale}
-                            canvasScale={scale}
-                            prioritizeDetail={shouldPrioritizeImageDetail}
-                            alt="Upload"
-                            containerClassName="w-full h-full rounded-lg"
-                            imageClassName={`pointer-events-none rounded-lg transition-transform duration-200 ${isHovered && scale <= 0.18 ? 'scale-[1.08]' : ''}`}
-                            fit={el.imageFit || 'contain'}
-                            surfaceMode={el.imageSurface || 'checker'}
-                            loading="lazy"
-                            decoding="async"
-                        />
-                        {shouldShowStoryboardBadge && (
-                            <div className="pointer-events-none absolute right-2 top-2 z-20">
-                                <div className={`rounded-full border px-2 py-1 text-[10px] font-semibold shadow-sm backdrop-blur-sm ${storyboardBadgeMeta.className}`}>
-                                    {storyboardBadgeMeta.label}
-                                </div>
-                            </div>
-                        )}
-                        {isSelected && (el.savedPrompt?.trim() || el.selectedModel?.trim() || canGenerateFromImage || storyboardStatus.hasAny) && (
-                            <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
-                                {/* ── 顶部渐变遮罩 ── */}
-                                <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/40 to-transparent" />
-                                {/* ── 左侧信息 ── */}
-                                <div className="relative flex items-start px-3 pt-2.5">
-                                    <div className="flex flex-col gap-1.5">
-                                        {/* AI + meta */}
-                                        <div className="flex items-center gap-1">
-                                            <span className="rounded bg-white/20 px-1.5 py-px text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">AI</span>
-                                            {buildImageMetaChips(el).map((chip, i) => (
-                                                <span key={`${el.id}-${chip}`} className="text-[10px] text-white/75">
-                                                    {i > 0 ? '' : ''}{chip}
-                                                </span>
-                                            ))}
-                                        </div>
-                                        {/* 分镜 row */}
-                                        {storyboardStatus.hasAny && (
-                                            <div className="flex items-center gap-1">
-                                                <span className="rounded bg-amber-400/30 px-1.5 py-px text-[10px] font-bold text-amber-200 backdrop-blur-sm">分镜</span>
-                                                {storyboardChips.slice(0, 3).map((chip) => (
-                                                    <span key={`${el.id}-sb-${chip}`} className="text-[10px] text-white/65">{chip}</span>
-                                                ))}
-                                                {storyboardStatus.hasValidationError ? (
-                                                    <span className="rounded bg-rose-500/50 px-1 py-px text-[9px] font-semibold text-white backdrop-blur-sm">待修正</span>
-                                                ) : storyboardStatus.missingRequired.length > 0 ? (
-                                                    <span className="text-[10px] text-amber-300/70">缺{storyboardStatus.missingRequired.join('/')}</span>
-                                                ) : (
-                                                    <span className="text-[10px] text-emerald-300">✓</span>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        {isSelected && el.savedPrompt?.trim() && (
-                            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
-                                <div className="bg-gradient-to-t from-black/50 to-transparent px-3 pb-3 pt-8">
-                                    <div className="line-clamp-2 text-[11px] leading-[1.6] text-white/85 drop-shadow-sm">{el.savedPrompt}</div>
-                                </div>
-                            </div>
-                        )}
-                    </>
+                {el.type === 'image' && (
+                    <ImageElementRenderer
+                        el={el}
+                        resolvedImageSrc={resolvedImageSrc}
+                        scale={scale}
+                        isHovered={isHovered}
+                        isSelected={isSelected}
+                        canGenerateFromImage={canGenerateFromImage}
+                        storyboardStatus={storyboardStatus}
+                        storyboardChips={storyboardChips}
+                        storyboardBadgeMeta={storyboardBadgeMeta}
+                        shouldPrioritizeImageDetail={shouldPrioritizeImageDetail}
+                        shouldShowStoryboardBadge={shouldShowStoryboardBadge}
+                        deferImageDetailUpgrade={deferImageDetailUpgrade}
+                        imageDetailRequestKey={imageDetailRequestKey}
+                    />
                 )}
 
-                {el.type === 'image' && !el.content && el.generatingTaskId && (
-                    <div className="w-full h-full border-2 border-blue-400 bg-blue-50 rounded-xl flex flex-col items-center justify-center text-blue-500">
-                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-500 mb-3" />
-                        <div className="text-sm font-medium">正在生成图片...</div>
-                        {(el.generatingProgress || 0) > 0 && (
-                            <div className="text-xs opacity-70 mt-1">{el.generatingProgress}%</div>
-                        )}
-                    </div>
-                )}
-
-                {/* ── Video Content ── */}
                 {el.type === 'video' && (
-                    <div className="relative w-full h-full rounded-lg overflow-hidden bg-gray-900 flex items-center justify-center">
-                        {el.content ? (
-                            <CanvasVideoPreview src={el.content} />
-                        ) : (
-                            <div className="flex flex-col items-center gap-2">
-                                <div className="animate-spin rounded-full h-8 w-8 border-2 border-white/30 border-t-white/80" />
-                                <div className="text-white/60 text-xs">转码中...</div>
-                            </div>
-                        )}
-                    </div>
+                    <VideoElementRenderer el={el} />
                 )}
 
-                {/* ── Text Content ── */}
                 {el.type === 'text' && (
-                    isEditingText ? (
-                        <textarea
-                            autoFocus
-                            className="w-full h-full bg-transparent outline-none resize-none overflow-hidden"
-                            style={{
-                                fontSize: el.fontSize || 24,
-                                fontFamily: el.fontFamily || 'Inter',
-                                color: el.color || '#000000',
-                            }}
-                            value={el.content}
-                            onChange={(e) => h.onElementChange(el.id, { content: e.target.value })}
-                            onBlur={() => h.setEditingTextId(null)}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                        />
-                    ) : (
-                        <div
-                            className="w-full h-full whitespace-nowrap select-none flex items-center"
-                            style={{
-                                fontSize: el.fontSize || 24,
-                                fontFamily: el.fontFamily || 'Inter',
-                                color: el.color || '#000000',
-                            }}
-                        >
-                            {el.content || '双击编辑文本'}
-                        </div>
-                    )
+                    <TextElementRenderer el={el} isEditingText={isEditingText} handlersRef={handlersRef} />
                 )}
 
-                {/* ── Shape Content ── */}
                 {el.type === 'shape' && (
-                    <div className="w-full h-full flex items-center justify-center">
-                        {(!el.shapeType || el.shapeType === 'square') && (
-                            <div className="w-full h-full" style={{ backgroundColor: el.color || '#9CA3AF' }} />
-                        )}
-                        {el.shapeType === 'circle' && (
-                            <div className="w-full h-full rounded-full" style={{ backgroundColor: el.color || '#9CA3AF' }} />
-                        )}
-                        {el.shapeType === 'triangle' && (
-                            <div
-                                className="w-0 h-0 border-l-[50px] border-r-[50px] border-b-[100px] border-l-transparent border-r-transparent"
-                                style={{
-                                    borderBottomColor: el.color || '#9CA3AF',
-                                    borderBottomWidth: el.height,
-                                    borderLeftWidth: (el.width || 0) / 2,
-                                    borderRightWidth: (el.width || 0) / 2,
-                                }}
-                            />
-                        )}
-                        {el.shapeType === 'message' && (
-                            <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}>
-                                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
-                            </svg>
-                        )}
-                        {el.shapeType === 'arrow-left' && (
-                            <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}>
-                                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-                            </svg>
-                        )}
-                        {el.shapeType === 'arrow-right' && (
-                            <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}>
-                                <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" />
-                            </svg>
-                        )}
-                    </div>
+                    <ShapeElementRenderer el={el} />
                 )}
 
                 {/* ── Frame Element ── */}
@@ -687,22 +806,8 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     />
                 )}
 
-                {/* ── Path Element ── */}
-                {el.type === 'path' && el.points && (
-                    <svg
-                        className="w-full h-full overflow-visible pointer-events-none"
-                        viewBox={`0 0 ${el.width} ${el.height}`}
-                        preserveAspectRatio="none"
-                    >
-                        <path
-                            d={renderPathPoints(el.points)}
-                            stroke={el.color || '#000000'}
-                            strokeWidth={el.strokeWidth || 3}
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        />
-                    </svg>
+                {el.type === 'path' && (
+                    <PathElementRenderer el={el} />
                 )}
 
                 {/* ── Canvas Select Mode overlay ── */}

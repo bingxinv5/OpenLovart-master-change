@@ -63,7 +63,7 @@ export function CanvasHistorySidebar({
     onClose,
 }: CanvasHistorySidebarProps) {
     const pinnedCount = chunks.filter((chunk) => chunk.isPinned).length;
-    const [chunksExpanded, setChunksExpanded] = useState(false);
+    const [chunksExpanded, setChunksExpanded] = useState(true);
 
     return (
         <PanelShell
@@ -181,7 +181,7 @@ export function CanvasHistorySidebar({
                                         <button
                                             type="button"
                                             data-testid={`history-sidebar-pin-${toChunkTestId(chunk.id)}`}
-                                            title={chunk.isPinned ? '取消固定' : '固定激活'}
+                                            title={chunk.isPinned ? '取消固定' : '固定激活该分块'}
                                             onClick={() => onTogglePinnedChunk(chunk.id)}
                                             className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                                                 chunk.isPinned

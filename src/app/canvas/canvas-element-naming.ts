@@ -7,6 +7,7 @@
  */
 
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { isCanvasElementOfType } from '@/components/lovart/canvas-types';
 
 export function cloneCanvasElement(element: CanvasElement): CanvasElement {
     return JSON.parse(JSON.stringify(element)) as CanvasElement;
@@ -34,7 +35,7 @@ export function getElementBaseName(element: CanvasElement): string {
     if (element.annotationTitle?.trim()) return sanitizeToolName(element.annotationTitle, '图片');
     if (element.frameName?.trim()) return sanitizeToolName(element.frameName, '图片');
     if (element.savedPrompt?.trim()) return sanitizeToolName(element.savedPrompt, '图片');
-    if (element.type === 'video') return '视频';
+    if (isCanvasElementOfType(element, 'video')) return '视频';
     return '图片';
 }
 

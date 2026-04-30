@@ -14,6 +14,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
 import { requestImageGeneration } from '@/lib/ai-client';
+import { debugLog } from '@/lib/debug-log';
 import { runImageGenerationFlow } from '@/components/lovart/image-generation-flow';
 import { runVideoGenerationFlow } from '@/components/lovart/video-generation-flow';
 import { getImageDataUrl, type DirtyTracker } from '@/lib/editor-kernel';
@@ -35,6 +36,8 @@ export interface CanvasSessionRuntimeDeps {
     user: { id: string } | null;
     /** Whether the project is still loading */
     isLoading: boolean;
+    /** Whether the initial canvas session has been applied and hooks can run recovery work */
+    isCanvasReady: boolean;
     /** Whether user is dragging an element */
     isDraggingElement: boolean;
     /** Current element count (for dependency tracking) */
@@ -117,6 +120,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
     const {
         user,
         isLoading,
+        isCanvasReady,
         isDraggingElement,
         elementsCount,
         elementsVersion,
@@ -160,12 +164,12 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
             return;
         }
 
-        console.log('Auto-save scheduled for', elementsCount, 'elements');
+        debugLog('Auto-save scheduled for', elementsCount, 'elements');
 
         clearSave();
 
         saveTimeoutRef.current = setTimeout(() => {
-            console.log('Auto-save triggered');
+            debugLog('Auto-save triggered');
             saveProject();
         }, 2000);
 
@@ -192,7 +196,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                 saveViewportState(pid, scaleRef.current, panRef.current);
             }
             if (dtRef.current.isDirty || titleDirtyRef.current) {
-                console.log('Unmount flush — saving dirty changes before leaving canvas');
+                debugLog('Unmount flush - saving dirty changes before leaving canvas');
                 saveProjectRef.current();
             }
         };
@@ -221,7 +225,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
     // ── 4. Orphaned generation recovery ──
     const hasCheckedOrphanedRef = useRef(false);
     useEffect(() => {
-        if (isLoading || !isInitializedRef.current || hasCheckedOrphanedRef.current) return;
+        if (isLoading || !isCanvasReady || !isInitializedRef.current || hasCheckedOrphanedRef.current) return;
         hasCheckedOrphanedRef.current = true;
 
         const pid = currentProjectIdRef.current;
@@ -258,7 +262,7 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                 continue;
             }
 
-            console.log(`[GenPersist] Re-submitting orphaned generation for element ${elementId}, prompt: "${sub.prompt}"`);
+            debugLog(`[GenPersist] Re-submitting orphaned generation for element ${elementId}, prompt: "${sub.prompt}"`);
 
             setGeneratorSubmittingMap(prev => updateGeneratorSubmittingMap(prev, elementId, true));
 
@@ -563,5 +567,5 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
             })();
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isLoading]);
+    }, [isLoading, isCanvasReady]);
 }

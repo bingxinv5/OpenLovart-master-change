@@ -5,7 +5,7 @@
  * Functions that need a UUID generator accept a `uuidFn` parameter.
  */
 
-import type { CanvasElement } from '@/components/lovart/canvas-types';
+import type { CanvasElement, CanvasFrameElement, CanvasImageElement } from '@/components/lovart/canvas-types';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 
 // ── Geometry / bounds ─────────────────────────────────────────────────
@@ -71,7 +71,7 @@ export function buildAutoGroupFrame(
     items: CanvasElement[],
     frameName: string,
     uuidFn: () => string,
-): { frame: CanvasElement; frameId: string } | null {
+): { frame: CanvasFrameElement; frameId: string } | null {
     const targetElements = items.filter(item => item.type !== 'connector');
     if (targetElements.length === 0) return null;
 
@@ -82,8 +82,7 @@ export function buildAutoGroupFrame(
     const padding = 20;
     const frameId = uuidFn();
 
-    return {
-        frame: {
+    const frame: CanvasFrameElement = {
             id: frameId,
             type: 'frame',
             x: Math.min(...xs) - padding,
@@ -95,7 +94,10 @@ export function buildAutoGroupFrame(
             frameClip: true,
             frameName,
             groupFrame: true,
-        } as CanvasElement,
+    };
+
+    return {
+        frame,
         frameId,
     };
 }
@@ -105,7 +107,7 @@ export function buildAutoGroupFrame(
 /** Check whether an element is a valid image with content. */
 export function isValidImageElement(
     element: CanvasElement,
-): element is CanvasElement & { type: 'image'; content: string } {
+): element is CanvasImageElement & { content: string } {
     return element.type === 'image' && !!element.content;
 }
 

@@ -86,3 +86,30 @@ export function getPriorityFinalRequestPixels(displayPixels?: number, canvasScal
 
     return getFinalRequestPixels(displayPixels, canvasScale);
 }
+
+export interface FinalLodRequestState {
+    isNearViewport: boolean;
+    isScaleSettled: boolean;
+    canvasScale: number;
+    previewRequestPixels: number;
+    finalRequestPixels: number;
+    prioritizeDetail?: boolean;
+    deferFinalUpgrade?: boolean;
+}
+
+export function shouldRequestFinalLod({
+    isNearViewport,
+    isScaleSettled,
+    canvasScale,
+    previewRequestPixels,
+    finalRequestPixels,
+    prioritizeDetail = false,
+    deferFinalUpgrade = false,
+}: FinalLodRequestState): boolean {
+    if (deferFinalUpgrade || !isNearViewport || !isScaleSettled) {
+        return false;
+    }
+
+    const canUpgradeAtCurrentScale = prioritizeDetail || canvasScale > 0.18;
+    return canUpgradeAtCurrentScale && finalRequestPixels > previewRequestPixels;
+}

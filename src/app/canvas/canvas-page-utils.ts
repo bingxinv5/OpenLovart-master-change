@@ -23,6 +23,8 @@ export {
     STORAGE_CRITICAL_THRESHOLD,
     CHUNK_PREHEAT_THRESHOLD,
     CHUNK_RELEASE_GRACE_MS,
+    CHUNK_PIN_STORAGE_KEY_PREFIX,
+    STORYBOARD_OVERVIEW_PREFS_KEY_PREFIX,
     type ChunkPreheatState,
     type HistorySummary,
     type ActiveChunkSummary,

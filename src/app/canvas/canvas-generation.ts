@@ -1,5 +1,15 @@
 import type { GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
-import type { CanvasElement } from '@/components/lovart/canvas-types';
+import type {
+    CanvasElement,
+    CanvasGeneratorElement,
+    CanvasImageElement,
+    CanvasImageGeneratorElement,
+    CanvasMediaElement,
+    CanvasStoryboardPlannerElement,
+    CanvasVideoElement,
+    CanvasVideoGeneratorElement,
+} from '@/components/lovart/canvas-types';
+import { isCanvasGeneratorElement, isCanvasMediaElement } from '@/components/lovart/canvas-types';
 import { summarizeGenerationError } from '@/components/lovart/generator-error-utils';
 import {
     createGenerationFailurePatch,
@@ -9,6 +19,18 @@ import {
 } from '@/lib/generation-task-state';
 
 export type GeneratorSubmittingMap = Record<string, boolean>;
+
+type GenerationQueueElement = CanvasGeneratorElement | CanvasMediaElement;
+type ImageGenerationQueueElement = CanvasImageElement | CanvasImageGeneratorElement | CanvasStoryboardPlannerElement;
+type VideoGenerationQueueElement = CanvasVideoElement | CanvasVideoGeneratorElement;
+
+function isImageGenerationQueueElement(element: GenerationQueueElement): element is ImageGenerationQueueElement {
+    return element.type === 'image' || element.type === 'image-generator' || element.type === 'storyboard-planner';
+}
+
+function isVideoGenerationQueueElement(element: GenerationQueueElement): element is VideoGenerationQueueElement {
+    return element.type === 'video' || element.type === 'video-generator';
+}
 
 const QUEUE_TONE_PRIORITY: Record<GenerationQueueItem['tone'], number> = {
     running: 5,
@@ -66,15 +88,9 @@ export function applyElementGenerationPatch(
 }
 
 export function getActiveGenerationTasks(elements: CanvasElement[]) {
-    return elements.filter((element) => (
-        (
-            element.type === 'image-generator'
-            || element.type === 'video-generator'
-            || element.type === 'storyboard-planner'
-            || element.type === 'image'
-            || element.type === 'video'
-        )
-        && element.generatingTaskId
+    return elements.filter((element): element is GenerationQueueElement => (
+        (isCanvasGeneratorElement(element) || isCanvasMediaElement(element))
+        && !!element.generatingTaskId
         && element.generatingTaskId !== 'ai-editing'
     ));
 }
@@ -89,7 +105,7 @@ function safeJsonCount(raw?: string) {
     }
 }
 
-function buildQueueMetaChips(element: CanvasElement, kind: 'image' | 'video') {
+function buildQueueMetaChips(element: GenerationQueueElement, kind: 'image' | 'video') {
     const chips: string[] = [];
 
     if (element.storyboardShotCode?.trim()) {
@@ -102,13 +118,13 @@ function buildQueueMetaChips(element: CanvasElement, kind: 'image' | 'video') {
     if (element.selectedAspectRatio?.trim()) {
         chips.push(element.selectedAspectRatio.trim());
     }
-    if (kind === 'image' && element.selectedImageSize?.trim()) {
+    if (kind === 'image' && isImageGenerationQueueElement(element) && element.selectedImageSize?.trim()) {
         chips.push(element.selectedImageSize.trim());
     }
-    if (kind === 'image' && element.selectedImageQuality?.trim() && element.selectedImageQuality.trim() !== 'auto') {
+    if (kind === 'image' && isImageGenerationQueueElement(element) && element.selectedImageQuality?.trim() && element.selectedImageQuality.trim() !== 'auto') {
         chips.push(`质量 ${element.selectedImageQuality.trim()}`);
     }
-    if (kind === 'video' && element.selectedDuration?.trim()) {
+    if (kind === 'video' && isVideoGenerationQueueElement(element) && element.selectedDuration?.trim()) {
         chips.push(element.selectedDuration.trim());
     }
 
@@ -120,7 +136,7 @@ function buildQueueMetaChips(element: CanvasElement, kind: 'image' | 'video') {
         chips.push(`${referenceCount} 张参考`);
     }
 
-    if (kind === 'image' && element.selectedGenerateCount && element.selectedGenerateCount > 1) {
+    if (kind === 'image' && isImageGenerationQueueElement(element) && element.selectedGenerateCount && element.selectedGenerateCount > 1) {
         chips.push(`批量 ${element.selectedGenerateCount}`);
     }
 
@@ -149,12 +165,8 @@ export function buildGenerationQueueItems(
     elements: CanvasElement[],
     generatorSubmittingMap: GeneratorSubmittingMap,
 ): GenerationQueueItem[] {
-    const generatorElements = elements.filter((element) => (
-        element.type === 'image-generator'
-        || element.type === 'video-generator'
-        || element.type === 'storyboard-planner'
-        || element.type === 'image'
-        || element.type === 'video'
+    const generatorElements = elements.filter((element): element is GenerationQueueElement => (
+        isCanvasGeneratorElement(element) || isCanvasMediaElement(element)
     ));
 
     const activeGeneratorElements = generatorElements.filter((element) => (

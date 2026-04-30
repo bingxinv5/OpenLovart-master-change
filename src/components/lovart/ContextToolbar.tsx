@@ -280,12 +280,12 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
     // 针对图片和视频元素显示特殊的工具栏
     if (element.type === 'image' || element.type === 'video') {
         return (
-            <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="relative pointer-events-none">
                 {/* AI Edit prompt input */}
                 {showEditInput && (
                     <div
                         style={{ top: 48 + (element.height || 0) * scale + 8 }}
-                        className="absolute left-1/2 -translate-x-1/2 w-[22rem] workbench-panel-elevated rounded-xl z-50 p-3"
+                        className="pointer-events-auto absolute left-1/2 -translate-x-1/2 w-[22rem] workbench-panel-elevated rounded-xl z-50 p-3"
                         onMouseDown={(e) => e.stopPropagation()}
                     >
                         <div className="flex items-center justify-between mb-2">
@@ -393,7 +393,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                 )}
 
                 <div
-                    className="workbench-panel rounded-[16px] p-1.5 flex items-center gap-1 whitespace-nowrap"
+                    className="pointer-events-none workbench-panel rounded-[16px] p-1.5 flex items-center gap-1 whitespace-nowrap"
                     onMouseDown={(e) => e.stopPropagation()}
                 >
                     {/* 图片尺寸显示 */}
@@ -404,7 +404,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     <div className="w-px h-5 bg-slate-200/60" />
 
                     {canOpenReferenceMenu && (
-                        <div ref={referenceMenuRef} className="relative">
+                        <div ref={referenceMenuRef} className="pointer-events-auto relative">
                             <button
                                 data-testid="context-project-reference-button"
                                 onClick={() => {
@@ -423,7 +423,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             </button>
                             {showReferenceMenu && (
                                 <div
-                                    className="popover-enter absolute top-full mt-2 right-0 w-[300px] whitespace-normal workbench-panel-elevated rounded-xl z-50"
+                                    className="pointer-events-auto popover-enter absolute top-full mt-2 right-0 w-[300px] whitespace-normal workbench-panel-elevated rounded-xl z-50"
                                     onMouseDown={(e) => e.stopPropagation()}
                                     onClick={(e) => e.stopPropagation()}
                                 >
@@ -484,7 +484,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     )}
 
                     {/* 编辑元素 */}
-                    <button
+                        <button
                         onClick={() => {
                             setShowEditInput((prev) => {
                                 const next = !prev;
@@ -497,14 +497,14 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             setShowToolsMenu(false);
                             setShowStoryboardMenu(false);
                         }}
-                        className={`p-2 rounded-lg transition-all ${showEditInput ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-50 text-slate-500'}`}
+                            className={`pointer-events-auto p-2 rounded-lg transition-all ${showEditInput ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-50 text-slate-500'}`}
                         title="AI 智能编辑"
                     >
                         <Wand2 size={16} />
                     </button>
 
                     {availableImageTools.length > 0 && (
-                        <div ref={toolsMenuRef} className="relative">
+                        <div ref={toolsMenuRef} className="pointer-events-auto relative">
                             <button
                                 onClick={() => {
                                     setShowToolsMenu((prev) => !prev);
@@ -519,7 +519,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             </button>
                             {showToolsMenu && (
                                 <div
-                                    className="popover-enter absolute top-full mt-2 right-0 w-64 whitespace-normal workbench-panel-elevated rounded-[16px] z-50"
+                                    className="pointer-events-auto popover-enter absolute top-full mt-2 right-0 w-64 whitespace-normal workbench-panel-elevated rounded-[16px] z-50"
                                     onMouseDown={(e) => e.stopPropagation()}
                                     onClick={(e) => e.stopPropagation()}
                                 >
@@ -545,7 +545,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     )}
 
                     {element.type === 'image' && (
-                        <div ref={storyboardMenuRef} className="relative">
+                        <div ref={storyboardMenuRef} className="pointer-events-auto relative">
                             <button
                                 onClick={() => {
                                     setShowStoryboardMenu((prev) => !prev);
@@ -560,7 +560,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             </button>
                             {showStoryboardMenu && (
                                 <div
-                                    className="popover-enter absolute top-full right-0 z-50 mt-2 w-[320px] whitespace-normal workbench-panel-elevated rounded-2xl"
+                                    className="pointer-events-auto popover-enter absolute top-full right-0 z-50 mt-2 w-[320px] whitespace-normal workbench-panel-elevated rounded-2xl"
                                     onMouseDown={(e) => e.stopPropagation()}
                                     onClick={(e) => e.stopPropagation()}
                                 >
@@ -614,7 +614,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     {element.type === 'image' && element.content && onStoryboardPlanFromImage && (
                         <button
                             onClick={() => onStoryboardPlanFromImage(getElementWithCurrentProjectReferences())}
-                            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-sky-50/90 px-3 py-2 text-sky-700 transition-all hover:bg-sky-100"
+                            className="pointer-events-auto shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-sky-50/90 px-3 py-2 text-sky-700 transition-all hover:bg-sky-100"
                             title="基于当前图片生成分镜宫格"
                         >
                             <LayoutGrid size={14} />
@@ -626,7 +626,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                         <button
                             onClick={() => onSaveAsProjectReference(element)}
                             disabled={isSavedAsProjectReference}
-                            className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 transition-all ${isSavedAsProjectReference ? 'cursor-default bg-emerald-50 text-emerald-700' : 'bg-violet-50/80 text-violet-700 hover:bg-violet-100'}`}
+                            className={`pointer-events-auto shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 transition-all ${isSavedAsProjectReference ? 'cursor-default bg-emerald-50 text-emerald-700' : 'bg-violet-50/80 text-violet-700 hover:bg-violet-100'}`}
                             title={isSavedAsProjectReference ? '已加入项目参考库' : '加入项目参考库'}
                         >
                             <BookmarkPlus size={14} />
@@ -638,8 +638,8 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     {onConnectFlow && (
                         <button
                             data-testid="context-connect-flow-button"
-                            onClick={() => onConnectFlow(element)}
-                            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-blue-50/80 px-3 py-2 text-blue-600 transition-all hover:bg-blue-100"
+                            onClick={() => onConnectFlow(getElementWithCurrentProjectReferences())}
+                            className="pointer-events-auto shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-blue-50/80 px-3 py-2 text-blue-600 transition-all hover:bg-blue-100"
                             title="创建流程图连接"
                         >
                             <ArrowRight size={14} />
@@ -652,7 +652,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     {/* 复制 */}
                     <button
                         onClick={handleCopy}
-                        className="p-2 hover:bg-slate-50 rounded-lg text-slate-500 transition-all"
+                        className="pointer-events-auto p-2 hover:bg-slate-50 rounded-lg text-slate-500 transition-all"
                         title="复制元素"
                     >
                         <Copy size={16} />
@@ -660,7 +660,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
                     {/* 下载 */}
                     {element.content && (
-                        <div className="relative" ref={downloadMenuRef}>
+                        <div className="pointer-events-auto relative" ref={downloadMenuRef}>
                             <button
                                 onClick={() => canOpenExportMenu ? setShowDownloadMenu((value) => !value) : handleDownload()}
                                 className={`p-2 rounded-lg text-slate-500 transition-all ${showDownloadMenu ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
@@ -679,7 +679,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     {canSendToChat && (
                         <button
                             onClick={() => onSendToChat?.(element)}
-                            className="p-2 hover:bg-slate-50 rounded-lg text-slate-500 transition-all"
+                            className="pointer-events-auto p-2 hover:bg-slate-50 rounded-lg text-slate-500 transition-all"
                             title="发送至对话"
                         >
                             <Send size={16} />
@@ -688,7 +688,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
                     <button
                         onClick={() => onToggleHidden?.(element)}
-                        className={`p-2 rounded-lg transition-all ${isHidden ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50 text-slate-500'}`}
+                        className={`pointer-events-auto p-2 rounded-lg transition-all ${isHidden ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50 text-slate-500'}`}
                         title={isHidden ? '显示元素' : '隐藏元素'}
                     >
                         {isHidden ? <Eye size={16} /> : <EyeOff size={16} />}
@@ -696,7 +696,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
                     <button
                         onClick={() => onToggleLocked?.(element)}
-                        className={`p-2 rounded-lg transition-all ${isLocked ? 'bg-amber-50 text-amber-600' : 'hover:bg-slate-50 text-slate-500'}`}
+                        className={`pointer-events-auto p-2 rounded-lg transition-all ${isLocked ? 'bg-amber-50 text-amber-600' : 'hover:bg-slate-50 text-slate-500'}`}
                         title={isLocked ? '解锁元素' : '锁定元素'}
                     >
                         {isLocked ? <Unlock size={16} /> : <Lock size={16} />}
@@ -705,7 +705,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     {/* 删除 */}
                     <button
                         onClick={() => onDelete(element.id)}
-                        className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-all hover:text-red-500"
+                        className="pointer-events-auto p-2 hover:bg-red-50 text-red-400 rounded-lg transition-all hover:text-red-500"
                         title="删除"
                     >
                         <Trash2 size={16} />
@@ -720,7 +720,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
     return (
         <div
-            className="workbench-panel rounded-[16px] p-1.5 flex items-center gap-2.5"
+            className="pointer-events-auto workbench-panel rounded-[16px] p-1.5 flex items-center gap-2.5"
             onMouseDown={(e) => e.stopPropagation()}
         >
             {/* Color Picker (for Shapes and Text) */}

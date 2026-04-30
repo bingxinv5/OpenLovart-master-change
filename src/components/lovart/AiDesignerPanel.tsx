@@ -43,7 +43,6 @@ import {
 } from './textarea-mention-utils';
 
 interface AiDesignerPanelProps {
-    isGenerating: boolean;
     onClose?: () => void;
     initialPrompt?: string;
     selectedModel?: string;
@@ -126,7 +125,7 @@ function getAiDesignerMentionSearchText(item: MentionItem): string {
     return `${item.insert} ${item.label} ${item.description}`.toLowerCase();
 }
 
-export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, initialPrompt, selectedModel: externalModel, onModelChange, isExpanded, onExpandToggle, panelMode, onPanelModeChange, marks, onDeleteMark, onClearAllMarks, canvasImages, onPickFromCanvas, canvasPlanContextSummary, onApplyCanvasPlan }: AiDesignerPanelProps) {
+export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externalModel, onModelChange, isExpanded, onExpandToggle, panelMode, onPanelModeChange, marks, onDeleteMark, onClearAllMarks, canvasImages, onPickFromCanvas, canvasPlanContextSummary, onApplyCanvasPlan }: AiDesignerPanelProps) {
     const imageDefaults = useImageGenerationDefaults();
     const [inputValue, setInputValue] = useState('');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -159,7 +158,7 @@ export function AiDesignerPanel({ isGenerating: externalIsGenerating, onClose, i
     const handleSendRef = useRef<((overrideText?: string) => Promise<void>) | null>(null);
     const inputSelectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
 
-    const isGenerating = isStreaming || externalIsGenerating;
+    const isGenerating = isStreaming;
     const isMentionMenuOpen = showMentionMenu || mentionQuery !== null;
     const mentionSuggestions = useMemo(
         () => mentionQuery

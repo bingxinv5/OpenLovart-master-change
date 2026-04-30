@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { isCanvasElementOfType } from '@/components/lovart/canvas-types';
 import { computeReorder } from '@/components/lovart/canvas-alignment';
 import { isImageRef, getImageDataUrl, type PatchMetadata } from '@/lib/editor-kernel';
 import type { WorkbenchSettings } from '@/lib/workbench-settings';
@@ -22,7 +23,7 @@ export function collectFrameDescendants(sourceElements: CanvasElement[], frameId
         sourceElements.forEach((element) => {
             if (element.parentFrameId === parentId && !descendants.has(element.id)) {
                 descendants.add(element.id);
-                if (element.type === 'frame') {
+                if (isCanvasElementOfType(element, 'frame')) {
                     collect(element.id);
                 }
             }
@@ -72,7 +73,7 @@ export function collectLayerMoveBlockIds(sourceElements: CanvasElement[], ids: s
         sourceElements.forEach((element) => {
             if (element.parentFrameId === currentId && !includedIds.has(element.id)) {
                 includedIds.add(element.id);
-                if (element.type === 'frame') queue.push(element.id);
+                if (isCanvasElementOfType(element, 'frame')) queue.push(element.id);
             }
         });
     }

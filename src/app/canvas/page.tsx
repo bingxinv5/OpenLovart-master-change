@@ -1,12 +1,13 @@
 ﻿"use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
-import { ChevronLeft, Plus, Minus, Sparkles, Cloud, CloudOff, HardDrive, AlertTriangle, Gauge, Trash, Check } from 'lucide-react';
-import Link from 'next/link';
+import { AlertTriangle, Check } from 'lucide-react';
 import { useUser } from '@/lib/mock-clerk';
+import { debugLog } from '@/lib/debug-log';
 import { useSearchParams } from 'next/navigation';
 import { FloatingToolbar } from '@/components/lovart/FloatingToolbar';
-import { CanvasArea, type CanvasRenderMetrics } from '@/components/lovart/CanvasArea';
+import { CanvasArea } from '@/components/lovart/CanvasArea';
+import type { CanvasAreaDomains } from '@/components/lovart/canvas-area-domains';
 import { AnnotateImagePanel } from '@/components/lovart/AnnotateImagePanel';
 import { CropImagePanel } from '@/components/lovart/CropImagePanel';
 import { ImageGeneratorPanel } from '@/components/lovart/ImageGeneratorPanel';
@@ -18,40 +19,69 @@ import { AiDesignerPanel } from '@/components/lovart/AiDesignerPanel';
 import { CanvasCommandPalette, type CanvasCommandAction } from '@/components/lovart/CanvasCommandPalette';
 import { CanvasHistorySidebar } from '@/components/lovart/CanvasHistorySidebar';
 import { CanvasShortcutHelp, type CanvasShortcutSection } from '@/components/lovart/CanvasShortcutHelp';
-import { CanvasWorkbenchSwitcher } from '@/components/lovart/CanvasWorkbenchSwitcher';
 import { LayersPanel } from '@/components/lovart/LayersPanel';
 import { ProjectMediaPanel } from '@/components/lovart/ProjectMediaPanel';
 import { ProjectReferencePanel } from '@/components/lovart/ProjectReferencePanel';
-import { ApiSettingsButton } from '@/components/lovart/ApiSettingsDialog';
 import { GenerationQueuePanel, type GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from '@/components/lovart/generator-error-utils';
 import { runImageGenerationFlow } from '@/components/lovart/image-generation-flow';
 import { runVideoGenerationFlow } from '@/components/lovart/video-generation-flow';
-import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { hasCurrentCanvasLegacyMigration, markCanvasLegacyMigrationApplied, type CanvasElement } from '@/components/lovart/canvas-types';
 import { type StoryboardPlanResponse } from '@/lib/ai-client';
 import {
     createGenerationIdlePatch,
     createGenerationTaskPatch,
 } from '@/lib/generation-task-state';
 import { useLocalDb } from '@/hooks/useLocalDb';
-import { HistoryManager, DirtyTracker, SpatialIndex, elementStore, type HistoryTimelineEntry, type PatchMetadata, ensureImageRef, migrateElementsToImageStore, isImageRef, getImageBlob, getImageBlobUrl, getImageDataUrl, saveImage, saveImageBlob, cleanupUnusedImages } from '@/lib/editor-kernel';
+import { elementStore, ensureImageRef, migrateElementsToImageStore, isImageRef, getImageBlob, getImageDataUrl, saveImageBlob, cleanupUnusedImages } from '@/lib/editor-kernel';
 import { useCanvasFeedback } from './canvas-feedback';
+import { CanvasBenchmarkPanel } from './CanvasBenchmarkPanel';
+import { CanvasHeader } from './CanvasHeader';
+import { ZoomControl } from './ZoomControl';
+import { buildAiCanvasSelectionSummary, parseAiCanvasPlanActions } from './ai-canvas-plan';
+import { areChunkResidencyStatesEqual } from './canvas-compare-utils';
+import {
+    buildBelowElementDisplayMetricsOptions as createBelowElementDisplayMetricsOptions,
+    buildBelowSourceImageResultElement as createBelowSourceImageResultElement,
+    buildGeneratorElement as createGeneratorElement,
+    buildImageElement as createImageElement,
+    buildVideoElement as createVideoElement,
+} from './canvas-element-factory';
+import {
+    normalizeGeneratedImageContent as localizeGeneratedImageContent,
+    resolveAspectRatioFallbackMetrics as getAspectRatioFallbackMetrics,
+    resolveImageDisplayMetrics as getImageDisplayMetrics,
+    type ResolveImageDisplayMetricsOptions,
+} from './canvas-image-assets';
+import {
+    resolveProjectMediaImageInsertContent as resolveBackflowMediaImageInsertContent,
+    resolveProjectReferenceImageInsertContent as resolveBackflowReferenceImageInsertContent,
+    saveProjectReferenceFromMediaItem as saveBackflowProjectReferenceFromMediaItem,
+} from './canvas-project-backflow';
+import { createSingleImageToolResultElement } from './image-tool-result';
+import { getElementPanelStyle } from './canvas-panel-style-utils';
 import { getViewportSize } from './canvas-focus';
 import { getGeneratorOverlayStyle, getSelectedGeneratorElement } from './canvas-generator-overlay';
 import { applyElementGenerationPatch, applyGenerationFailure, applyVideoGenerationSuccess, setElementGenerationTask, updateGeneratorSubmittingMap } from './canvas-generation';
-import { isEditableShortcutTarget, useCanvasKeyboardShortcuts } from './canvas-keyboard-shortcuts';
+import { buildActiveChunkSummary, buildCanvasRuntimeElements, buildChunkPanelEntries, buildChunkResidencyState as buildRuntimeChunkResidencyState } from './canvas-chunk-runtime';
+import { useCanvasKeyboardShortcuts } from './canvas-keyboard-shortcuts';
 import { useCanvasSelectionBridge } from './canvas-selection-bridge';
 import { useCanvasWorkbenchPanels } from './canvas-workbench-panels';
-import { loadCanvasSession } from './canvas-session-loader';
+import { useRuntimeImageRenderSrcs } from './use-runtime-image-render-srcs';
+import { useCanvasDocumentState } from './use-canvas-document-state';
+import { useCanvasProjectPersistence } from './use-canvas-project-persistence';
+import { useCanvasMediaImport } from './use-canvas-media-import';
+import { useCanvasToolPanels } from './use-canvas-tool-panels';
+import { useCanvasGenerationActions } from './use-canvas-generation-actions';
+import { useCanvasWorkbenchLayout } from './use-canvas-workbench-layout';
 import { useCanvasSessionRuntime } from './canvas-session-runtime';
 import { useGenerationPollingController } from './canvas-generation-controller';
+import { useImageFinalizer } from './use-image-finalizer';
 import { pollGenerationTask } from './generation-polling';
-import { persistGeneration, removeGeneration, syncGenerationsFromElements, persistSubmission, clearSubmission, loadPendingSubmissions } from './generation-persistence';
-import { saveViewportState, loadViewportState } from './viewport-persistence';
+import { persistGeneration, removeGeneration, persistSubmission, clearSubmission } from './generation-persistence';
+import { saveViewportState } from './viewport-persistence';
 import {
     buildCanvasChunkManifest,
-    createCanvasProject,
-    saveExistingCanvasProject,
     type CanvasChunkManifestEntry,
     type CanvasChunkStats,
 } from './project-storage';
@@ -60,59 +90,40 @@ import { collectRetainedLocalImageRefs } from '@/lib/local-image-ref-usage';
 import { DEFAULT_WORKBENCH_SETTINGS, getWorkbenchSettings, hasDirectoryPickerSupport, requestAutoSaveDirectoryHandle, requestPersistentStorage, saveBlobToAutoSaveDirectory, saveWorkbenchSettings, subscribeWorkbenchSettingsChange, type StorageEstimateInfo, type WorkbenchSettings, getStorageEstimateInfo } from '@/lib/workbench-settings';
 import { v4 as uuidv4 } from 'uuid';
 import {
-    MAX_CANVAS_IMAGE_SIZE,
     IMAGE_IMPORT_CONCURRENCY,
     BACKGROUND_IMAGE_FIX_CONCURRENCY,
     BACKGROUND_IMAGE_FIX_BATCH_SIZE,
-    STORAGE_INFO_THRESHOLD,
     STORAGE_WARN_THRESHOLD,
     STORAGE_CRITICAL_THRESHOLD,
-    CHUNK_PREHEAT_THRESHOLD,
     CHUNK_RELEASE_GRACE_MS,
-    truncateStoryboardText,
     buildStoryboardPlaceholderDataUrl,
-    escapeXml,
     getStoryboardAuditState,
     hasStoryboardGenerationSeed,
     sortStoryboardElements,
-    buildPinnedChunkStorageKey,
     loadPinnedChunkIds,
     persistPinnedChunkIds,
-    loadStoryboardOverviewPrefs,
-    persistStoryboardOverviewPrefs,
     mapStoryboardFilterToScope,
     resolveElementChunkId,
     getCanvasDisplaySize,
     readImageDimensions,
-    fitImageToBounds,
-    fitAspectRatioLabelToBounds,
-    inferImageAspectRatioLabel,
     deriveProjectThumbnail,
     mapWithConcurrency,
     triggerBrowserDownload,
     saveBlobToLocalFile,
     dataUrlToBlob,
     formatBytes,
-    inferExtension,
-    blobToDataUrl,
     convertImageBlobToRasterBlob,
     buildSvgExportBlob,
     makeGeneratedFilename,
     collectImageRefsFromElements,
-    getStorageBadgeClass,
     getDefaultImagePresentation,
     getViewportBounds,
     getElementViewportPriority,
-    rectsIntersect,
-    getRectIntersectionArea,
-    getSplitLayoutBounds,
-    scoreSplitLayoutCandidate,
     chooseSplitLayoutOrigin,
     cloneCanvasElement,
     sanitizeToolName,
     sanitizeFilenameStem,
     getElementBaseName,
-    buildToolResultNames,
     resolveToolResultNaming,
     type ChunkPreheatState,
     type HistorySummary,
@@ -120,7 +131,6 @@ import {
     type ChunkResidencyState,
     type StoryboardNavigationScope,
     type StoryboardAuditFilter,
-    type StoryboardOverviewPrefs,
     type ElementExportFormat,
 } from './canvas-page-utils';
 import { fetchRemoteBlob } from '@/lib/blob-utils';
@@ -128,109 +138,21 @@ import {
     buildCenteredElementBounds,
     calculateCanvasCenter,
     buildAutoGroupFrame as _buildAutoGroupFrame,
-    isValidImageElement,
     resolveElementReferenceImages as _resolveElementReferenceImages,
     resolveElementFrameImages as _resolveElementFrameImages,
     resolveCanvasContentBlob as _resolveCanvasContentBlob,
 } from './canvas-element-ops';
 import { useCanvasActions } from './canvas-actions';
+import { buildGeneratorCanvasImages, buildSelectedCanvasImageIds } from './canvas-generator-panel-view-model';
 import { annotateImageBlob, type AnnotateImageOptions } from '@/lib/image-annotate';
 import { cropImageBlob, type CropImageOptions } from '@/lib/image-crop';
 import { buildStoryboardExportBlob, type StoryboardExportOptions } from '@/lib/storyboard-export';
 import { splitImageBlobIntoFrames, type StoryboardSplitFrame, type StoryboardSplitOptions } from '@/lib/storyboard-split';
 import { upscaleImageBlob, type UpscaleModelId } from '@/lib/upscale-api';
 
-function isLikelyClipboardImageFile(file: File) {
-    if (file.type.startsWith('image/')) {
-        return true;
-    }
-
-    return /\.(png|jpe?g|webp|gif|bmp|svg|avif|heic|heif)$/i.test(file.name);
-}
 import { cancelActiveWorkerJobs, isWorkerCancelledError } from '@/lib/image-worker-bridge';
 import { appendProjectMediaHistory, clearProjectMediaHistory, readProjectMediaHistory, replaceProjectMediaHistory, subscribeProjectMediaHistory, type ProjectMediaHistoryItem } from '@/lib/project-media-history';
-import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, replaceProjectReferenceLibrary, saveProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
-
-function areCanvasRenderMetricsEqual(left: CanvasRenderMetrics | null, right: CanvasRenderMetrics) {
-    return !!left
-        && left.visibleCount === right.visibleCount
-        && left.totalCount === right.totalCount
-        && left.culledCount === right.culledCount
-        && left.virtualizedCount === right.virtualizedCount
-        && left.deferredCount === right.deferredCount
-        && left.maxVisibleElements === right.maxVisibleElements
-        && left.viewportMargin === right.viewportMargin
-        && left.partitionCount === right.partitionCount
-        && left.partitionTileSize === right.partitionTileSize;
-}
-
-function areOrderedStringArraysEqual(left: string[], right: string[]) {
-    if (left === right) {
-        return true;
-    }
-
-    if (left.length !== right.length) {
-        return false;
-    }
-
-    for (let index = 0; index < left.length; index += 1) {
-        if (left[index] !== right[index]) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-function areChunkResidencyStatesEqual(left: ChunkResidencyState, right: ChunkResidencyState) {
-    return left.phase === right.phase
-        && areOrderedStringArraysEqual(left.residentChunkIds, right.residentChunkIds)
-        && areOrderedStringArraysEqual(left.unloadedChunkIds, right.unloadedChunkIds)
-        && left.residentElementCount === right.residentElementCount
-        && left.unloadedElementCount === right.unloadedElementCount
-        && left.lastActivatedChunkLabel === right.lastActivatedChunkLabel
-        && left.lastReleasedChunkLabel === right.lastReleasedChunkLabel;
-}
-
-type AiCanvasPlanAction =
-    | {
-        type: 'create-image-generator';
-        prompt?: string;
-        title?: string;
-        useSelectionAsReferences?: boolean;
-    }
-    | {
-        type: 'create-video-generator';
-        prompt?: string;
-        title?: string;
-        useSelectionAsReferences?: boolean;
-    }
-    | {
-        type: 'create-text-note';
-        text: string;
-    }
-    | {
-        type: 'frame-selection';
-    }
-    | {
-        type: 'save-selection-as-reference';
-    };
-
-function isAiCanvasPlanRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readAiCanvasPlanString(value: unknown): string | undefined {
-    if (typeof value !== 'string') {
-        return undefined;
-    }
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function readAiCanvasPlanBoolean(value: unknown): boolean | undefined {
-    return typeof value === 'boolean' ? value : undefined;
-}
+import { clearProjectReferenceLibrary, readProjectReferenceLibrary, removeProjectReferenceImage, saveProjectReferenceImage, subscribeProjectReferenceLibrary, touchProjectReferenceImage, type ProjectReferenceImageItem } from '@/lib/project-reference-library';
 
 function isEditableOverlayTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
@@ -242,172 +164,6 @@ function isEditableOverlayTarget(target: EventTarget | null): boolean {
     }
 
     return !!target.closest('textarea, input, select, [contenteditable]:not([contenteditable="false"])');
-}
-
-function parseAiCanvasPlanActions(input: unknown): AiCanvasPlanAction[] {
-    if (!isAiCanvasPlanRecord(input) || !Array.isArray(input.canvasActions)) {
-        return [];
-    }
-
-    const actions: AiCanvasPlanAction[] = [];
-    for (const rawAction of input.canvasActions) {
-        if (!isAiCanvasPlanRecord(rawAction)) {
-            continue;
-        }
-
-        const type = readAiCanvasPlanString(rawAction.type);
-        switch (type) {
-            case 'create-image-generator':
-                actions.push({
-                    type,
-                    prompt: readAiCanvasPlanString(rawAction.prompt),
-                    title: readAiCanvasPlanString(rawAction.title),
-                    useSelectionAsReferences: readAiCanvasPlanBoolean(rawAction.useSelectionAsReferences),
-                });
-                break;
-            case 'create-video-generator':
-                actions.push({
-                    type,
-                    prompt: readAiCanvasPlanString(rawAction.prompt),
-                    title: readAiCanvasPlanString(rawAction.title),
-                    useSelectionAsReferences: readAiCanvasPlanBoolean(rawAction.useSelectionAsReferences),
-                });
-                break;
-            case 'create-text-note': {
-                const text = readAiCanvasPlanString(rawAction.text);
-                if (!text) {
-                    break;
-                }
-                actions.push({ type, text });
-                break;
-            }
-            case 'frame-selection':
-                actions.push({ type });
-                break;
-            case 'save-selection-as-reference':
-                actions.push({ type });
-                break;
-            default:
-                break;
-        }
-    }
-
-    return actions;
-}
-
-function buildAiCanvasSelectionSummary(elements: CanvasElement[], selectedIds: string[]) {
-    const selectedElements = elements.filter((element) => selectedIds.includes(element.id));
-    if (selectedElements.length === 0) {
-        return '当前没有选中任何元素。';
-    }
-
-    const typeLabelMap: Partial<Record<CanvasElement['type'], string>> = {
-        image: '图片',
-        text: '文本',
-        shape: '形状',
-        path: '路径',
-        'image-generator': '图像生成器',
-        'video-generator': '视频生成器',
-        'storyboard-planner': '分镜规划器',
-        video: '视频',
-        connector: '连接线',
-        mark: '标记',
-        frame: '画板',
-    };
-    const typeCounts = new Map<string, number>();
-    selectedElements.forEach((element) => {
-        const label = typeLabelMap[element.type] || element.type;
-        typeCounts.set(label, (typeCounts.get(label) || 0) + 1);
-    });
-
-    const summary = Array.from(typeCounts.entries())
-        .map(([type, count]) => `${type} ${count} 个`)
-        .join('，');
-    const selectedNames = selectedElements
-        .map((element) => element.displayName || element.savedPrompt || `${typeLabelMap[element.type] || element.type}#${element.id.slice(0, 4)}`)
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .slice(0, 3)
-        .map((value) => value.trim());
-    const canFrameSelection = selectedElements.filter((element) => element.type !== 'connector').length >= 2;
-    const canSaveAsReference = selectedElements.some((element) => element.type === 'image' && !!element.content);
-
-    return [
-        `当前选中 ${selectedElements.length} 个元素：${summary}。`,
-        selectedNames.length > 0 ? `示例名称：${selectedNames.join('、')}。` : '',
-        `可创建编组：${canFrameSelection ? '是' : '否'}。`,
-        `可加入项目参考库：${canSaveAsReference ? '是' : '否'}。`,
-    ].filter(Boolean).join(' ');
-}
-
-    const GENERATED_IMAGE_RENDER_SRC_TTL_MS = 60_000;
-
-function ZoomControl({ scale, onZoomIn, onZoomOut, onZoomTo, onFitToScreen }: {
-    scale: number;
-    onZoomIn: () => void;
-    onZoomOut: () => void;
-    onZoomTo: (v: number) => void;
-    onFitToScreen: () => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const ref = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-        };
-        if (open) document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [open]);
-
-    const presets = [
-        { label: '放大', shortcut: '⌘ +', action: onZoomIn },
-        { label: '缩小', shortcut: '⌘ -', action: onZoomOut },
-        { label: '适合屏幕', shortcut: '⇧ 1', action: () => { onFitToScreen(); setOpen(false); } },
-        { type: 'divider' as const },
-        { label: '缩放至50%', action: () => { onZoomTo(0.5); setOpen(false); } },
-        { label: '缩放至100%', shortcut: '⌘ 0', action: () => { onZoomTo(1); setOpen(false); } },
-        { label: '缩放至200%', action: () => { onZoomTo(2); setOpen(false); } },
-    ];
-
-    return (
-        <div ref={ref} className="absolute bottom-4 left-4 z-50">
-            {open && (
-                <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 min-w-[200px] animate-in slide-in-from-bottom-2 duration-150">
-                    {presets.map((item, i) =>
-                        'type' in item && item.type === 'divider' ? (
-                            <div key={i} className="h-px bg-gray-100 my-1" />
-                        ) : (
-                            <button
-                                key={i}
-                                onClick={item.action}
-                                className="flex items-center justify-between w-full px-3 py-1.5 rounded-lg hover:bg-gray-50 text-sm text-gray-700 transition-colors"
-                            >
-                                <span>{item.label}</span>
-                                {'shortcut' in item && item.shortcut && (
-                                    <span className="text-xs text-gray-400 ml-4">{item.shortcut}</span>
-                                )}
-                            </button>
-                        )
-                    )}
-                </div>
-            )}
-            <div className="flex items-center bg-white rounded-lg shadow-sm border border-gray-100 p-1">
-                <button onClick={onZoomOut} className="p-1.5 hover:bg-gray-50 rounded text-gray-500" title="缩小 (Ctrl+-)">
-                    <Minus size={16} />
-                </button>
-                <button
-                    onClick={() => setOpen(prev => !prev)}
-                    className="px-2 text-xs font-medium text-gray-600 min-w-[3rem] text-center hover:bg-gray-50 rounded py-1"
-                    title="缩放选项"
-                >
-                    {Math.round(scale * 100)}%
-                </button>
-                <button onClick={onZoomIn} className="p-1.5 hover:bg-gray-50 rounded text-gray-500" title="放大 (Ctrl++)">
-                    <Plus size={16} />
-                </button>
-            </div>
-        </div>
-    );
 }
 
 function LovartCanvasContent() {
@@ -435,7 +191,6 @@ function LovartCanvasContent() {
     const [storageEstimate, setStorageEstimate] = useState<StorageEstimateInfo | null>(null);
     const [benchmarkResults, setBenchmarkResults] = useState<CanvasBenchmarkResult[]>([]);
     const [isBenchmarkRunning, setIsBenchmarkRunning] = useState(false);
-    const [renderMetrics, setRenderMetrics] = useState<CanvasRenderMetrics | null>(null);
     const [chunkPreheat, setChunkPreheat] = useState<ChunkPreheatState>({
         active: false,
         phase: 'idle',
@@ -444,17 +199,8 @@ function LovartCanvasContent() {
         loadedElements: 0,
         totalElements: 0,
     });
-    const [historySummary, setHistorySummary] = useState<HistorySummary>({
-        lastAction: '初始状态',
-        patchCount: 0,
-        currentIndex: -1,
-        canUndo: false,
-        canRedo: false,
-    });
-    const [historyTimeline, setHistoryTimeline] = useState<HistoryTimelineEntry[]>([]);
     const [showCommandPalette, setShowCommandPalette] = useState(false);
     const [showShortcutHelp, setShowShortcutHelp] = useState(false);
-    const [storyboardPlannerSourceElementId, setStoryboardPlannerSourceElementId] = useState<string | null>(null);
     const [shortcutFeedback, setShortcutFeedback] = useState<{ label: string; shortcut: string } | null>(null);
     const [pinnedChunkIds, setPinnedChunkIds] = useState<string[]>([]);
     const [chunkResidency, setChunkResidency] = useState<ChunkResidencyState>({
@@ -464,188 +210,64 @@ function LovartCanvasContent() {
         residentElementCount: 0,
         unloadedElementCount: 0,
     });
-    const runtimeImageRenderSrcsRef = useRef<Map<string, string>>(new Map());
-    const runtimeImageRenderSrcTimersRef = useRef<Map<string, number>>(new Map());
-    const [runtimeImageRenderSrcs, setRuntimeImageRenderSrcs] = useState<Record<string, string>>({});
-
-    const handleRenderMetricsChange = useCallback((nextMetrics: CanvasRenderMetrics) => {
-        if (!benchmarkMode) {
-            return;
-        }
-
-        setRenderMetrics((previous) => areCanvasRenderMetricsEqual(previous, nextMetrics) ? previous : nextMetrics);
-    }, [benchmarkMode]);
-
-    useEffect(() => {
-        if (!benchmarkMode) {
-            setRenderMetrics(null);
-        }
-    }, [benchmarkMode]);
-
-    // ── Normalized Map state: O(1) element access instead of O(n) array traversal ──
-    const elementsMapRef = useRef<Map<string, CanvasElement>>(new Map());
-    const [elementsVersion, setElementsVersion] = useState(0);
-    const shortcutFeedbackTimerRef = useRef<number | null>(null);
-    /** Derived array — rebuild on each render after version bump */
-    const elements = useMemo(() => {
-        void elementsVersion;
-        return Array.from(elementsMapRef.current.values());
-    }, [elementsVersion]);
-    /** Compatible setElements — supports all existing (prev => ...) patterns; hot paths use direct Map mutation */
-    const setElements = useCallback((updater: CanvasElement[] | ((prev: CanvasElement[]) => CanvasElement[])) => {
-        const map = elementsMapRef.current;
-        const prevArr = Array.from(map.values());
-        const newArr = typeof updater === 'function' ? updater(prevArr) : updater;
-        map.clear();
-        for (const el of newArr) map.set(el.id, el);
-        const changedIds = new Set<string>();
-        for (const el of prevArr) changedIds.add(el.id);
-        for (const el of newArr) changedIds.add(el.id);
-        if (historyTransactionRef.current) {
-            historyChangedIdsRef.current = changedIds;
-            historyManagerRef.current.touchTransactionIds(changedIds);
-            historyNeedsFullRecordRef.current = false;
-        } else {
-            historyNeedsFullRecordRef.current = true;
-            historyChangedIdsRef.current.clear();
-        }
-        spatialIndexNeedsRebuildRef.current = true;
-        setElementsVersion(v => v + 1);
-    }, []);
-
-    const releaseRuntimeImageRenderSrc = useCallback((elementId: string) => {
-        const existingTimer = runtimeImageRenderSrcTimersRef.current.get(elementId);
-        if (existingTimer !== undefined) {
-            window.clearTimeout(existingTimer);
-            runtimeImageRenderSrcTimersRef.current.delete(elementId);
-        }
-
-        const currentUrl = runtimeImageRenderSrcsRef.current.get(elementId);
-        if (currentUrl) {
-            runtimeImageRenderSrcsRef.current.delete(elementId);
-            try {
-                URL.revokeObjectURL(currentUrl);
-            } catch {
-                // Ignore stale object URL cleanup failures.
-            }
-        }
-
-        setRuntimeImageRenderSrcs((previous) => {
-            if (!(elementId in previous)) {
-                return previous;
-            }
-
-            const next = { ...previous };
-            delete next[elementId];
-            return next;
-        });
-    }, []);
-
-    const primeRuntimeImageRenderSrc = useCallback((elementId: string, blob: Blob | null) => {
-        if (typeof window === 'undefined' || !blob) {
-            return;
-        }
-
-        const nextUrl = URL.createObjectURL(blob);
-        const previousTimer = runtimeImageRenderSrcTimersRef.current.get(elementId);
-        if (previousTimer !== undefined) {
-            window.clearTimeout(previousTimer);
-        }
-
-        const previousUrl = runtimeImageRenderSrcsRef.current.get(elementId);
-        runtimeImageRenderSrcsRef.current.set(elementId, nextUrl);
-        setRuntimeImageRenderSrcs((previous) => ({
-            ...previous,
-            [elementId]: nextUrl,
-        }));
-
-        if (previousUrl && previousUrl !== nextUrl) {
-            try {
-                URL.revokeObjectURL(previousUrl);
-            } catch {
-                // Ignore stale object URL cleanup failures.
-            }
-        }
-
-        const cleanupTimer = window.setTimeout(() => {
-            releaseRuntimeImageRenderSrc(elementId);
-        }, GENERATED_IMAGE_RENDER_SRC_TTL_MS);
-        runtimeImageRenderSrcTimersRef.current.set(elementId, cleanupTimer);
-    }, [releaseRuntimeImageRenderSrc]);
-
-    useEffect(() => {
-        const activeIds = new Set(elements.map((element) => element.id));
-        runtimeImageRenderSrcsRef.current.forEach((_, elementId) => {
-            if (!activeIds.has(elementId)) {
-                releaseRuntimeImageRenderSrc(elementId);
-            }
-        });
-    }, [elements, releaseRuntimeImageRenderSrc]);
-
-    useEffect(() => () => {
-        runtimeImageRenderSrcTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-        runtimeImageRenderSrcTimersRef.current.clear();
-        runtimeImageRenderSrcsRef.current.forEach((url) => {
-            try {
-                URL.revokeObjectURL(url);
-            } catch {
-                // Ignore stale object URL cleanup failures.
-            }
-        });
-        runtimeImageRenderSrcsRef.current.clear();
-    }, []);
-
-    const [selectedIds, setSelectedIds] = useState<string[]>([]);
-    const selectedIdsRef = useRef<string[]>([]);
-    useEffect(() => {
-        selectedIdsRef.current = selectedIds;
-    }, [selectedIds]);
-    const [activeTool, setActiveTool] = useState('select'); // 'select', 'hand', 'mark', 'shape', 'text', 'draw'
-    const [title, setTitle] = useState('未命名');
-    const [isGenerating] = useState(false);
-    const [isStoryboardExportOpen, setIsStoryboardExportOpen] = useState(false);
-    const [isStoryboardExportSubmitting, setIsStoryboardExportSubmitting] = useState(false);
-    const [storyboardExportSubmitStatus, setStoryboardExportSubmitStatus] = useState('');
-    const [annotateImageTargetId, setAnnotateImageTargetId] = useState<string | null>(null);
-    const [isAnnotateImageSubmitting, setIsAnnotateImageSubmitting] = useState(false);
-    const [annotateImageSubmitStatus, setAnnotateImageSubmitStatus] = useState('');
-    const [cropImageTargetId, setCropImageTargetId] = useState<string | null>(null);
-    const [isCropImageSubmitting, setIsCropImageSubmitting] = useState(false);
-    const [cropImageSubmitStatus, setCropImageSubmitStatus] = useState('');
-    const [splitStoryboardTargetId, setSplitStoryboardTargetId] = useState<string | null>(null);
-    const [isSplitStoryboardSubmitting, setIsSplitStoryboardSubmitting] = useState(false);
-    const [splitStoryboardSubmitStatus, setSplitStoryboardSubmitStatus] = useState('');
-    const [isDraggingElement, setIsDraggingElement] = useState(false);
-    const [autoAdvanceStoryboardIssues, setAutoAdvanceStoryboardIssues] = useState(false);
-    const [autoAdvanceStoryboardScope, setAutoAdvanceStoryboardScope] = useState<StoryboardNavigationScope>('issues');
-    const [storyboardAuditFilter, setStoryboardAuditFilter] = useState<StoryboardAuditFilter>('all');
-    const [storyboardOverviewCollapsed, setStoryboardOverviewCollapsed] = useState(false);
     const [currentProjectId, setCurrentProjectId] = useState<string | null>(projectId);
-    const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'offline'>('saved');
-    const [isLoading, setIsLoading] = useState(true);
+    const migrationPendingRef = useRef<string[]>([]); // IDs of elements migrated from base64 to ImageStore
+    const isInitializedRef = useRef(false);
+    const [isCanvasReadyForHistory, setIsCanvasReadyForHistory] = useState(false);
+    const currentProjectIdRef = useRef<string | null>(projectId);
+    const shortcutFeedbackTimerRef = useRef<number | null>(null);
+    const {
+        elementsMapRef,
+        dirtyTrackerRef,
+        elementsVersion,
+        setElementsVersion,
+        elements,
+        setElements,
+        selectedIds,
+        setSelectedIds,
+        selectedIdsRef,
+        activeTool,
+        setActiveTool,
+        historySummary,
+        historyTimeline,
+        historyInitializedRef,
+        historyChangedIdsRef,
+        historyManagerRef,
+        historyTransactionRef,
+        runHistoryTransaction,
+        beginHistoryTransaction,
+        commitHistoryTransaction,
+        undo,
+        redo,
+        spatialIndexRef,
+        spatialIndexNeedsRebuildRef,
+        removeElementsByIds,
+        handleElementChange,
+        handleDelete,
+        addElement,
+        addElements,
+        handleBatchElementChange,
+    } = useCanvasDocumentState({
+        isInitializedRef,
+        isCanvasReadyForHistory,
+        currentProjectIdRef,
+        migrationPendingRef,
+    });
+
+    const {
+        runtimeImageRenderSrcs,
+        primeRuntimeImageRenderSrc,
+    } = useRuntimeImageRenderSrcs(elements);
+
+    const [isDraggingElement, setIsDraggingElement] = useState(false);
     const [initialPrompt, setInitialPrompt] = useState<string | undefined>(undefined);
-    const [transcodingStatus, setTranscodingStatus] = useState<string | null>(null);
     const [generatorSubmittingMap, setGeneratorSubmittingMap] = useState<Record<string, boolean>>({});
     const [projectMediaItems, setProjectMediaItems] = useState<ProjectMediaHistoryItem[]>([]);
     const [projectReferenceItems, setProjectReferenceItems] = useState<ProjectReferenceImageItem[]>([]);
     const clipboardRef = useRef<CanvasElement[]>([]); // internal clipboard for Ctrl+C/V
     const canvasClipboardPreferredRef = useRef(false);
-    const migrationPendingRef = useRef<string[]>([]); // IDs of elements migrated from base64 to ImageStore
-    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const isInitializedRef = useRef(false);
-    const currentProjectIdRef = useRef<string | null>(projectId);
     const pinnedChunkProjectIdRef = useRef<string | null>(projectId);
-    const existingThumbnailRef = useRef<string | null>(null); // tracks user-set custom cover
     const storageWarnedRef = useRef(false);
-    const titleDirtyRef = useRef(false);
-    const lastSavedTitleRef = useRef(title);
-
-    const clearScheduledSave = useCallback(() => {
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-            saveTimeoutRef.current = null;
-        }
-    }, []);
 
     const markCanvasClipboardPreferred = useCallback(() => {
         canvasClipboardPreferredRef.current = true;
@@ -658,25 +280,6 @@ function LovartCanvasContent() {
 
         window.addEventListener('blur', handleWindowBlur);
         return () => window.removeEventListener('blur', handleWindowBlur);
-    }, []);
-
-    const handleTitleChange = useCallback((nextTitle: string) => {
-        setTitle(nextTitle);
-
-        if (!isInitializedRef.current) {
-            lastSavedTitleRef.current = nextTitle;
-            titleDirtyRef.current = false;
-            return;
-        }
-
-        const isDirty = nextTitle !== lastSavedTitleRef.current;
-        titleDirtyRef.current = isDirty;
-
-        if (isDirty) {
-            setSaveStatus('saving');
-        } else if (!dirtyTrackerRef.current.isDirty) {
-            setSaveStatus('saved');
-        }
     }, []);
 
     const {
@@ -801,6 +404,49 @@ function LovartCanvasContent() {
         setSelectedIds,
     });
 
+    const {
+        storyboardPlannerSourceElementId,
+        setStoryboardPlannerSourceElementId,
+        isStoryboardExportOpen,
+        setIsStoryboardExportOpen,
+        isStoryboardExportSubmitting,
+        setIsStoryboardExportSubmitting,
+        storyboardExportSubmitStatus,
+        setStoryboardExportSubmitStatus,
+        annotateImageTargetId,
+        setAnnotateImageTargetId,
+        isAnnotateImageSubmitting,
+        setIsAnnotateImageSubmitting,
+        annotateImageSubmitStatus,
+        setAnnotateImageSubmitStatus,
+        cropImageTargetId,
+        setCropImageTargetId,
+        isCropImageSubmitting,
+        setIsCropImageSubmitting,
+        cropImageSubmitStatus,
+        setCropImageSubmitStatus,
+        splitStoryboardTargetId,
+        setSplitStoryboardTargetId,
+        isSplitStoryboardSubmitting,
+        setIsSplitStoryboardSubmitting,
+        splitStoryboardSubmitStatus,
+        setSplitStoryboardSubmitStatus,
+        autoAdvanceStoryboardIssues,
+        setAutoAdvanceStoryboardIssues,
+        autoAdvanceStoryboardScope,
+        setAutoAdvanceStoryboardScope,
+        storyboardAuditFilter,
+        setStoryboardAuditFilter,
+        storyboardOverviewCollapsed,
+        setStoryboardOverviewCollapsed,
+        beginImageToolSubmission,
+        endImageToolSubmission,
+        ensureImageToolSource,
+    } = useCanvasToolPanels({
+        currentProjectId,
+        showToast,
+    });
+
     const saveProjectReferenceFromElement = useCallback((element: CanvasElement) => {
         const projectId = currentProjectIdRef.current;
         if (!projectId || element.type !== 'image' || !element.content) {
@@ -911,18 +557,6 @@ function LovartCanvasContent() {
     });
 
     // cloneCanvasElement — now imported from canvas-page-utils
-    const updateHistorySummary = useCallback((lastAction?: string) => {
-        const stats = historyManagerRef.current.stats;
-        const timeline = historyManagerRef.current.timeline;
-        setHistorySummary({
-            lastAction: lastAction || historySummary.lastAction,
-            patchCount: stats.patchCount,
-            currentIndex: stats.currentIndex,
-            canUndo: historyManagerRef.current.canUndo,
-            canRedo: historyManagerRef.current.canRedo,
-        });
-        setHistoryTimeline(timeline.slice(-12).reverse());
-    }, [historySummary.lastAction]);
     const chunkSummary = useMemo(() => buildCanvasChunkManifest(elements), [elements]);
     const chunkManifest: CanvasChunkManifestEntry[] = chunkSummary.manifest;
     const chunkStats: CanvasChunkStats = chunkSummary.stats;
@@ -934,28 +568,13 @@ function LovartCanvasContent() {
     const buildChunkResidencyState = useCallback((residentChunkIds: string[], phase: ChunkResidencyState['phase'], labels?: {
         lastActivatedChunkLabel?: string;
         lastReleasedChunkLabel?: string;
-    }): ChunkResidencyState => {
-        const residentSet = new Set(residentChunkIds);
-        const orderedResidentChunkIds = chunkManifest
-            .map((chunk) => chunk.id)
-            .filter((chunkId) => residentSet.has(chunkId));
-        const orderedResidentSet = new Set(orderedResidentChunkIds);
-        const unloadedChunkIds = chunkManifest
-            .map((chunk) => chunk.id)
-            .filter((chunkId) => !orderedResidentSet.has(chunkId));
-
-        const countElements = (chunkIds: string[]) => chunkIds.reduce((sum, chunkId) => sum + (chunkMetaById.get(chunkId)?.elementCount || 0), 0);
-
-        return {
-            phase,
-            residentChunkIds: orderedResidentChunkIds,
-            unloadedChunkIds,
-            residentElementCount: countElements(orderedResidentChunkIds),
-            unloadedElementCount: countElements(unloadedChunkIds),
-            lastActivatedChunkLabel: labels?.lastActivatedChunkLabel,
-            lastReleasedChunkLabel: labels?.lastReleasedChunkLabel,
-        };
-    }, [chunkManifest, chunkMetaById]);
+    }): ChunkResidencyState => buildRuntimeChunkResidencyState({
+        residentChunkIds,
+        phase,
+        chunkManifest,
+        chunkMetaById,
+        labels,
+    }), [chunkManifest, chunkMetaById]);
 
     useEffect(() => {
         setPinnedChunkIds((prev) => prev.filter((chunkId) => validChunkIdSet.has(chunkId)));
@@ -979,65 +598,23 @@ function LovartCanvasContent() {
     }, [currentProjectId, pinnedChunkIds]);
 
     const activeChunkSummary = useMemo<ActiveChunkSummary>(() => {
-        if (elements.length === 0 || chunkManifest.length === 0) {
-            return {
-                activeChunkIds: [],
-                releasedChunkIds: [],
-                activeElements: elements,
-            };
-        }
-
-        const activeChunkIds = new Set<string>(hasRootChunk ? ['root'] : []);
         const viewport = getViewportSize();
-        const activationMargin = Math.max(240, 360 / Math.max(scale, 0.2));
-        const vpLeft = (-pan.x / scale) - activationMargin;
-        const vpTop = (-pan.y / scale) - activationMargin;
-        const vpRight = (viewport.width - pan.x) / scale + activationMargin;
-        const vpBottom = (viewport.height - pan.y) / scale + activationMargin;
-
-        for (const chunk of chunkManifest) {
-            if (!chunk.topFrameId) {
-                continue;
-            }
-            const frame = elementById.get(chunk.topFrameId);
-            if (!frame) {
-                continue;
-            }
-            const frameRight = frame.x + (frame.width || 0);
-            const frameBottom = frame.y + (frame.height || 0);
-            const intersectsViewport = frameRight >= vpLeft
-                && frame.x <= vpRight
-                && frameBottom >= vpTop
-                && frame.y <= vpBottom;
-            if (intersectsViewport) {
-                activeChunkIds.add(chunk.id);
-            }
-        }
-
-        for (const elementId of [...selectedIds, ...highlightedLayerIds, ...(highlightedResultId ? [highlightedResultId] : [])]) {
-            const chunkId = elementChunkIdById.get(elementId);
-            if (chunkId) {
-                activeChunkIds.add(chunkId);
-            }
-        }
-
-        pinnedChunkIds.forEach((chunkId) => {
-            if (validChunkIdSet.has(chunkId)) {
-                activeChunkIds.add(chunkId);
-            }
+        return buildActiveChunkSummary({
+            elements,
+            chunkManifest,
+            hasRootChunk,
+            elementById,
+            elementChunkIdById,
+            selectedIds,
+            highlightedLayerIds,
+            highlightedResultId,
+            pinnedChunkIds,
+            validChunkIdSet,
+            pan,
+            scale,
+            viewportSize: viewport,
         });
-
-        const activeElements = elements.filter((element) => activeChunkIds.has(elementChunkIdById.get(element.id) || 'root'));
-        const releasedChunkIds = chunkManifest
-            .map((chunk) => chunk.id)
-            .filter((chunkId) => !activeChunkIds.has(chunkId));
-
-        return {
-            activeChunkIds: Array.from(activeChunkIds),
-            releasedChunkIds,
-            activeElements,
-        };
-    }, [chunkManifest, elementById, elementChunkIdById, elements, hasRootChunk, highlightedLayerIds, highlightedResultId, pan.x, pan.y, pinnedChunkIds, scale, selectedIds, validChunkIdSet]);
+    }, [chunkManifest, elementById, elementChunkIdById, elements, hasRootChunk, highlightedLayerIds, highlightedResultId, pan, pinnedChunkIds, scale, selectedIds, validChunkIdSet]);
 
     const chunkReleaseTimerRef = useRef<number | null>(null);
     useEffect(() => {
@@ -1105,30 +682,22 @@ function LovartCanvasContent() {
     }, [activeChunkSummary.activeChunkIds, buildChunkResidencyState, chunkManifest.length, chunkMetaById, elements.length]);
 
     const canvasRuntimeElements = useMemo(() => {
-        if (elements.length === 0 || chunkManifest.length === 0) {
-            return elements;
-        }
-
-        const residentChunkIds = chunkResidency.residentChunkIds.length > 0
-            ? new Set(chunkResidency.residentChunkIds)
-            : new Set(activeChunkSummary.activeChunkIds);
-
-        return elements.filter((element) => residentChunkIds.has(elementChunkIdById.get(element.id) || 'root'));
+        return buildCanvasRuntimeElements(
+            elements,
+            chunkManifest.length,
+            chunkResidency.residentChunkIds,
+            activeChunkSummary.activeChunkIds,
+            elementChunkIdById,
+        );
     }, [activeChunkSummary.activeChunkIds, chunkManifest.length, chunkResidency.residentChunkIds, elementChunkIdById, elements]);
 
     const chunkPanelEntries = useMemo(() => {
-        const activeSet = new Set(activeChunkSummary.activeChunkIds);
-        const residentSet = new Set(chunkResidency.residentChunkIds.length > 0 ? chunkResidency.residentChunkIds : activeChunkSummary.activeChunkIds);
-        const pinnedSet = new Set(pinnedChunkIds);
-
-        return chunkManifest
-            .map((chunk) => ({
-                ...chunk,
-                isActive: activeSet.has(chunk.id),
-                isPinned: pinnedSet.has(chunk.id),
-                isResident: residentSet.has(chunk.id),
-            }))
-            .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || Number(b.isActive) - Number(a.isActive) || b.elementCount - a.elementCount);
+        return buildChunkPanelEntries(
+            chunkManifest,
+            activeChunkSummary.activeChunkIds,
+            chunkResidency.residentChunkIds,
+            pinnedChunkIds,
+        );
     }, [activeChunkSummary.activeChunkIds, chunkManifest, chunkResidency.residentChunkIds, pinnedChunkIds]);
 
     const handleTogglePinnedChunk = useCallback((chunkId: string) => {
@@ -1143,14 +712,28 @@ function LovartCanvasContent() {
         }
     }, [chunkMetaById, focusCanvasElement]);
 
-    const sideChatWidth = showChat && chatPanelMode === 'side'
-        ? (chatExpanded ? 720 : 420)
-        : 0;
-    const rightDockPanelWidth = (showLayers ? 328 : 0) + (showHistory ? 328 : 0) + (showMedia ? 348 : 0);
-    const rightWorkbenchOffset = showLayers || showHistory || showMedia
-        ? sideDockOffset + rightDockPanelWidth
-        : sideChatWidth;
-    const benchmarkPanelRightOffset = rightWorkbenchOffset + 16;
+    const {
+        renderMetrics,
+        handleRenderMetricsChange,
+        rightWorkbenchOffset,
+        benchmarkPanelRightOffset,
+        handleZoomIn,
+        handleZoomOut,
+        handleZoomTo,
+        handleFitToScreen,
+    } = useCanvasWorkbenchLayout({
+        benchmarkMode,
+        elements,
+        setScale,
+        setPan,
+        showChat,
+        chatPanelMode,
+        chatExpanded,
+        showLayers,
+        showHistory,
+        showMedia,
+        sideDockOffset,
+    });
 
     const handleGeneratorSubmittingChange = useCallback((elementId: string, submitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; quality?: string; duration?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => {
         setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, submitting));
@@ -1286,122 +869,19 @@ function LovartCanvasContent() {
         source: string,
         prefetchedBlob?: Blob | null,
     ): Promise<string> => {
-        if (!content) return content;
-        if (isImageRef(content)) return content;
-
-        try {
-            if (content.startsWith('data:')) {
-                const ref = await ensureImageRef(content);
-                void refreshStorageEstimate();
-                return ref;
-            }
-
-            if (content.startsWith('blob:')) {
-                const blob = await fetch(content).then((response) => response.blob());
-                const ref = await saveImageBlob(blob);
-                if (ref) {
-                    void refreshStorageEstimate();
-                    return ref;
-                }
-                return content;
-            }
-
-            if (content.startsWith('http://') || content.startsWith('https://')) {
-                const blob = prefetchedBlob ?? await fetchRemoteBlob(content, `lovart-${source}-image`);
-                if (blob) {
-                    const ref = await saveImageBlob(blob);
-                    if (ref) {
-                        void refreshStorageEstimate();
-                        return ref;
-                    }
-                }
-            }
-        } catch (error) {
-            console.warn('[Workbench] Failed to localize generated image:', error);
-        }
-
-        return ensureImageRef(content);
+        return localizeGeneratedImageContent(content, source, {
+            prefetchedBlob,
+            onStorageChanged: () => { void refreshStorageEstimate(); },
+        });
     }, [refreshStorageEstimate]);
 
     const resolveImageDisplayMetrics = useCallback(async (
         content: string,
         source: string,
-        options?: {
-            maxWidth?: number;
-            maxHeight?: number;
-            anchor?: {
-                x: number;
-                y: number;
-                width: number;
-                height: number;
-            };
-        },
+        options?: ResolveImageDisplayMetricsOptions,
         prefetchedBlob?: Blob | null,
     ): Promise<{ width: number; height: number; x?: number; y?: number; aspectRatio?: string } | null> => {
-        const computeFitted = (natural: { width: number; height: number }) => {
-            const actualAspectRatio = inferImageAspectRatioLabel(natural.width, natural.height);
-            const fitted = options?.maxWidth && options?.maxHeight
-                ? fitImageToBounds(natural.width, natural.height, options.maxWidth, options.maxHeight)
-                : getCanvasDisplaySize(natural.width, natural.height);
-
-            if (!options?.anchor) {
-                return {
-                    ...fitted,
-                    aspectRatio: actualAspectRatio,
-                };
-            }
-
-            return {
-                ...fitted,
-                aspectRatio: actualAspectRatio,
-                x: Math.round(options.anchor.x + (options.anchor.width - fitted.width) / 2),
-                y: Math.round(options.anchor.y + (options.anchor.height - fitted.height) / 2),
-            };
-        };
-
-        try {
-            let blob: Blob | null = prefetchedBlob ?? null;
-
-            if (!blob) {
-                if (isImageRef(content)) {
-                    blob = await getImageBlob(content);
-                } else if (content.startsWith('data:') || content.startsWith('blob:')) {
-                    blob = await dataUrlToBlob(content);
-                } else if (content.startsWith('http://') || content.startsWith('https://')) {
-                    const filename = `lovart-${source}-image-metrics`;
-                    blob = await fetchRemoteBlob(content, filename);
-                }
-            }
-
-            if (blob) {
-                const natural = await readImageDimensions(blob);
-                return computeFitted(natural);
-            }
-
-            // Blob 加载失败 → 通过 DOM Image 元素兜底测量尺寸
-            let imgSrc: string | null = null;
-            if (isImageRef(content)) {
-                // 尝试获取 blob URL
-                imgSrc = await getImageBlobUrl(content);
-            } else if (content) {
-                imgSrc = content;
-            }
-
-            if (imgSrc) {
-                const natural = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-                    const img = new window.Image();
-                    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-                    img.onerror = () => reject(new Error('Image load failed'));
-                    img.src = imgSrc;
-                });
-                return computeFitted(natural);
-            }
-
-            return null;
-        } catch (error) {
-            console.warn('[Workbench] Failed to resolve image display metrics:', error);
-            return null;
-        }
+        return getImageDisplayMetrics(content, source, options, prefetchedBlob);
     }, []);
 
     const resolveAspectRatioFallbackMetrics = useCallback((
@@ -1413,270 +893,27 @@ function LovartCanvasContent() {
             height: number;
         },
     ): { width: number; height: number; x?: number; y?: number; aspectRatio?: string } | null => {
-        if (!anchor) {
-            return null;
-        }
-
-        const fitted = fitAspectRatioLabelToBounds(
-            aspectRatio,
-            Math.max(1, anchor.width),
-            Math.max(1, anchor.height),
-        );
-
-        if (!fitted) {
-            return null;
-        }
-
-        return {
-            ...fitted,
-            x: Math.round(anchor.x + (anchor.width - fitted.width) / 2),
-            y: Math.round(anchor.y + (anchor.height - fitted.height) / 2),
-        };
+        return getAspectRatioFallbackMetrics(aspectRatio, anchor);
     }, []);
 
-    const finalizeAiEditedImageElement = useCallback(async (
-        elementId: string,
-        resultUrl: string,
-        source: string,
-        anchor?: {
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-        },
-        taskId?: string | null,
-    ) => {
-        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
-            ? taskId.trim()
-            : undefined;
-        let prefetchedBlob: Blob | null = null;
-        if (resultUrl.startsWith('http://') || resultUrl.startsWith('https://')) {
-            prefetchedBlob = await fetchRemoteBlob(resultUrl, `lovart-${source}-image`);
-            if (prefetchedBlob) {
-                primeRuntimeImageRenderSrc(elementId, prefetchedBlob);
-            }
-        }
-
-        const finalContent = await normalizeGeneratedImageContent(resultUrl, source, prefetchedBlob);
-        let imageMetrics = await resolveImageDisplayMetrics(finalContent, source, anchor ? {
-            maxWidth: anchor.width,
-            maxHeight: anchor.height,
-            anchor,
-        } : undefined, prefetchedBlob);
-
-        if (!imageMetrics && finalContent !== resultUrl) {
-            imageMetrics = await resolveImageDisplayMetrics(resultUrl, source, anchor ? {
-                maxWidth: anchor.width,
-                maxHeight: anchor.height,
-                anchor,
-            } : undefined, prefetchedBlob);
-        }
-
-        void persistGeneratedAssetToDisk(finalContent, 'image', source, prefetchedBlob);
-        setElements(prev => prev.map((item) => {
-            if (item.id !== elementId) {
-                return item;
-            }
-
-            return {
-                ...item,
-                type: 'image',
-                content: finalContent,
-                selectedAspectRatio: imageMetrics?.aspectRatio ?? item.selectedAspectRatio,
-                imageFit: item.imageFit || workbenchSettings.defaultImageFit,
-                imageSurface: item.imageSurface || workbenchSettings.defaultImageSurface,
-                width: imageMetrics?.width ?? item.width,
-                height: imageMetrics?.height ?? item.height,
-                x: imageMetrics?.x ?? item.x,
-                y: imageMetrics?.y ?? item.y,
-                sourceGenerationTaskId: normalizedTaskId,
-                sourceGenerationTaskType: normalizedTaskId ? 'image' : undefined,
-                ...createGenerationIdlePatch(),
-            };
-        }));
-        dirtyTrackerRef.current.markModified(elementId);
-
-        const pid = currentProjectIdRef.current;
-        if (pid) {
-            removeGeneration(pid, elementId);
-        }
-    }, [normalizeGeneratedImageContent, persistGeneratedAssetToDisk, primeRuntimeImageRenderSrc, resolveImageDisplayMetrics, setElements, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
-
-    const replaceGeneratorWithPendingImage = useCallback((
-        elementId: string,
-        imageUrl: string,
-        taskId?: string | null,
-    ) => {
-        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
-            ? taskId.trim()
-            : undefined;
-        setElements(prev => prev.map((item) => {
-            if (item.id !== elementId) {
-                return item;
-            }
-
-            const previewMetrics = resolveAspectRatioFallbackMetrics(
-                item.selectedAspectRatio,
-                {
-                    x: item.x,
-                    y: item.y,
-                    width: item.width || 400,
-                    height: item.height || 400,
-                },
-            );
-
-            return {
-                ...item,
-                type: 'image',
-                content: imageUrl,
-                flowReferenceImages: item.savedReferenceImages || item.flowReferenceImages,
-                referenceImageId: undefined,
-                savedReferenceImages: undefined,
-                savedReferenceImage: undefined,
-                // 使用 cover 填充立即展示图片，避免尺寸未校正时的留白问题。
-                // finalizeGeneratedImageElement 会在后续校正为实际尺寸 + 用户设定的 imageFit。
-                imageFit: 'cover',
-                imageSurface: item.imageSurface || workbenchSettings.defaultImageSurface,
-                width: previewMetrics?.width ?? item.width,
-                height: previewMetrics?.height ?? item.height,
-                x: previewMetrics?.x ?? item.x,
-                y: previewMetrics?.y ?? item.y,
-                sourceGenerationTaskId: normalizedTaskId,
-                sourceGenerationTaskType: normalizedTaskId ? 'image' : undefined,
-                ...createGenerationIdlePatch(),
-            };
-        }));
-        dirtyTrackerRef.current.markModified(elementId);
-        // 生成完成，清理 sessionStorage
-        const pid = currentProjectIdRef.current;
-        if (pid) removeGeneration(pid, elementId);
-    }, [resolveAspectRatioFallbackMetrics, setElements, workbenchSettings.defaultImageSurface]);
-
-    const finalizeGeneratedImageElement = useCallback(async (
-        elementId: string,
-        resultUrl: string,
-        source: string,
-        anchor?: {
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-        },
-        taskId?: string | null,
-    ) => {
-        const previousElement = elementsMapRef.current.get(elementId) || null;
-        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
-            ? taskId.trim()
-            : undefined;
-        // ── 优化：只下载一次，blob 贯穿整个流程 ──────────────
-        let prefetchedBlob: Blob | null = null;
-        if (resultUrl.startsWith('http://') || resultUrl.startsWith('https://')) {
-            prefetchedBlob = await fetchRemoteBlob(resultUrl, `lovart-${source}-image`);
-            if (prefetchedBlob) {
-                primeRuntimeImageRenderSrc(elementId, prefetchedBlob);
-            }
-        }
-
-        const finalContent = await normalizeGeneratedImageContent(resultUrl, source, prefetchedBlob);
-
-        // normalize 成功后 blob 已存入 IndexedDB，从 DB 读比重新下载快几个数量级
-        let imageMetrics = await resolveImageDisplayMetrics(finalContent, source, anchor ? {
-            maxWidth: anchor.width,
-            maxHeight: anchor.height,
-            anchor,
-        } : undefined, prefetchedBlob);
-
-        // fallback: 如果归一化后的 imgref 无法读取尺寸，尝试用原始 URL 再测量一次
-        if (!imageMetrics && finalContent !== resultUrl) {
-            imageMetrics = await resolveImageDisplayMetrics(resultUrl, source, anchor ? {
-                maxWidth: anchor.width,
-                maxHeight: anchor.height,
-                anchor,
-            } : undefined, prefetchedBlob);
-        }
-
-        const fallbackMetrics = !imageMetrics
-            ? resolveAspectRatioFallbackMetrics(previousElement?.selectedAspectRatio, anchor)
-            : null;
-        const effectiveMetrics = imageMetrics ?? fallbackMetrics;
-
-        void persistGeneratedAssetToDisk(finalContent, 'image', source, prefetchedBlob);
-        setElements(prev => prev.map((item) => {
-            if (item.id !== elementId) {
-                return item;
-            }
-
-            return {
-                ...item,
-                type: 'image',
-                content: finalContent,
-                flowReferenceImages: previousElement?.flowReferenceImages || previousElement?.savedReferenceImages,
-                referenceImageId: undefined,
-                savedReferenceImages: undefined,
-                savedReferenceImage: undefined,
-                selectedAspectRatio: effectiveMetrics?.aspectRatio ?? item.selectedAspectRatio,
-                // 始终使用用户设定的 imageFit，覆盖中间态的 'cover'
-                imageFit: workbenchSettings.defaultImageFit,
-                imageSurface: item.imageSurface || workbenchSettings.defaultImageSurface,
-                width: effectiveMetrics?.width ?? item.width,
-                height: effectiveMetrics?.height ?? item.height,
-                x: effectiveMetrics?.x ?? item.x,
-                y: effectiveMetrics?.y ?? item.y,
-                sourceGenerationTaskId: normalizedTaskId,
-                sourceGenerationTaskType: normalizedTaskId ? 'image' : undefined,
-                ...createGenerationIdlePatch(),
-            };
-        }));
-        dirtyTrackerRef.current.markModified(elementId);
-        // 清理 sessionStorage 中的生成记录
-        const pid = currentProjectIdRef.current;
-        if (pid) removeGeneration(pid, elementId);
-        recordProjectMediaItem({
-            kind: 'image',
-            content: finalContent,
-            taskId: normalizedTaskId,
-            sourceElement: previousElement,
-            sourceElementId: elementId,
-        });
-    }, [normalizeGeneratedImageContent, persistGeneratedAssetToDisk, primeRuntimeImageRenderSrc, recordProjectMediaItem, resolveAspectRatioFallbackMetrics, resolveImageDisplayMetrics, setElements, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
-
-    const finalizePolledImageResult = useCallback(async (
-        element: CanvasElement,
-        resultUrl: string,
-    ) => {
-        if (element.type === 'image') {
-            await finalizeAiEditedImageElement(
-                element.id,
-                resultUrl,
-                'poll-ai-edit',
-                {
-                    x: element.x,
-                    y: element.y,
-                    width: element.width || 400,
-                    height: element.height || 400,
-                },
-                element.generatingTaskId,
-            );
-            return;
-        }
-
-        // 立即展示图片预览（cover 填充，不会留白），让用户立刻看到生成结果位置
-        replaceGeneratorWithPendingImage(element.id, resultUrl, element.generatingTaskId);
-
-        // 后台异步归一化图片并校正尺寸
-        await finalizeGeneratedImageElement(
-            element.id,
-            resultUrl,
-            'poll',
-            {
-                x: element.x,
-                y: element.y,
-                width: element.width || 400,
-                height: element.height || 400,
-            },
-            element.generatingTaskId,
-        );
-    }, [finalizeAiEditedImageElement, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage]);
+    const {
+        finalizeAiEditedImageElement,
+        replaceGeneratorWithPendingImage,
+        finalizeGeneratedImageElement,
+        finalizePolledImageResult,
+    } = useImageFinalizer({
+        elementsMapRef,
+        currentProjectIdRef,
+        dirtyTrackerRef,
+        setElements,
+        workbenchSettings,
+        normalizeGeneratedImageContent,
+        resolveImageDisplayMetrics,
+        resolveAspectRatioFallbackMetrics,
+        persistGeneratedAssetToDisk,
+        primeRuntimeImageRenderSrc,
+        recordProjectMediaItem,
+    });
 
     const handleToggleAutoSaveGenerated = useCallback(async () => {
         if (workbenchSettings.autoSaveGenerated) {
@@ -1712,26 +949,6 @@ function LovartCanvasContent() {
         showToast('已清空压力测试记录', 'info');
     }, [showToast]);
 
-    const handleZoomIn = useCallback(() => setScale(prev => Math.min(prev * 1.15, 8)), []);
-    const handleZoomOut = useCallback(() => setScale(prev => Math.max(prev * 0.85, 0.05)), []);
-    const handleZoomTo = useCallback((value: number) => setScale(Math.min(8, Math.max(0.05, value))), []);
-    const handleFitToScreen = useCallback(() => {
-        if (elements.length === 0) { setScale(1); setPan({ x: 0, y: 0 }); return; }
-        const xs = elements.map(el => el.x);
-        const ys = elements.map(el => el.y);
-        const xe = elements.map(el => el.x + (el.width || 300));
-        const ye = elements.map(el => el.y + (el.height || 300));
-        const minX = Math.min(...xs), minY = Math.min(...ys);
-        const maxX = Math.max(...xe), maxY = Math.max(...ye);
-        const cw = maxX - minX, ch = maxY - minY;
-        const vw = window.innerWidth - 120, vh = window.innerHeight - 120;
-        const s = Math.min(vw / cw, vh / ch, 2);
-        setScale(s);
-        setPan({ x: (vw - cw * s) / 2 - minX * s + 60, y: (vh - ch * s) / 2 - minY * s + 60 });
-    }, [elements]);
-
-    const isSavingRef = useRef(false);
-    const needsSaveRef = useRef(false);
     const mouseCanvasPosRef = useRef<{ x: number; y: number } | null>(null);
 
     const syncImageStoreCleanup = useCallback(async (currentElements: CanvasElement[]) => {
@@ -1744,7 +961,7 @@ function LovartCanvasContent() {
             ]);
             const removedCount = await cleanupUnusedImages(liveRefs);
             if (removedCount > 0) {
-                console.log(`[ImageStore] Cleaned ${removedCount} orphaned images`);
+                debugLog(`[ImageStore] Cleaned ${removedCount} orphaned images`);
             }
             await refreshStorageEstimate();
         } catch (error) {
@@ -1781,6 +998,7 @@ function LovartCanvasContent() {
             }
 
             const originalContent = element.content;
+            const hasCurrentLegacyMigration = hasCurrentCanvasLegacyMigration(element);
             let loadBlob: Blob | null = null;
             const isRemoteUrl = originalContent.startsWith('http://') || originalContent.startsWith('https://');
             if (isRemoteUrl) {
@@ -1797,7 +1015,7 @@ function LovartCanvasContent() {
                 imageSurface: element.imageSurface || workbenchSettings.defaultImageSurface,
             };
 
-            const isLegacyPresentation = !element.imageFit || !element.imageSurface;
+            const isLegacyPresentation = !hasCurrentLegacyMigration && (!element.imageFit || !element.imageSurface);
             const shouldMeasure = isLegacyPresentation;
             const hasLocalizedContent = localizedContent !== originalContent;
 
@@ -1807,7 +1025,7 @@ function LovartCanvasContent() {
                     normalizedIds.push(element.id);
                     batchNormalizedIds.push(element.id);
                 }
-                return { index, element: nextElement, changed };
+                return { index, element: changed ? markCanvasLegacyMigrationApplied(nextElement) : nextElement, changed };
             }
 
             const metrics = await resolveImageDisplayMetrics(localizedContent, 'load-legacy', {
@@ -1827,7 +1045,7 @@ function LovartCanvasContent() {
                     normalizedIds.push(element.id);
                     batchNormalizedIds.push(element.id);
                 }
-                return { index, element: nextElement, changed };
+                return { index, element: changed ? markCanvasLegacyMigrationApplied(nextElement) : nextElement, changed };
             }
 
             const hasVisualChange =
@@ -1844,16 +1062,18 @@ function LovartCanvasContent() {
                 batchNormalizedIds.push(element.id);
             }
 
-            return {
-                index,
-                changed: hasVisualChange,
-                element: {
+            const normalizedElement: CanvasElement = {
                     ...nextElement,
                     width: metrics.width,
                     height: metrics.height,
                     x: metrics.x ?? nextElement.x,
                     y: metrics.y ?? nextElement.y,
-                },
+                };
+
+            return {
+                index,
+                changed: hasVisualChange,
+                element: hasVisualChange ? markCanvasLegacyMigrationApplied(normalizedElement) : normalizedElement,
             };
             });
 
@@ -1876,348 +1096,43 @@ function LovartCanvasContent() {
         };
     }, [normalizeGeneratedImageContent, pan, resolveImageDisplayMetrics, scale, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
-    // Save project to local database (增量保存)
-    const saveProject = useCallback(async () => {
-        if (!user) {
-            console.log('Save skipped: No user logged in');
-            setSaveStatus('offline');
-            return;
-        }
-
-        if (!database) {
-            console.log('Save skipped: local database client not initialized yet');
-            return;
-        }
-
-        // Prevent concurrent saves
-        if (isSavingRef.current) {
-            needsSaveRef.current = true;
-            return;
-        }
-
-        isSavingRef.current = true;
-        const activeProjectId = currentProjectIdRef.current;
-        const currentElements = Array.from(elementsMapRef.current.values());
-        console.log('Starting save...', { userId: user.id, projectId: activeProjectId, elementsCount: currentElements.length });
-
-        try {
-            setSaveStatus('saving');
-            const saveRevision = dirtyTrackerRef.current.revision;
-            const savedElementIds = currentElements.map(el => el.id);
-            const derivedThumbnail = await deriveProjectThumbnail(currentElements, uuidv4);
-            const nextChunkSummary = buildCanvasChunkManifest(currentElements);
-            // Only use derived thumbnail if project has no existing custom cover
-            const thumbnail = existingThumbnailRef.current ? undefined : derivedThumbnail;
-
-            // If we have a project ID, update it; otherwise create a new one
-            if (activeProjectId) {
-                // ─── 增量保存：只操作变更的元素 ───
-                const changes = dirtyTrackerRef.current.getChanges();
-                const elementMap = new Map(currentElements.map(el => [el.id, el]));
-                const addedElements = changes.addedIds
-                    .map(id => elementMap.get(id))
-                    .filter((element): element is CanvasElement => !!element);
-                const modifiedElements = changes.modifiedIds
-                    .map(id => elementMap.get(id))
-                    .filter((element): element is CanvasElement => !!element);
-
-                const totalChanges = changes.addedIds.length + changes.modifiedIds.length + changes.removedIds.length;
-                console.log(`Incremental save: ${changes.addedIds.length} added, ${changes.modifiedIds.length} modified, ${changes.removedIds.length} removed (total: ${totalChanges})`);
-
-                await saveExistingCanvasProject({
-                    database,
-                    projectId: activeProjectId,
-                    title,
-                    thumbnail,
-                    elementCount: currentElements.length,
-                    addedElements,
-                    modifiedElements,
-                    removedIds: changes.removedIds,
-                    chunkManifest: nextChunkSummary.manifest,
-                    chunkStats: nextChunkSummary.stats,
-                });
-
-                // 仅在保存期间没有新的编辑/删除时，才清空当前脏状态
-                if (!dirtyTrackerRef.current.markSavedIfUnchanged(saveRevision, savedElementIds)) {
-                    needsSaveRef.current = true;
-                }
-
-            } else {
-                // Create new project — 全量插入（首次保存）
-                const newProjectId = uuidv4();
-                const uniqueElements = Array.from(new Map(currentElements.map(item => [item.id, item])).values());
-
-                await createCanvasProject({
-                    database,
-                    projectId: newProjectId,
-                    title,
-                    thumbnail,
-                    elementCount: uniqueElements.length,
-                    elements: uniqueElements,
-                    chunkManifest: nextChunkSummary.manifest,
-                    chunkStats: nextChunkSummary.stats,
-                });
-
-                currentProjectIdRef.current = newProjectId;
-                setCurrentProjectId(newProjectId);
-                const nextSearchParams = new URLSearchParams(searchParams.toString());
-                nextSearchParams.set('id', newProjectId);
-                window.history.pushState({}, '', `/canvas?${nextSearchParams.toString()}`);
-
-                // 首次保存后，仅在无并发变更时才重置 tracker
-                if (!dirtyTrackerRef.current.markSavedIfUnchanged(saveRevision, savedElementIds)) {
-                    needsSaveRef.current = true;
-                }
-            }
-
-            lastSavedTitleRef.current = title;
-            titleDirtyRef.current = false;
-
-            console.log('Save successful!');
-            void syncImageStoreCleanup(currentElements);
-            void refreshStorageEstimate();
-            setSaveStatus('saved');
-        } catch (error: unknown) {
-            console.warn('Save project issue:', error instanceof Error ? error.message : error);
-            setSaveStatus('offline');
-        } finally {
-            isSavingRef.current = false;
-            // If changes happened while saving, trigger another save
-            if (needsSaveRef.current) {
-                needsSaveRef.current = false;
-                saveProject();
-            }
-        }
-    }, [user, database, title, searchParams, syncImageStoreCleanup, refreshStorageEstimate]);
+    const {
+        title,
+        handleTitleChange,
+        saveStatus,
+        isLoading,
+        titleDirtyRef,
+        clearScheduledSave,
+        saveProject,
+    } = useCanvasProjectPersistence({
+        user,
+        database,
+        projectId,
+        currentProjectId,
+        setCurrentProjectId,
+        currentProjectIdRef,
+        isInitializedRef,
+        migrationPendingRef,
+        elementsMapRef,
+        dirtyTrackerRef,
+        historyInitializedRef,
+        setElements,
+        setScale,
+        setPan,
+        searchParams,
+        setInitialPrompt,
+        openChat,
+        setChunkPreheat,
+        syncImageStoreCleanup,
+        normalizeLoadedImageElements,
+        refreshStorageEstimate,
+    });
 
     useEffect(() => {
-        currentProjectIdRef.current = currentProjectId;
-    }, [currentProjectId]);
-
-    useEffect(() => {
-        const prefs = loadStoryboardOverviewPrefs(currentProjectId);
-        if (!prefs) {
-            setStoryboardOverviewCollapsed(false);
-            setAutoAdvanceStoryboardIssues(false);
-            setAutoAdvanceStoryboardScope('issues');
-            setStoryboardAuditFilter('all');
-            return;
+        if (isInitializedRef.current) {
+            setIsCanvasReadyForHistory(true);
         }
-
-        setStoryboardOverviewCollapsed(prefs.collapsed);
-        setAutoAdvanceStoryboardIssues(prefs.autoAdvanceEnabled);
-        setAutoAdvanceStoryboardScope(prefs.autoAdvanceScope);
-        setStoryboardAuditFilter(prefs.auditFilter);
-    }, [currentProjectId]);
-
-    useEffect(() => {
-        persistStoryboardOverviewPrefs(currentProjectId, {
-            collapsed: storyboardOverviewCollapsed,
-            autoAdvanceEnabled: autoAdvanceStoryboardIssues,
-            autoAdvanceScope: autoAdvanceStoryboardScope,
-            auditFilter: storyboardAuditFilter,
-        });
-    }, [autoAdvanceStoryboardIssues, autoAdvanceStoryboardScope, currentProjectId, storyboardAuditFilter, storyboardOverviewCollapsed]);
-
-    // Load project from local database
-    const loadProject = useCallback(async (id: string) => {
-        if (!user) {
-            console.log('Load skipped: No user logged in');
-            setIsLoading(false);
-            return;
-        }
-
-        if (!database) {
-            console.log('Load skipped: local database client not initialized yet');
-            return;
-        }
-
-        try {
-            setIsLoading(true);
-            setChunkPreheat({
-                active: false,
-                phase: 'idle',
-                loadedChunks: 0,
-                totalChunks: 0,
-                loadedElements: 0,
-                totalElements: 0,
-            });
-            console.log('Loading project:', id);
-
-            const snapshot = await loadCanvasSession({
-                database,
-                projectId: id,
-                onChunkProgress: ({ chunk, loadedChunkCount, totalChunks, loadedElementCount, totalElementCount }) => {
-                    setChunkPreheat({
-                        active: true,
-                        phase: loadedChunkCount < totalChunks ? 'preheating' : 'idle',
-                        loadedChunks: loadedChunkCount,
-                        totalChunks,
-                        loadedElements: loadedElementCount,
-                        totalElements: totalElementCount,
-                        currentChunkLabel: chunk.label,
-                    });
-                },
-            });
-
-            if (!snapshot) {
-                console.log('Project not found in database, treating as new project');
-                setIsLoading(false);
-                isInitializedRef.current = true;
-                return;
-            }
-
-            // Apply header
-            setTitle(snapshot.header.title);
-            lastSavedTitleRef.current = snapshot.header.title;
-            titleDirtyRef.current = false;
-            existingThumbnailRef.current = snapshot.header.thumbnail;
-
-            const uniqueElements = snapshot.elements;
-            console.log('Canvas elements loaded:', uniqueElements.length);
-
-            if (uniqueElements.length > 0) {
-                // ── 从 sessionStorage 恢复未完成的生成任务 ──
-                const pendingGens = snapshot.pendingGenerations;
-                const pendingKeys = Object.keys(pendingGens);
-                let restoredElements = uniqueElements;
-                if (pendingKeys.length > 0) {
-                    console.log(`[GenPersist] Restoring ${pendingKeys.length} pending generation tasks from sessionStorage`);
-                    restoredElements = uniqueElements.map(el => {
-                        const pending = pendingGens[el.id];
-                        if (pending && !el.generatingTaskId) {
-                            return {
-                                ...el,
-                                generatingTaskId: pending.taskId,
-                                generatingTaskType: pending.taskType,
-                                generatingProgress: pending.progress,
-                            };
-                        }
-                        return el;
-                    });
-                    // 标记恢复的元素后续需要持久化到 DB
-                    migrationPendingRef.current = Array.from(new Set([
-                        ...migrationPendingRef.current,
-                        ...pendingKeys.filter(eid => restoredElements.some(el => el.id === eid && el.generatingTaskId)),
-                    ]));
-                }
-
-                // ── 将 base64 图片迁移到 ImageStore（首次加载时一次性完成）──
-                const { elements: migratedElements, migratedCount } =
-                    await migrateElementsToImageStore(restoredElements);
-                setElements(migratedElements);
-
-                // 标记迁移的元素 ID，后续初始化 dirty tracker 后持久化
-                if (migratedCount > 0) {
-                    migrationPendingRef.current = Array.from(new Set([
-                        ...migrationPendingRef.current,
-                        ...migratedElements
-                            .filter((element) => element.type === 'image' && isImageRef(element.content))
-                            .map((element) => element.id),
-                    ]));
-                    if (migratedCount > 0) {
-                        console.log(`[Migration] ${migratedCount} images migrated, will persist on next save`);
-                    }
-                }
-
-                void syncImageStoreCleanup(migratedElements);
-
-                void (async () => {
-                    const { elements: normalizedElements, normalizedIds } =
-                        await normalizeLoadedImageElements(migratedElements, {
-                            onProgress: (partialElements, partialIds) => {
-                                migrationPendingRef.current = Array.from(new Set([
-                                    ...migrationPendingRef.current,
-                                    ...partialIds,
-                                ]));
-
-                                if (historyInitializedRef.current) {
-                                    for (const id of partialIds) {
-                                        dirtyTrackerRef.current.markModified(id);
-                                    }
-                                }
-
-                                setElements(partialElements);
-                            },
-                        });
-
-                    if (normalizedIds.length > 0) {
-                        migrationPendingRef.current = Array.from(new Set([
-                            ...migrationPendingRef.current,
-                            ...normalizedIds,
-                        ]));
-                        if (historyInitializedRef.current) {
-                            for (const id of normalizedIds) {
-                                dirtyTrackerRef.current.markModified(id);
-                            }
-                        }
-                        setElements(normalizedElements);
-                        console.log(`[Workbench] Corrected ${normalizedIds.length} legacy image placements on load`);
-                    }
-
-                    void syncImageStoreCleanup(normalizedElements);
-                })();
-            } else {
-                console.log('No canvas elements found for this project');
-                setElements([]);
-                void syncImageStoreCleanup([]);
-            }
-        } catch (error: unknown) {
-            console.error('Failed to load project:', error);
-        } finally {
-            setChunkPreheat((prev) => ({
-                ...prev,
-                phase: 'idle',
-                active: prev.totalChunks > 0 && prev.loadedChunks < prev.totalChunks,
-            }));
-            // ── 恢复上次的视口位置（pan/scale）──
-            const savedViewport = loadViewportState(id);
-            if (savedViewport) {
-                setScale(savedViewport.scale);
-                setPan({ x: savedViewport.panX, y: savedViewport.panY });
-                console.log(`[Viewport] Restored: scale=${savedViewport.scale.toFixed(2)}, pan=(${Math.round(savedViewport.panX)}, ${Math.round(savedViewport.panY)})`);
-            }
-            setIsLoading(false);
-        }
-    }, [user, database, syncImageStoreCleanup, normalizeLoadedImageElements, setElements]);
-
-    // Load project on mount if ID is provided
-    const hasLoadedRef = useRef(false);
-    useEffect(() => {
-        if (projectId && user && database && !hasLoadedRef.current) {
-            hasLoadedRef.current = true;
-            loadProject(projectId);
-        } else if (!projectId) {
-            setIsLoading(false);
-            // Mark as initialized for new projects
-            isInitializedRef.current = true;
-            // Check if there's a name in URL for new projects
-            const nameParam = searchParams.get('name');
-            if (nameParam) {
-                setTitle(nameParam);
-                lastSavedTitleRef.current = nameParam;
-            } else {
-                lastSavedTitleRef.current = '未命名';
-            }
-            titleDirtyRef.current = false;
-        }
-
-        // Check if there's a prompt in URL
-        const prompt = searchParams.get('prompt');
-        if (prompt) {
-            setInitialPrompt(prompt);
-            openChat();
-        }
-    }, [projectId, user, database, loadProject, openChat, searchParams]);
-
-    // Mark as initialized after loading completes
-    useEffect(() => {
-        if (!isLoading && !isInitializedRef.current && hasLoadedRef.current) {
-            // Only mark as initialized after a successful load
-            console.log('Marking as initialized after load complete');
-            isInitializedRef.current = true;
-        }
-    }, [isLoading]);
+    }, [currentProjectId, isLoading]);
 
     useEffect(() => {
         const resolveCanvasArea = () => document.querySelector('[data-testid="canvas-area"]');
@@ -2271,22 +1186,11 @@ function LovartCanvasContent() {
         };
     }, []);
 
-    // ──── 差分 Undo/Redo（替代全量 JSON 深拷贝）────────────────
-    const historyManagerRef = useRef<HistoryManager>(new HistoryManager({ maxPatches: 100 }));
-    const dirtyTrackerRef = useRef<DirtyTracker>(new DirtyTracker());
-    const historyInitializedRef = useRef(false);
-    const historyChangedIdsRef = useRef<Set<string>>(new Set());
-    const historyNeedsFullRecordRef = useRef(true);
-    const historyTransactionRef = useRef<PatchMetadata | null>(null);
-
-    // ──── R-Tree 空间索引 — O(log n) 视口裁剪 / 吸附检测 ────────
-    const spatialIndexRef = useRef<SpatialIndex>(new SpatialIndex());
-    const spatialIndexNeedsRebuildRef = useRef(true);
-
     // ── 会话运行时控制器：自动保存、卸载刷新、beforeunload、孤立生成恢复 ──
     useCanvasSessionRuntime({
         user,
         isLoading,
+        isCanvasReady: isCanvasReadyForHistory,
         isDraggingElement,
         elementsCount: elements.length,
         elementsVersion,
@@ -2337,149 +1241,6 @@ function LovartCanvasContent() {
         spatialIndexNeedsRebuildRef.current = false;
     }, [canvasRuntimeElements, isDraggingElement]);
 
-    // 初始化 HistoryManager & DirtyTracker（在数据加载完成后）
-    useEffect(() => {
-        if (!isInitializedRef.current) return;
-        if (historyInitializedRef.current) return;
-        historyInitializedRef.current = true;
-        historyManagerRef.current.initialize(elements);
-        dirtyTrackerRef.current.initialize(elements.map(el => el.id));
-        historyChangedIdsRef.current.clear();
-        historyNeedsFullRecordRef.current = false;
-        updateHistorySummary('初始状态');
-
-        // 如果有迁移待持久化的元素，标记为 modified 以便下次保存写入 refs
-        if (migrationPendingRef.current.length > 0) {
-            for (const id of migrationPendingRef.current) {
-                dirtyTrackerRef.current.markModified(id);
-            }
-            migrationPendingRef.current = [];
-        }
-    }, [elements, setElements, updateHistorySummary]);
-
-    // Record history on element changes (debounced)
-    const historyTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const flushHistoryRecord = useCallback((metadata?: PatchMetadata) => {
-        if (!historyInitializedRef.current) return false;
-
-        if (historyTimerRef.current) {
-            clearTimeout(historyTimerRef.current);
-            historyTimerRef.current = null;
-        }
-
-        if (historyTransactionRef.current) {
-            const mergedMetadata = {
-                ...historyTransactionRef.current,
-                ...metadata,
-                selectionBefore: metadata?.selectionBefore ?? historyTransactionRef.current.selectionBefore,
-                selectionAfter: metadata?.selectionAfter ?? historyTransactionRef.current.selectionAfter,
-            } satisfies PatchMetadata;
-            const recorded = historyManagerRef.current.commitTransaction(elementsMapRef.current, mergedMetadata);
-            historyChangedIdsRef.current.clear();
-            historyNeedsFullRecordRef.current = false;
-            historyTransactionRef.current = null;
-            if (recorded) {
-                updateHistorySummary(mergedMetadata.label || mergedMetadata.source || '事务操作');
-            }
-            return recorded;
-        }
-
-        if (historyNeedsFullRecordRef.current) {
-            const recorded = historyManagerRef.current.record(elements);
-            historyChangedIdsRef.current.clear();
-            historyNeedsFullRecordRef.current = false;
-            if (recorded) {
-                updateHistorySummary(metadata?.label || metadata?.source || '全量记录');
-            }
-            return recorded;
-        }
-
-        const recorded = historyManagerRef.current.recordIncremental(elementsMapRef.current, historyChangedIdsRef.current, metadata);
-        historyChangedIdsRef.current.clear();
-        historyNeedsFullRecordRef.current = false;
-        if (recorded) {
-            updateHistorySummary(metadata?.label || metadata?.source || '增量记录');
-        }
-        return recorded;
-    }, [elements, updateHistorySummary]);
-
-    const beginHistoryTransaction = useCallback((metadata?: PatchMetadata) => {
-        if (!historyInitializedRef.current) return;
-
-        if (historyTimerRef.current) {
-            clearTimeout(historyTimerRef.current);
-            historyTimerRef.current = null;
-        }
-
-        const transactionMetadata: PatchMetadata = {
-            ...metadata,
-            selectionBefore: metadata?.selectionBefore ?? [...selectedIdsRef.current],
-        };
-
-        historyTransactionRef.current = transactionMetadata;
-        historyManagerRef.current.beginTransaction(transactionMetadata);
-    }, []);
-
-    const commitHistoryTransaction = useCallback((metadata?: PatchMetadata) => {
-        if (!historyTransactionRef.current) return false;
-        return flushHistoryRecord({
-            ...metadata,
-            selectionAfter: metadata?.selectionAfter ?? [...selectedIdsRef.current],
-        });
-    }, [flushHistoryRecord]);
-
-    const runHistoryTransaction = useCallback((metadata: PatchMetadata, action: () => PatchMetadata | void) => {
-        beginHistoryTransaction(metadata);
-        try {
-            const resultMetadata = action();
-            commitHistoryTransaction({
-                ...resultMetadata,
-                selectionAfter: resultMetadata?.selectionAfter ?? [...selectedIdsRef.current],
-            });
-        } finally {
-            if (historyTransactionRef.current) {
-                commitHistoryTransaction({
-                    selectionAfter: [...selectedIdsRef.current],
-                });
-            }
-        }
-    }, [beginHistoryTransaction, commitHistoryTransaction]);
-
-    useEffect(() => {
-        if (!historyInitializedRef.current) return;
-        if (historyTransactionRef.current) return;
-        if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-        historyTimerRef.current = setTimeout(() => {
-            flushHistoryRecord();
-        }, 500);
-    }, [elements, flushHistoryRecord, setElements]);
-
-    const undo = useCallback(() => {
-        const oldElements = elements;
-        const result = historyManagerRef.current.undo(elements);
-        if (result) {
-            historyNeedsFullRecordRef.current = true;
-            historyChangedIdsRef.current.clear();
-            dirtyTrackerRef.current.diffAndMark(oldElements, result.elements);
-            setElements(result.elements as unknown as CanvasElement[]);
-            setSelectedIds(result.metadata?.selectionBefore || []);
-            updateHistorySummary(`撤销：${result.metadata?.label || result.metadata?.source || '上一步'}`);
-        }
-    }, [elements, setElements, updateHistorySummary]);
-
-    const redo = useCallback(() => {
-        const oldElements = elements;
-        const result = historyManagerRef.current.redo(elements);
-        if (result) {
-            historyNeedsFullRecordRef.current = true;
-            historyChangedIdsRef.current.clear();
-            dirtyTrackerRef.current.diffAndMark(oldElements, result.elements);
-            setElements(result.elements as unknown as CanvasElement[]);
-            setSelectedIds(result.metadata?.selectionAfter || []);
-            updateHistorySummary(`重做：${result.metadata?.label || result.metadata?.source || '下一步'}`);
-        }
-    }, [elements, setElements, updateHistorySummary]);
-
     // Space key for temporary hand tool
     const prevToolRef = useRef<string | null>(null);
     useEffect(() => {
@@ -2512,44 +1273,6 @@ function LovartCanvasContent() {
 
     const openImageGeneratorRef = useRef<() => void>(() => {});
 
-    const removeElementsByIds = useCallback((ids: string[]) => {
-        if (ids.length === 0) {
-            return;
-        }
-
-        const uniqueIds = Array.from(new Set(ids));
-        const idSet = new Set(uniqueIds);
-        let hasRemoved = false;
-
-        for (const id of uniqueIds) {
-            if (!elementsMapRef.current.delete(id)) {
-                continue;
-            }
-
-            hasRemoved = true;
-            historyChangedIdsRef.current.add(id);
-            historyManagerRef.current.touchTransactionIds([id]);
-            spatialIndexRef.current.remove(id);
-            dirtyTrackerRef.current.markRemoved(id);
-        }
-
-        if (!hasRemoved) {
-            return;
-        }
-
-        // 清理已删除元素的生成任务记录
-        const pid = currentProjectIdRef.current;
-        if (pid) {
-            for (const id of uniqueIds) {
-                removeGeneration(pid, id);
-                clearSubmission(pid, id);
-            }
-        }
-
-        setElementsVersion(v => v + 1);
-        setSelectedIds(prev => prev.filter(selectedId => !idSet.has(selectedId)));
-    }, []);
-
     // Track mouse position on canvas
     const handleCanvasMouseMove = useCallback((canvasX: number, canvasY: number) => {
         mouseCanvasPosRef.current = { x: canvasX, y: canvasY };
@@ -2561,88 +1284,6 @@ function LovartCanvasContent() {
         const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
         return calculateCanvasCenter(mouseCanvasPosRef.current, pan, scale, vw, vh);
     }, [pan, scale]);
-
-    // ── O(1) element operations via direct Map mutation ──────────────────
-
-    const handleElementChange = useCallback((id: string, newAttrs: Partial<CanvasElement>) => {
-        const map = elementsMapRef.current;
-        const el = map.get(id);
-        if (el) {
-            const changedEntries = Object.entries(newAttrs).filter(([key, value]) => !Object.is(el[key as keyof CanvasElement], value));
-            if (changedEntries.length === 0) {
-                return;
-            }
-
-            const updated = {
-                ...el,
-                ...Object.fromEntries(changedEntries),
-            };
-            map.set(id, updated);
-            historyChangedIdsRef.current.add(id);
-            historyManagerRef.current.touchTransactionIds([id]);
-            spatialIndexRef.current.update(updated);
-            setElementsVersion(v => v + 1);
-
-            // 生成任务变更时同步写入 sessionStorage
-            if ('generatingTaskId' in newAttrs) {
-                const pid = currentProjectIdRef.current;
-                if (pid) {
-                    if (updated.generatingTaskId && updated.generatingTaskId !== 'ai-editing') {
-                        persistGeneration(pid, id, {
-                            taskId: updated.generatingTaskId,
-                            taskType: updated.generatingTaskType || 'image',
-                            progress: updated.generatingProgress || 0,
-                            savedPrompt: updated.savedPrompt,
-                        });
-                    } else if (!updated.generatingTaskId) {
-                        removeGeneration(pid, id);
-                    }
-                }
-            }
-        }
-        dirtyTrackerRef.current.markModified(id);
-    }, []);
-
-    const handleDelete = useCallback((id: string) => {
-        removeElementsByIds([id]);
-    }, [removeElementsByIds]);
-
-    /** 添加单个元素（带脏追踪）— O(1) */
-    const addElement = useCallback((element: CanvasElement) => {
-        elementsMapRef.current.set(element.id, element);
-        historyChangedIdsRef.current.add(element.id);
-        historyManagerRef.current.touchTransactionIds([element.id]);
-        spatialIndexRef.current.insert(element);
-        setElementsVersion(v => v + 1);
-        dirtyTrackerRef.current.markAdded(element.id);
-        // 如果新元素带有生成任务，同步写入 sessionStorage
-        if (element.generatingTaskId && element.generatingTaskId !== 'ai-editing') {
-            const pid = currentProjectIdRef.current;
-            if (pid) {
-                persistGeneration(pid, element.id, {
-                    taskId: element.generatingTaskId,
-                    taskType: element.generatingTaskType || 'image',
-                    progress: element.generatingProgress || 0,
-                    savedPrompt: element.savedPrompt,
-                });
-            }
-        }
-    }, []);
-
-    /** 添加多个元素（带脏追踪）— O(k) */
-    const addElements = useCallback((newElements: CanvasElement[]) => {
-        const map = elementsMapRef.current;
-        for (const el of newElements) {
-            map.set(el.id, el);
-            historyChangedIdsRef.current.add(el.id);
-        }
-        historyManagerRef.current.touchTransactionIds(newElements.map(el => el.id));
-        spatialIndexRef.current.batchUpdate(newElements);
-        setElementsVersion(v => v + 1);
-        for (const el of newElements) {
-            dirtyTrackerRef.current.markAdded(el.id);
-        }
-    }, []);
 
     const {
         collectSelectionWithFrameChildren,
@@ -2671,9 +1312,19 @@ function LovartCanvasContent() {
         workbenchSettings,
     });
 
-    const duplicateElementsByIds = useCallback((ids: string[], anchor?: { x: number; y: number }) => {
+    type DuplicateSelectionResult = {
+        copies: CanvasElement[];
+        sourceToCopyId: Record<string, string>;
+    };
+
+    const duplicateElementsByIds = useCallback((ids: string[], anchor?: { x: number; y: number }): DuplicateSelectionResult => {
         const sourceElements = elements.filter(el => ids.includes(el.id));
-        if (sourceElements.length === 0) return [];
+        if (sourceElements.length === 0) {
+            return {
+                copies: [],
+                sourceToCopyId: {},
+            };
+        }
 
         const minX = Math.min(...sourceElements.map(el => el.x));
         const minY = Math.min(...sourceElements.map(el => el.y));
@@ -2681,18 +1332,26 @@ function LovartCanvasContent() {
         const targetY = anchor?.y ?? minY + 30;
         const offsetX = targetX - minX;
         const offsetY = targetY - minY;
+        const sourceToCopyId: Record<string, string> = {};
 
         const copies = sourceElements.map(el => ({
             ...cloneCanvasElement(el),
-            id: uuidv4(),
+            id: (() => {
+                const nextId = uuidv4();
+                sourceToCopyId[el.id] = nextId;
+                return nextId;
+            })(),
             x: el.x + offsetX,
             y: el.y + offsetY,
         }));
 
         addElements(copies);
         setSelectedIds(copies.map(copy => copy.id));
-        return copies;
-    }, [addElements, cloneCanvasElement, elements]);
+        return {
+            copies,
+            sourceToCopyId,
+        };
+    }, [addElements, elements]);
 
     const handleCopySelection = useCallback((ids: string[]) => {
         const expandedIds = collectSelectionWithFrameChildren(ids);
@@ -2701,7 +1360,7 @@ function LovartCanvasContent() {
             .map(cloneCanvasElement);
         markCanvasClipboardPreferred();
         showToast(`已复制 ${expandedIds.length} 个元素`, 'success');
-    }, [cloneCanvasElement, collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, showToast]);
+    }, [collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, showToast]);
 
     const handleCutSelection = useCallback((ids: string[]) => {
         const expandedIds = collectSelectionWithFrameChildren(ids);
@@ -2714,7 +1373,7 @@ function LovartCanvasContent() {
             showToast(`已剪切 ${expandedIds.length} 个元素`, 'success');
             return { selectionAfter: [] };
         });
-    }, [cloneCanvasElement, collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, removeElementsByIds, runHistoryTransaction, showToast]);
+    }, [collectSelectionWithFrameChildren, elements, markCanvasClipboardPreferred, removeElementsByIds, runHistoryTransaction, showToast]);
 
     const handlePasteAt = useCallback((position: { x: number; y: number }) => {
         if (clipboardRef.current.length === 0) {
@@ -2742,16 +1401,23 @@ function LovartCanvasContent() {
             showToast(`已粘贴 ${copies.length} 个元素`, 'success');
             return { selectionAfter: copies.map(copy => copy.id) };
         });
-    }, [addElements, cloneCanvasElement, markCanvasClipboardPreferred, runHistoryTransaction, showToast]);
+    }, [addElements, markCanvasClipboardPreferred, runHistoryTransaction, showToast]);
 
-    const handleDuplicateSelection = useCallback((ids: string[], anchor?: { x: number; y: number }) => {
+    const handleDuplicateSelection = useCallback((ids: string[], anchor?: { x: number; y: number }): DuplicateSelectionResult => {
+        let duplicateResult: DuplicateSelectionResult = {
+            copies: [],
+            sourceToCopyId: {},
+        };
+
         runHistoryTransaction({ label: '复制副本', source: 'selection-duplicate' }, () => {
-            const copies = duplicateElementsByIds(ids, anchor);
-            if (copies.length > 0) {
-                showToast(`已创建 ${copies.length} 个副本`, 'success');
+            duplicateResult = duplicateElementsByIds(ids, anchor);
+            if (duplicateResult.copies.length > 0) {
+                showToast(`已创建 ${duplicateResult.copies.length} 个副本`, 'success');
             }
-            return { selectionAfter: copies.map(copy => copy.id) };
+            return { selectionAfter: duplicateResult.copies.map(copy => copy.id) };
         });
+
+        return duplicateResult;
     }, [duplicateElementsByIds, runHistoryTransaction, showToast]);
 
     const handleDeleteLayerSelection = useCallback((ids: string[]) => {
@@ -2843,40 +1509,6 @@ function LovartCanvasContent() {
         }
     }, [addElements, refreshStorageEstimate, setElements, showToast, workbenchSettings]);
 
-    /** 批量更新多个元素属性（拖拽 N 个元素时只触发一次 re-render）— O(k) */
-    const handleBatchElementChange = useCallback((changes: { id: string; attrs: Partial<CanvasElement> }[]) => {
-        const shouldAutoTransaction = !historyTransactionRef.current && changes.length > 0;
-        if (shouldAutoTransaction) {
-            beginHistoryTransaction({
-                label: changes.length > 1 ? '批量更新元素' : '更新元素',
-                source: 'canvas-batch-change',
-            });
-        }
-
-        const map = elementsMapRef.current;
-        const updatedElements: CanvasElement[] = [];
-        for (const { id, attrs } of changes) {
-            const el = map.get(id);
-            if (el) {
-                const updated = { ...el, ...attrs };
-                map.set(id, updated);
-                updatedElements.push(updated);
-                historyChangedIdsRef.current.add(id);
-            }
-        }
-        historyManagerRef.current.touchTransactionIds(changes.map(change => change.id));
-        if (updatedElements.length > 0) {
-            spatialIndexRef.current.batchUpdate(updatedElements);
-        }
-        setElementsVersion(v => v + 1);
-        for (const change of changes) {
-            dirtyTrackerRef.current.markModified(change.id);
-        }
-        if (shouldAutoTransaction) {
-            commitHistoryTransaction();
-        }
-    }, [beginHistoryTransaction, commitHistoryTransaction]);
-
     const focusNewElement = useCallback((elementId: string) => {
         setSelectedIds([elementId]);
         setActiveTool('select');
@@ -2912,60 +1544,17 @@ function LovartCanvasContent() {
         setSelectedIds(items.map((item) => item.id));
     }, [addAndSelectElement, addElements, buildAutoGroupFrame, selectSingleElement]);
 
-    const beginImageToolSubmission = useCallback((params: {
-        setSubmitting: React.Dispatch<React.SetStateAction<boolean>>;
-        setStatus: React.Dispatch<React.SetStateAction<string>>;
-        loadingToast: string;
-    }) => {
-        params.setSubmitting(true);
-        params.setStatus('正在读取原图...');
-        showToast(params.loadingToast, 'info');
-    }, [showToast]);
-
-    const endImageToolSubmission = useCallback((
-        setSubmitting: React.Dispatch<React.SetStateAction<boolean>>,
-        setStatus: React.Dispatch<React.SetStateAction<string>>,
-    ) => {
-        setSubmitting(false);
-        setStatus('');
-    }, []);
-
-    const ensureImageToolSource = useCallback((
-        element: CanvasElement,
-        errorMessage: string,
-    ): element is CanvasElement & { type: 'image'; content: string } => {
-        if (element.type === 'image' && element.content) {
-            return true;
-        }
-
-        showToast(errorMessage, 'error');
-        return false;
-    }, [showToast]);
-
     // buildCenteredElementBounds — imported from canvas-element-ops
 
     const buildBelowElementDisplayMetricsOptions = useCallback((element: CanvasElement, maxHeightPadding = 0) => {
-        const width = element.width || 400;
-        const height = (element.height || 400) + maxHeightPadding;
-        return {
-            maxWidth: width,
-            maxHeight: height,
-            anchor: {
-                x: element.x,
-                y: element.y + (element.height || 0) + 40,
-                width,
-                height,
-            },
-        };
+        return createBelowElementDisplayMetricsOptions(element, maxHeightPadding);
     }, []);
 
     const buildImageElement = useCallback((attrs: Omit<CanvasElement, 'id' | 'type'>) => {
-        return {
-            id: uuidv4(),
-            type: 'image' as const,
-            ...attrs,
-            ...getDefaultImagePresentation(workbenchSettings),
-        } satisfies CanvasElement;
+        return createImageElement(attrs, {
+            uuidFn: uuidv4,
+            defaultPresentation: getDefaultImagePresentation(workbenchSettings),
+        });
     }, [workbenchSettings]);
 
     const buildBelowSourceImageResultElement = useCallback((params: {
@@ -2975,35 +1564,21 @@ function LovartCanvasContent() {
         displayName?: string;
         extraAttrs?: Partial<CanvasElement>;
     }) => {
-        const { source, metrics, content, displayName, extraAttrs } = params;
-        return buildImageElement({
-            x: metrics?.x ?? source.x,
-            y: metrics?.y ?? source.y + (source.height || 0) + 40,
-            width: metrics?.width ?? source.width,
-            height: metrics?.height ?? source.height,
-            displayName,
-            content,
-            ...extraAttrs,
+        return createBelowSourceImageResultElement(params, {
+            uuidFn: uuidv4,
+            defaultPresentation: getDefaultImagePresentation(workbenchSettings),
         });
-    }, [buildImageElement]);
+    }, [workbenchSettings]);
 
     const buildVideoElement = useCallback((attrs: Omit<CanvasElement, 'id' | 'type'>) => {
-        return {
-            id: uuidv4(),
-            type: 'video' as const,
-            ...attrs,
-        } satisfies CanvasElement;
+        return createVideoElement(attrs, { uuidFn: uuidv4 });
     }, []);
 
     const buildGeneratorElement = useCallback((
         type: Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>,
         attrs: Omit<CanvasElement, 'id' | 'type'>,
     ) => {
-        return {
-            id: uuidv4(),
-            type,
-            ...attrs,
-        } satisfies CanvasElement;
+        return createGeneratorElement(type, attrs, { uuidFn: uuidv4 });
     }, []);
 
     const handleApplyAiCanvasPlan = useCallback(async (rawPlan: unknown) => {
@@ -3154,198 +1729,32 @@ function LovartCanvasContent() {
         }
 
         return { summary: summaryParts.join('\n') };
-    }, [addAndSelectElement, buildCenteredElementBounds, buildGeneratorElement, getPlacementPosition, handleGroupSelection, runHistoryTransaction, saveProjectReferenceFromSelection]);
+    }, [addAndSelectElement, buildGeneratorElement, getPlacementPosition, handleGroupSelection, runHistoryTransaction, saveProjectReferenceFromSelection]);
 
     const resolveCanvasContentBlob = useCallback(async (content: string, remoteFilename: string) => {
         return _resolveCanvasContentBlob(content, remoteFilename, { getImageBlob, dataUrlToBlob, fetchRemoteBlob });
     }, []);
 
-    const handleAddImage = useCallback(async (files: File | File[], dropPosition?: { x: number; y: number }) => {
-        const fileArray = Array.isArray(files) ? files : [files];
-        if (fileArray.length === 0) return;
-
-        const center = dropPosition || getPlacementPosition();
-        setActiveTool('select');
-
-        const importedElements: Array<CanvasElement | null> = await mapWithConcurrency(fileArray, IMAGE_IMPORT_CONCURRENCY, async (file, index) => {
-            try {
-                const { width: naturalWidth, height: naturalHeight } = await readImageDimensions(file);
-                const { width, height } = getCanvasDisplaySize(naturalWidth, naturalHeight);
-                const content = await saveImageBlob(file);
-                if (!content) return null;
-
-                return {
-                    id: uuidv4(),
-                    type: 'image',
-                    x: center.x - width / 2 + index * 40,
-                    y: center.y - height / 2 + index * 40,
-                    width,
-                    height,
-                    content,
-                    ...getDefaultImagePresentation(workbenchSettings),
-                } satisfies CanvasElement;
-            } catch (error) {
-                console.warn('[Canvas] Failed to import image:', file.name, error);
-                return null;
-            }
-        });
-
-        const newElements = importedElements.filter((element): element is CanvasElement => element !== null);
-        if (newElements.length > 0) {
-            addElements(newElements);
-            setSelectedIds(newElements.map(element => element.id));
-            void refreshStorageEstimate();
-        }
-
-        if (newElements.length !== fileArray.length) {
-            showToast(`成功导入 ${newElements.length}/${fileArray.length} 张图片`, newElements.length > 0 ? 'info' : 'error');
-        }
-    }, [getPlacementPosition, addElements, showToast, refreshStorageEstimate, workbenchSettings]);
-
-    useEffect(() => {
-        const handleWindowPaste = (event: ClipboardEvent) => {
-            if (isEditableShortcutTarget(event.target, document.activeElement)) {
-                return;
-            }
-
-            const clipboardData = event.clipboardData;
-            if (!clipboardData) {
-                return;
-            }
-
-            const itemFiles = Array.from(clipboardData.items ?? [])
-                .filter((item) => item.kind === 'file')
-                .map((item) => item.getAsFile())
-                .filter((file): file is File => !!file && isLikelyClipboardImageFile(file));
-            const fallbackFiles = Array.from(clipboardData.files ?? []).filter(isLikelyClipboardImageFile);
-            const imageFiles = itemFiles.length > 0 ? itemFiles : fallbackFiles;
-
-            if (canvasClipboardPreferredRef.current && clipboardRef.current.length > 0) {
-                event.preventDefault();
-                handlePasteAt(getPlacementPosition());
-                return;
-            }
-
-            if (imageFiles.length > 0) {
-                event.preventDefault();
-                canvasClipboardPreferredRef.current = false;
-                void handleAddImage(imageFiles);
-                return;
-            }
-
-            if (clipboardRef.current.length > 0) {
-                event.preventDefault();
-                handlePasteAt(getPlacementPosition());
-            }
-        };
-
-        window.addEventListener('paste', handleWindowPaste);
-        return () => window.removeEventListener('paste', handleWindowPaste);
-    }, [getPlacementPosition, handleAddImage, handlePasteAt]);
-
-    const handleAddVideo = useCallback(async (file: File, dropPosition?: { x: number; y: number }) => {
-        const center = dropPosition || getPlacementPosition();
-        const elementId = uuidv4();
-
-        // Quick check: try to decode a frame to see if browser supports this codec
-        const needsTranscode = await new Promise<boolean>((resolve) => {
-            const testVideo = document.createElement('video');
-            testVideo.muted = true;
-            testVideo.playsInline = true;
-            testVideo.preload = 'auto';
-            const testUrl = URL.createObjectURL(file);
-            testVideo.src = testUrl;
-
-            const cleanup = () => { URL.revokeObjectURL(testUrl); testVideo.remove(); };
-            const timer = setTimeout(() => { cleanup(); resolve(true); }, 3000); // timeout = assume needs transcode
-
-            testVideo.onloadedmetadata = () => {
-                if (testVideo.videoWidth === 0 || testVideo.videoHeight === 0) {
-                    clearTimeout(timer); cleanup(); resolve(true);
-                } else {
-                    // Has dimensions, try to seek and check a frame
-                    testVideo.currentTime = 0.1;
-                }
-            };
-            testVideo.onseeked = () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = testVideo.videoWidth;
-                    canvas.height = testVideo.videoHeight;
-                    const ctx = canvas.getContext('2d')!;
-                    ctx.drawImage(testVideo, 0, 0);
-                    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-                    let nonBlack = 0;
-                    for (let i = 0; i < data.length; i += 16) { // sample every 4th pixel
-                        if (data[i] > 5 || data[i+1] > 5 || data[i+2] > 5) nonBlack++;
-                    }
-                    clearTimeout(timer); cleanup();
-                    resolve(nonBlack < (canvas.width * canvas.height / 4) * 0.01);
-                } catch { clearTimeout(timer); cleanup(); resolve(true); }
-            };
-            testVideo.onerror = () => { clearTimeout(timer); cleanup(); resolve(true); };
-        });
-
-        if (!needsTranscode) {
-            // Browser can play this format directly
-            const blobUrl = URL.createObjectURL(file);
-            const newElement: CanvasElement = {
-                ...buildVideoElement({
-                    ...buildCenteredElementBounds(center, 400, 300),
-                    content: blobUrl,
-                }),
-                id: elementId,
-            };
-            addAndFocusElement(newElement);
-            return;
-        }
-
-        // Needs transcoding - show placeholder and transcode via server
-        console.log('[video] Format not supported by browser, transcoding...');
-        setTranscodingStatus(`正在转码视频 "${file.name}"...`);
-
-        // Add placeholder element immediately
-        const placeholderElement: CanvasElement = {
-            ...buildVideoElement({
-                ...buildCenteredElementBounds(center, 400, 300),
-                content: '',
-            }),
-            id: elementId,
-        };
-        addAndFocusElement(placeholderElement);
-
-        try {
-            const formData = new FormData();
-            formData.append('video', file);
-
-            const response = await fetch('/api/transcode-video', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({}));
-                throw new Error(err.error || `转码失败: ${response.status}`);
-            }
-
-            const mp4Blob = await response.blob();
-            const blobUrl = URL.createObjectURL(mp4Blob);
-
-            // Update placeholder with real video
-            setElements(prev => prev.map(el =>
-                el.id === elementId ? { ...el, content: blobUrl } : el
-            ));
-            setTranscodingStatus(null);
-            console.log('[video] Transcode complete');
-        } catch (error: unknown) {
-            console.error('[video] Transcode failed:', error);
-            setTranscodingStatus(null);
-            // Remove placeholder on failure
-            removeElementsByIds([elementId]);
-            const message = error instanceof Error ? error.message : '未知错误';
-            alert(`视频转码失败: ${message}\n\n请尝试用 H.264 编码的 MP4 文件。`);
-        }
-    }, [getPlacementPosition, removeElementsByIds, setElements, addAndFocusElement, buildCenteredElementBounds, buildVideoElement]);
+    const {
+        handleAddImage,
+        handleAddVideo,
+        transcodingStatus,
+    } = useCanvasMediaImport({
+        addElements,
+        addAndFocusElement,
+        buildVideoElement,
+        canvasClipboardPreferredRef,
+        clipboardRef,
+        getPlacementPosition,
+        handlePasteAt,
+        refreshStorageEstimate,
+        removeElementsByIds,
+        setActiveTool,
+        setElements,
+        setSelectedIds,
+        showToast,
+        workbenchSettings,
+    });
 
     const handleAddText = useCallback(() => {
         const center = getPlacementPosition();
@@ -3378,7 +1787,7 @@ function LovartCanvasContent() {
         const center = getPlacementPosition();
         const newElement = buildGeneratorElement('image-generator', buildCenteredElementBounds(center, 400, 400));
         addAndFocusElement(newElement);
-    }, [getPlacementPosition, addAndFocusElement, buildCenteredElementBounds, buildGeneratorElement]);
+    }, [getPlacementPosition, addAndFocusElement, buildGeneratorElement]);
     openImageGeneratorRef.current = handleOpenImageGenerator;
 
     useCanvasKeyboardShortcuts({
@@ -3410,13 +1819,13 @@ function LovartCanvasContent() {
         const center = getPlacementPosition();
         const newElement = buildGeneratorElement('video-generator', buildCenteredElementBounds(center, 400, 300));
         addAndFocusElement(newElement);
-    }, [getPlacementPosition, addAndFocusElement, buildCenteredElementBounds, buildGeneratorElement]);
+    }, [getPlacementPosition, addAndFocusElement, buildGeneratorElement]);
 
     const handleOpenStoryboardPlanner = useCallback(() => {
         const center = getPlacementPosition();
         const newElement = buildGeneratorElement('storyboard-planner', buildCenteredElementBounds(center, 420, 320));
         addAndFocusElement(newElement);
-    }, [addAndFocusElement, buildCenteredElementBounds, buildGeneratorElement, getPlacementPosition]);
+    }, [addAndFocusElement, buildGeneratorElement, getPlacementPosition]);
 
     const handleStoryboardPlanFromImage = useCallback((element: CanvasElement) => {
         if (element.type !== 'image' || !element.content) {
@@ -3529,183 +1938,29 @@ function LovartCanvasContent() {
         })();
     }, [addElementsWithOptionalAutoGroup, buildImageElement, getPlacementPosition, normalizeGeneratedImageContent, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
 
-    const handleGenerateVideo = useCallback(async ({ videoUrl, taskId }: { videoUrl: string; taskId?: string | null }) => {
-        const normalizedTaskId = typeof taskId === 'string' && taskId.trim().length > 0
-            ? taskId.trim()
-            : undefined;
-        const generatorElement = selectedIds
-            .map((id) => elements.find((element) => element.id === id))
-            .find((element): element is CanvasElement => !!element && element.type === 'video-generator') || null;
-        void persistGeneratedAssetToDisk(videoUrl, 'video', 'generate');
-        const generatorElementId = selectedIds.find(id => elements.find(el => el.id === id)?.type === 'video-generator');
-        let insertedElement: CanvasElement | null = null;
-
-        if (generatorElementId) {
-            setElements(prev => applyVideoGenerationSuccess(prev, generatorElementId, videoUrl, normalizedTaskId));
-        } else {
-            const center = getPlacementPosition();
-            const newElement = buildVideoElement({
-                ...buildCenteredElementBounds(center, 400, 300),
-                content: videoUrl,
-                sourceGenerationTaskId: normalizedTaskId,
-                sourceGenerationTaskType: normalizedTaskId ? 'video' : undefined,
-            });
-            insertedElement = newElement;
-            addAndSelectElement(newElement);
-        }
-        recordProjectMediaItem({
-            kind: 'video',
-            content: videoUrl,
-            taskId: normalizedTaskId,
-            sourceElement: generatorElement || insertedElement,
-            sourceElementId: generatorElementId || insertedElement?.id,
-        });
-    }, [selectedIds, elements, getPlacementPosition, setElements, persistGeneratedAssetToDisk, buildCenteredElementBounds, buildVideoElement, addAndSelectElement, recordProjectMediaItem]);
-
-    const handleRecoverVideoTask = useCallback(async (elementId: string, rawTaskId: string) => {
-        const taskId = rawTaskId.trim();
-        if (!taskId) {
-            throw new Error('请输入有效的 task_id');
-        }
-
-        const currentElement = elementsMapRef.current.get(elementId);
-        if (!currentElement || currentElement.type !== 'video-generator') {
-            throw new Error('当前视频生成器不存在，无法恢复任务');
-        }
-
-        const projectId = currentProjectIdRef.current;
-        setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, true));
-
-        try {
-            const result = await pollGenerationTask(taskId, 'video');
-
-            if (result.status === 'completed') {
-                const resultUrl = result.resultUrl;
-                if (!resultUrl) {
-                    throw new Error('任务已完成，但未获取到视频结果链接');
-                }
-
-                void persistGeneratedAssetToDisk(resultUrl, 'video', 'manual-recover');
-                setElements((prev) => applyVideoGenerationSuccess(prev, elementId, resultUrl, taskId));
-                dirtyTrackerRef.current.markModified(elementId);
-                if (projectId) {
-                    clearSubmission(projectId, elementId);
-                    removeGeneration(projectId, elementId);
-                }
-                recordProjectMediaItem({
-                    kind: 'video',
-                    content: resultUrl,
-                    taskId,
-                    sourceElement: currentElement,
-                    sourceElementId: elementId,
-                });
-                announceCompletedResult(elementId, '✅ 已通过 task_id 找回视频结果');
-                return;
-            }
-
-            if (result.status === 'failed') {
-                failGenerationTask(elementId, 'video', result.error);
-                return;
-            }
-
-            if (result.status === 'retryable-error') {
-                throw new Error(result.error);
-            }
-
-            setElements((prev) => applyElementGenerationPatch(
-                prev,
-                elementId,
-                createGenerationTaskPatch(taskId, 'video', Math.max(0, result.progress || 0)),
-            ));
-            dirtyTrackerRef.current.markModified(elementId);
-            if (projectId) {
-                clearSubmission(projectId, elementId);
-                persistGeneration(projectId, elementId, {
-                    taskId,
-                    taskType: 'video',
-                    progress: Math.max(0, result.progress || 0),
-                    savedPrompt: currentElement.savedPrompt,
-                });
-            }
-            showToast('已接管视频任务，后续将继续自动轮询', 'success');
-        } finally {
-            setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
-        }
-    }, [announceCompletedResult, failGenerationTask, persistGeneratedAssetToDisk, recordProjectMediaItem, setElements, showToast]);
-
-    const handleRecoverImageTask = useCallback(async (elementId: string, rawTaskId: string) => {
-        const taskId = rawTaskId.trim();
-        if (!taskId) {
-            throw new Error('请输入有效的 task_id');
-        }
-
-        const currentElement = elementsMapRef.current.get(elementId);
-        if (!currentElement || currentElement.type !== 'image-generator') {
-            throw new Error('当前图片生成器不存在，无法恢复任务');
-        }
-
-        const projectId = currentProjectIdRef.current;
-        setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, true));
-
-        try {
-            const result = await pollGenerationTask(taskId, 'image');
-
-            if (result.status === 'completed') {
-                const resultUrl = result.resultUrl;
-                if (!resultUrl) {
-                    throw new Error('任务已完成，但未获取到图片结果链接');
-                }
-
-                replaceGeneratorWithPendingImage(elementId, resultUrl, taskId);
-                await finalizeGeneratedImageElement(
-                    elementId,
-                    resultUrl,
-                    'manual-recover',
-                    {
-                        x: currentElement.x,
-                        y: currentElement.y,
-                        width: currentElement.width || 400,
-                        height: currentElement.height || 400,
-                    },
-                    taskId,
-                );
-                if (projectId) {
-                    clearSubmission(projectId, elementId);
-                    removeGeneration(projectId, elementId);
-                }
-                announceCompletedResult(elementId, '✅ 已通过 task_id 找回图片结果');
-                return;
-            }
-
-            if (result.status === 'failed') {
-                failGenerationTask(elementId, 'image', result.error);
-                return;
-            }
-
-            if (result.status === 'retryable-error') {
-                throw new Error(result.error);
-            }
-
-            setElements((prev) => applyElementGenerationPatch(
-                prev,
-                elementId,
-                createGenerationTaskPatch(taskId, 'image', Math.max(0, result.progress || 0)),
-            ));
-            dirtyTrackerRef.current.markModified(elementId);
-            if (projectId) {
-                clearSubmission(projectId, elementId);
-                persistGeneration(projectId, elementId, {
-                    taskId,
-                    taskType: 'image',
-                    progress: Math.max(0, result.progress || 0),
-                    savedPrompt: currentElement.savedPrompt,
-                });
-            }
-            showToast('已接管图片任务，后续将继续自动轮询', 'success');
-        } finally {
-            setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
-        }
-    }, [announceCompletedResult, failGenerationTask, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, setElements, showToast]);
+    const {
+        handleGenerateVideo,
+        handleRecoverVideoTask,
+        handleRecoverImageTask,
+    } = useCanvasGenerationActions({
+        selectedIds,
+        elements,
+        elementsMapRef,
+        currentProjectIdRef,
+        dirtyTrackerRef,
+        setElements,
+        setGeneratorSubmittingMap,
+        getPlacementPosition,
+        buildVideoElement,
+        addAndSelectElement,
+        persistGeneratedAssetToDisk,
+        recordProjectMediaItem,
+        failGenerationTask,
+        announceCompletedResult,
+        showToast,
+        replaceGeneratorWithPendingImage,
+        finalizeGeneratedImageElement,
+    });
 
     const shortcutSections = useMemo<CanvasShortcutSection[]>(() => [
         {
@@ -4341,9 +2596,7 @@ function LovartCanvasContent() {
             return;
         }
 
-        const xs = orderedTargets.map((element) => element.x);
         const ys = orderedTargets.map((element) => element.y);
-        const xe = orderedTargets.map((element) => element.x + (element.width || 0));
         const ye = orderedTargets.map((element) => element.y + (element.height || 0));
         const sourceHeight = Math.max(...ye) - Math.min(...ys);
         const offsetY = sourceHeight + 80;
@@ -4810,15 +3063,6 @@ function LovartCanvasContent() {
 
             setAnnotateImageSubmitStatus('正在后台生成标注图...');
             const annotatedBlob = await annotateImageBlob(sourceBlob, options);
-            setAnnotateImageSubmitStatus('正在写入画布素材...');
-            const content = await saveImageBlob(annotatedBlob);
-            setAnnotateImageSubmitStatus('正在计算展示尺寸...');
-            const metrics = await resolveImageDisplayMetrics(
-                content,
-                'annotate-image',
-                buildBelowElementDisplayMetricsOptions(element, 160),
-                annotatedBlob,
-            );
 
             const naming = resolveToolResultNaming({
                 element,
@@ -4828,15 +3072,22 @@ function LovartCanvasContent() {
                 buildPrefixedItemNames: (trimmedPrefix) => [`${trimmedPrefix} · 标注`],
             });
 
-            const newElement = buildBelowSourceImageResultElement({
-                source: element,
-                metrics,
+            setAnnotateImageSubmitStatus('正在写入画布素材...');
+            const { element: newElement } = await createSingleImageToolResultElement({
+                sourceElement: element,
+                resultBlob: annotatedBlob,
+                metricsSource: 'annotate-image',
+                maxHeightPadding: 160,
+                onContentSaved: () => setAnnotateImageSubmitStatus('正在计算展示尺寸...'),
                 displayName: naming.itemNames[0] || sanitizeToolName(options.label.trim() || `${getElementBaseName(element)} · 标注`, '标注结果'),
-                content,
                 extraAttrs: {
                     annotationTitle: options.label.trim(),
                     annotationNote: options.note?.trim() || '',
                 },
+                saveBlob: saveImageBlob,
+                resolveImageDisplayMetrics,
+                buildDisplayMetricsOptions: buildBelowElementDisplayMetricsOptions,
+                buildResultElement: buildBelowSourceImageResultElement,
             });
 
             addElementsWithOptionalAutoGroup([newElement], naming.groupName);
@@ -4853,7 +3104,7 @@ function LovartCanvasContent() {
         } finally {
             endImageToolSubmission(setIsAnnotateImageSubmitting, setAnnotateImageSubmitStatus);
         }
-    }, [addElementsWithOptionalAutoGroup, announceCompletedResult, beginImageToolSubmission, buildBelowElementDisplayMetricsOptions, buildBelowSourceImageResultElement, endImageToolSubmission, ensureImageToolSource, getElementBaseName, resolveCanvasContentBlob, resolveImageDisplayMetrics, resolveToolResultNaming, sanitizeToolName, showToast]);
+    }, [addElementsWithOptionalAutoGroup, announceCompletedResult, beginImageToolSubmission, buildBelowElementDisplayMetricsOptions, buildBelowSourceImageResultElement, endImageToolSubmission, ensureImageToolSource, resolveCanvasContentBlob, resolveImageDisplayMetrics, showToast]);
 
     const handleExportStoryboard = useCallback(async (
         options: StoryboardExportOptions,
@@ -4984,7 +3235,7 @@ function LovartCanvasContent() {
             setIsStoryboardExportSubmitting(false);
             setStoryboardExportSubmitStatus('');
         }
-    }, [getElementBaseName, resolveCanvasContentBlob, sanitizeFilenameStem, showToast]);
+    }, [resolveCanvasContentBlob, showToast]);
 
     const handleCropImage = useCallback(async (
         element: CanvasElement,
@@ -5009,15 +3260,6 @@ function LovartCanvasContent() {
 
             setCropImageSubmitStatus('正在后台裁剪图片...');
             const croppedBlob = await cropImageBlob(sourceBlob, options);
-            setCropImageSubmitStatus('正在写入画布素材...');
-            const content = await saveImageBlob(croppedBlob);
-            setCropImageSubmitStatus('正在计算展示尺寸...');
-            const metrics = await resolveImageDisplayMetrics(
-                content,
-                'crop-image',
-                buildBelowElementDisplayMetricsOptions(element),
-                croppedBlob,
-            );
 
             const naming = resolveToolResultNaming({
                 element,
@@ -5027,11 +3269,17 @@ function LovartCanvasContent() {
                 buildPrefixedItemNames: (trimmedPrefix) => [`${trimmedPrefix} · 裁剪`],
             });
 
-            const newElement = buildBelowSourceImageResultElement({
-                source: element,
-                metrics,
+            setCropImageSubmitStatus('正在写入画布素材...');
+            const { element: newElement } = await createSingleImageToolResultElement({
+                sourceElement: element,
+                resultBlob: croppedBlob,
+                metricsSource: 'crop-image',
+                onContentSaved: () => setCropImageSubmitStatus('正在计算展示尺寸...'),
                 displayName: naming.itemNames[0],
-                content,
+                saveBlob: saveImageBlob,
+                resolveImageDisplayMetrics,
+                buildDisplayMetricsOptions: buildBelowElementDisplayMetricsOptions,
+                buildResultElement: buildBelowSourceImageResultElement,
             });
 
             addElementsWithOptionalAutoGroup([newElement], naming.groupName);
@@ -5048,7 +3296,7 @@ function LovartCanvasContent() {
         } finally {
             endImageToolSubmission(setIsCropImageSubmitting, setCropImageSubmitStatus);
         }
-    }, [addElementsWithOptionalAutoGroup, announceCompletedResult, beginImageToolSubmission, buildBelowElementDisplayMetricsOptions, buildBelowSourceImageResultElement, endImageToolSubmission, ensureImageToolSource, resolveCanvasContentBlob, resolveImageDisplayMetrics, resolveToolResultNaming, showToast]);
+    }, [addElementsWithOptionalAutoGroup, announceCompletedResult, beginImageToolSubmission, buildBelowElementDisplayMetricsOptions, buildBelowSourceImageResultElement, endImageToolSubmission, ensureImageToolSource, resolveCanvasContentBlob, resolveImageDisplayMetrics, showToast]);
 
     const handleSplitStoryboard = useCallback(async (
         element: CanvasElement,
@@ -5205,7 +3453,6 @@ function LovartCanvasContent() {
         ensureImageToolSource,
         resolveCanvasContentBlob,
         resolveImageDisplayMetrics,
-        resolveToolResultNaming,
         showToast,
     ]);
 
@@ -5266,7 +3513,7 @@ function LovartCanvasContent() {
             },
             normalizedTaskId,
         );
-    }, [selectedIds, getPlacementPosition, announceCompletedResult, buildImageElement, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, buildCenteredElementBounds, addAndSelectElement]);
+    }, [selectedIds, getPlacementPosition, announceCompletedResult, buildImageElement, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, addAndSelectElement]);
 
     const addGeneratedImageElementToCanvas = useCallback(async (
         element: CanvasElement,
@@ -5331,114 +3578,21 @@ function LovartCanvasContent() {
         return normalizedElement;
     }, [addElement, normalizeGeneratedImageContent, primeRuntimeImageRenderSrc, recordProjectMediaItem, resolveImageDisplayMetrics, setSelectedIds, workbenchSettings.defaultImageFit, workbenchSettings.defaultImageSurface]);
 
-    const updateProjectMediaItemContent = useCallback((itemId: string, content: string) => {
-        const projectId = currentProjectIdRef.current;
-        if (!projectId || !content) {
-            return;
-        }
-
-        const currentItems = readProjectMediaHistory(projectId);
-        let hasChanges = false;
-        const nextItems = currentItems.map((item) => {
-            if (item.id !== itemId || item.content === content) {
-                return item;
-            }
-
-            hasChanges = true;
-            return {
-                ...item,
-                content,
-            };
-        });
-
-        if (hasChanges) {
-            replaceProjectMediaHistory(projectId, nextItems);
-        }
-    }, []);
-
-    const updateProjectReferenceItemImage = useCallback((itemId: string, image: string) => {
-        const projectId = currentProjectIdRef.current;
-        if (!projectId || !image) {
-            return;
-        }
-
-        const currentItems = readProjectReferenceLibrary(projectId);
-        let hasChanges = false;
-        const nextItems = currentItems.map((item) => {
-            if (item.id !== itemId || item.image === image) {
-                return item;
-            }
-
-            hasChanges = true;
-            return {
-                ...item,
-                image,
-            };
-        });
-
-        if (hasChanges) {
-            replaceProjectReferenceLibrary(projectId, nextItems);
-        }
-    }, []);
-
     const resolveProjectMediaImageInsertContent = useCallback(async (item: ProjectMediaHistoryItem) => {
-        if (!item.content || !isImageRef(item.content)) {
-            return item.content;
-        }
-
-        const existingBlob = await getImageBlob(item.content);
-        if (existingBlob) {
-            return item.content;
-        }
-
-        if (!item.taskId) {
-            throw new Error('图片素材已失效，且缺少 task_id，无法恢复');
-        }
-
-        const result = await pollGenerationTask(item.taskId, 'image');
-        if (result.status !== 'completed') {
-            throw new Error('task_id 尚未返回可恢复的图片结果');
-        }
-
-        const resultUrl = typeof result.resultUrl === 'string' && result.resultUrl.trim().length > 0
-            ? result.resultUrl
-            : Array.isArray(result.resultUrls)
-                ? result.resultUrls.find((url: string) => typeof url === 'string' && url.trim().length > 0) ?? null
-                : null;
-
-        if (!resultUrl) {
-            throw new Error('task_id 未返回可用图片结果');
-        }
-
-        const recoveredContent = await normalizeGeneratedImageContent(resultUrl, 'media-history-recover');
-        updateProjectMediaItemContent(item.id, recoveredContent);
-        return recoveredContent;
-    }, [normalizeGeneratedImageContent, updateProjectMediaItemContent]);
+        return resolveBackflowMediaImageInsertContent(item, {
+            projectId: currentProjectIdRef.current,
+            normalizeImageContent: normalizeGeneratedImageContent,
+            pollImageGenerationTask: pollGenerationTask,
+        });
+    }, [normalizeGeneratedImageContent]);
 
     const resolveProjectReferenceImageInsertContent = useCallback(async (item: ProjectReferenceImageItem) => {
-        if (!item.image || !isImageRef(item.image)) {
-            return item.image;
-        }
-
-        const existingBlob = await getImageBlob(item.image);
-        if (existingBlob) {
-            return item.image;
-        }
-
-        const projectId = currentProjectIdRef.current;
-        if (!projectId || !item.sourceMediaId) {
-            throw new Error('参考图素材已失效，且缺少可恢复来源');
-        }
-
-        const sourceMediaItem = readProjectMediaHistory(projectId).find((mediaItem) => mediaItem.id === item.sourceMediaId && mediaItem.kind === 'image');
-        if (!sourceMediaItem) {
-            throw new Error('参考图来源媒体记录不存在，无法恢复');
-        }
-
-        const recoveredContent = await resolveProjectMediaImageInsertContent(sourceMediaItem);
-        updateProjectReferenceItemImage(item.id, recoveredContent);
-        return recoveredContent;
-    }, [resolveProjectMediaImageInsertContent, updateProjectReferenceItemImage]);
+        return resolveBackflowReferenceImageInsertContent(item, {
+            projectId: currentProjectIdRef.current,
+            normalizeImageContent: normalizeGeneratedImageContent,
+            pollImageGenerationTask: pollGenerationTask,
+        });
+    }, [normalizeGeneratedImageContent]);
 
     const saveProjectReferenceFromMediaItem = useCallback((item: ProjectMediaHistoryItem) => {
         const projectId = currentProjectIdRef.current;
@@ -5447,21 +3601,19 @@ function LovartCanvasContent() {
         }
 
         void (async () => {
-            const resolvedContent = await resolveProjectMediaImageInsertContent(item);
-            saveProjectReferenceImage({
+            const saved = await saveBackflowProjectReferenceFromMediaItem(item, {
                 projectId,
-                image: resolvedContent,
-                label: item.prompt,
-                prompt: item.prompt,
-                sourceMediaId: item.id,
-                sourceElementId: item.sourceElementId,
+                normalizeImageContent: normalizeGeneratedImageContent,
+                pollImageGenerationTask: pollGenerationTask,
             });
-            showToast('已加入项目参考库', 'success');
+            if (saved) {
+                showToast('已加入项目参考库', 'success');
+            }
         })().catch((error) => {
             console.error('Save project reference from media failed:', error);
             showToast(`加入参考库失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
         });
-    }, [resolveProjectMediaImageInsertContent, showToast]);
+    }, [normalizeGeneratedImageContent, showToast]);
 
     const handleAddGeneratedBatchImageElement = useCallback((element: {
         id: string;
@@ -5519,6 +3671,16 @@ function LovartCanvasContent() {
         return getGeneratorOverlayStyle(selectedGeneratorElement, scale, pan);
     }, [pan, scale, selectedGeneratorElement]);
 
+    const generatorPanelCanvasImages = useMemo(
+        () => buildGeneratorCanvasImages(canvasImages, elementsMapRef.current),
+        [canvasImages],
+    );
+
+    const selectedCanvasImageIds = useMemo(
+        () => buildSelectedCanvasImageIds(selectedIds, elementsMapRef.current),
+        [selectedIds],
+    );
+
     const storyboardPlannerSourceElement = useMemo(() => {
         if (!storyboardPlannerSourceElementId) {
             return null;
@@ -5556,14 +3718,7 @@ function LovartCanvasContent() {
     }, [annotateImageTargetId, canvasSelectMode, elements, isDraggingElement, selectedIds]);
 
     const selectedAnnotateImagePanelStyle = useMemo(() => {
-        if (!selectedAnnotateImageElement) {
-            return undefined;
-        }
-
-        return {
-            left: `${(selectedAnnotateImageElement.x * scale) + pan.x}px`,
-            top: `${((selectedAnnotateImageElement.y + (selectedAnnotateImageElement.height || 300)) * scale) + pan.y + 20}px`,
-        };
+        return getElementPanelStyle(selectedAnnotateImageElement, scale, pan);
     }, [pan, scale, selectedAnnotateImageElement]);
 
     const selectedCropImageElement = useMemo(() => {
@@ -5582,14 +3737,7 @@ function LovartCanvasContent() {
     }, [canvasSelectMode, cropImageTargetId, elements, isDraggingElement, selectedIds]);
 
     const selectedCropImagePanelStyle = useMemo(() => {
-        if (!selectedCropImageElement) {
-            return undefined;
-        }
-
-        return {
-            left: `${(selectedCropImageElement.x * scale) + pan.x}px`,
-            top: `${((selectedCropImageElement.y + (selectedCropImageElement.height || 300)) * scale) + pan.y + 20}px`,
-        };
+        return getElementPanelStyle(selectedCropImageElement, scale, pan);
     }, [pan, scale, selectedCropImageElement]);
 
     const selectedStoryboardExportElements = useMemo(() => {
@@ -5656,24 +3804,17 @@ function LovartCanvasContent() {
     }, [canvasSelectMode, elements, isDraggingElement, selectedIds, splitStoryboardTargetId]);
 
     const selectedSplitStoryboardPanelStyle = useMemo(() => {
-        if (!selectedSplitStoryboardElement) {
-            return undefined;
-        }
-
-        return {
-            left: `${(selectedSplitStoryboardElement.x * scale) + pan.x}px`,
-            top: `${((selectedSplitStoryboardElement.y + (selectedSplitStoryboardElement.height || 300)) * scale) + pan.y + 20}px`,
-        };
+        return getElementPanelStyle(selectedSplitStoryboardElement, scale, pan);
     }, [pan, scale, selectedSplitStoryboardElement]);
 
     // 显示加载状态
     if (isLoading) {
         return (
-            <div className="h-screen w-full bg-white flex items-center justify-center">
+            <div className="h-screen w-full bg-[#f8f8fa] flex items-center justify-center">
                 <div className="text-center">
-                    <div className="w-16 h-16 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-gray-600 font-medium">加载画布中...</p>
-                    <p className="text-gray-400 text-sm mt-2">正在从云端获取数据</p>
+                    <div className="w-16 h-16 border-4 border-slate-200 border-t-slate-700 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-slate-600 font-medium">加载画布中...</p>
+                    <p className="text-slate-400 text-sm mt-2">正在从云端获取数据</p>
                 </div>
             </div>
         );
@@ -5685,137 +3826,31 @@ function LovartCanvasContent() {
             data-testid="canvas-page"
             data-project-id={currentProjectId || ''}
         >
-            {/* Header */}
-            <header className="pointer-events-none absolute top-0 left-0 z-50 flex h-12 w-full items-center justify-between border-b border-slate-200/60 bg-white/90 px-4 backdrop-blur-xl">
-                <div className="pointer-events-auto flex min-w-0 items-center gap-2">
-                    <Link href="/projects" className="flex items-center gap-0.5 rounded-lg px-1.5 py-1 text-[13px] text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700">
-                        <ChevronLeft size={14} />
-                        <span className="hidden sm:inline">返回</span>
-                    </Link>
-                    <div className="h-3.5 w-px bg-slate-200/80" />
-                    <div className="flex min-w-0 items-center gap-2">
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => handleTitleChange(e.target.value)}
-                            className="w-36 rounded-lg border-none bg-transparent px-1.5 py-0.5 text-[13px] font-semibold text-slate-800 outline-none transition-colors hover:bg-slate-50 focus:bg-slate-50"
-                            placeholder="未命名"
-                            disabled={isLoading}
-                            data-testid="canvas-title-input"
-                        />
-                        <div
-                            className="flex items-center gap-1.5"
-                            data-testid="canvas-save-status"
-                            data-status={saveStatus}
-                        >
-                            {saveStatus === 'saving' && (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-sky-500">
-                                    <Cloud size={11} className="animate-pulse" />
-                                    <span className="hidden md:inline">保存中</span>
-                                </span>
-                            )}
-                            {saveStatus === 'saved' && user && (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500">
-                                    <Cloud size={11} />
-                                    <span className="hidden md:inline">已保存</span>
-                                </span>
-                            )}
-                            {saveStatus === 'offline' && (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-rose-500">
-                                    <CloudOff size={11} />
-                                    <span className="hidden md:inline">离线</span>
-                                </span>
-                            )}
-                            {!user && (
-                                <span className="inline-flex items-center text-[11px] text-amber-500">未登录</span>
-                            )}
-                        </div>
-                        <span className="hidden rounded-md bg-slate-100/80 px-1.5 py-px text-[10px] font-medium text-slate-400 lg:inline-flex">
-                            {elements.length} 项
-                        </span>
-                    </div>
-                </div>
-
-                <div className="pointer-events-auto flex items-center gap-2">
-                    <CanvasWorkbenchSwitcher
-                        showLayers={showLayers}
-                        showHistory={showHistory}
-                        showMedia={showMedia}
-                        showReferences={showReferences}
-                        showChat={showChat}
-                        elementCount={elements.length}
-                        selectionCount={selectedIds.length}
-                        historyCount={historySummary.patchCount}
-                        referenceCount={projectReferenceItems.length}
-                        onToggleLayers={toggleLayers}
-                        onToggleHistory={toggleHistory}
-                        onToggleMedia={toggleMedia}
-                        onToggleReferences={toggleReferences}
-                        onToggleChat={toggleChat}
-                        onOpenCommandPalette={() => setShowCommandPalette(true)}
-                        onOpenShortcutHelp={() => setShowShortcutHelp(true)}
-                    />
-
-                    <div className="flex items-center gap-1.5 xl:hidden">
-                        <button
-                            onClick={toggleLayers}
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold transition-colors ${showLayers ? 'bg-slate-900 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                            title={showLayers ? '关闭图层面板' : '打开图层面板'}
-                            data-testid="canvas-layers-toggle"
-                        >
-                            层
-                        </button>
-                        <button
-                            onClick={toggleHistory}
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold transition-colors ${showHistory ? 'bg-violet-600 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                            title={showHistory ? '关闭历史侧栏' : '打开历史侧栏'}
-                            data-testid="canvas-history-toggle"
-                        >
-                            史
-                        </button>
-                        <button
-                            onClick={toggleMedia}
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold transition-colors ${showMedia ? 'bg-sky-600 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                            title={showMedia ? '关闭媒体历史' : '打开媒体历史'}
-                            data-testid="canvas-media-toggle"
-                        >
-                            媒
-                        </button>
-                        <button
-                            onClick={toggleReferences}
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold transition-colors ${showReferences ? 'bg-violet-600 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                            title={showReferences ? '关闭项目参考库' : '打开项目参考库'}
-                            data-testid="canvas-reference-toggle"
-                        >
-                            参
-                        </button>
-                        <button
-                            onClick={toggleChat}
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${showChat ? 'bg-slate-900 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'}`}
-                            title={showChat ? '关闭 AI 对话' : '打开 AI 对话'}
-                            data-testid="canvas-chat-toggle"
-                        >
-                            <Sparkles size={13} />
-                        </button>
-                    </div>
-
-                    <button
-                        onClick={() => void handleToggleAutoSaveGenerated()}
-                        className={`relative flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
-                            workbenchSettings.autoSaveGenerated
-                                ? 'bg-slate-900 text-white'
-                                : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'
-                        }`}
-                        title={workbenchSettings.autoSaveGenerated ? '关闭生成结果自动落盘' : '开启生成结果自动落盘'}
-                    >
-                        <HardDrive size={14} />
-                        {workbenchSettings.autoSaveGenerated && (
-                            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border-[1.5px] border-white bg-green-500" />
-                        )}
-                    </button>
-                    <ApiSettingsButton />
-                </div>
-            </header>
+            <CanvasHeader
+                title={title}
+                isLoading={isLoading}
+                isSignedIn={!!user}
+                saveStatus={saveStatus}
+                elementCount={elements.length}
+                selectionCount={selectedIds.length}
+                historyCount={historySummary.patchCount}
+                referenceCount={projectReferenceItems.length}
+                showLayers={showLayers}
+                showHistory={showHistory}
+                showMedia={showMedia}
+                showReferences={showReferences}
+                showChat={showChat}
+                autoSaveGenerated={workbenchSettings.autoSaveGenerated}
+                onTitleChange={handleTitleChange}
+                onToggleLayers={toggleLayers}
+                onToggleHistory={toggleHistory}
+                onToggleMedia={toggleMedia}
+                onToggleReferences={toggleReferences}
+                onToggleChat={toggleChat}
+                onOpenCommandPalette={() => setShowCommandPalette(true)}
+                onOpenShortcutHelp={() => setShowShortcutHelp(true)}
+                onToggleAutoSaveGenerated={() => void handleToggleAutoSaveGenerated()}
+            />
 
             <CanvasCommandPalette
                 visible={showCommandPalette}
@@ -5839,7 +3874,6 @@ function LovartCanvasContent() {
                         }`
                 } transition-all`}>
                     <AiDesignerPanel
-                        isGenerating={isGenerating}
                         onClose={closeChat}
                         initialPrompt={initialPrompt}
                         selectedModel={selectedModel}
@@ -6062,205 +4096,23 @@ function LovartCanvasContent() {
             )}
 
             {benchmarkMode && (
-                <div className="absolute top-20 z-50 w-[360px] rounded-2xl border border-gray-200 bg-white/96 p-4 shadow-2xl backdrop-blur pointer-events-auto" style={{ right: `${benchmarkPanelRightOffset}px` }} data-testid="benchmark-panel">
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                                <Gauge size={16} className="text-violet-500" />
-                                画布压力测试
-                            </div>
-                            <p className="mt-1 text-xs leading-5 text-gray-500">
-                                使用合成 4K SVG 图片模拟导入、存储和首屏渲染耗时。
-                            </p>
-                        </div>
-                        <button
-                            onClick={handleClearBenchmarkResults}
-                            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                            title="清空测试记录"
-                        >
-                            <Trash size={14} />
-                        </button>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-4 gap-2">
-                        {[100, 500, 1000, 2000].map((count) => (
-                            <button
-                                key={count}
-                                type="button"
-                                data-testid={`benchmark-run-${count}`}
-                                disabled={isBenchmarkRunning}
-                                onClick={() => void runCanvasBenchmark(count, 'replace')}
-                                className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:border-violet-200 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {count} 张
-                            </button>
-                        ))}
-                    </div>
-
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                        {[250, 500].map((count) => (
-                            <button
-                                key={`append-${count}`}
-                                type="button"
-                                data-testid={`benchmark-run-append-${count}`}
-                                disabled={isBenchmarkRunning}
-                                onClick={() => void runCanvasBenchmark(count, 'append')}
-                                className="rounded-xl border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                追加 {count} 张
-                            </button>
-                        ))}
-                    </div>
-
-                    {renderMetrics && (
-                        <div className="mt-3 rounded-2xl border border-violet-100 bg-violet-50/60 px-3 py-3 text-xs text-slate-600" data-testid="benchmark-live-metrics">
-                            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-violet-700">
-                                <span>实时渲染指标</span>
-                                <span>{renderMetrics.visibleCount} / {renderMetrics.totalCount}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">裁剪数量</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-metric-culled">{renderMetrics.culledCount}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">延后渲染</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-metric-deferred">{renderMetrics.deferredCount}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">分区数量</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-metric-partitions">{renderMetrics.partitionCount}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">分区尺寸</div>
-                                    <div className="mt-1 font-semibold text-slate-700">{Math.round(renderMetrics.partitionTileSize)} px</div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {chunkStats && (
-                        <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-3 text-xs text-slate-600" data-testid="benchmark-chunk-metrics">
-                            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-emerald-700">
-                                <span>逻辑分块持久化</span>
-                                <span>{chunkStats.chunkCount} 块</span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2">
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">最大块</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-largest">{chunkStats.largestChunkSize}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">根层级</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-root">{chunkStats.rootElementCount}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">已建索引</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-manifest">{chunkManifest.length}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">激活块</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-active">{activeChunkSummary.activeChunkIds.length}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">释放块</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-released">{activeChunkSummary.releasedChunkIds.length}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">激活元素</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-active-elements">{activeChunkSummary.activeElements.length}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">固定块</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-pinned">{pinnedChunkIds.length}</div>
-                                </div>
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2">
-                                    <div className="text-[10px] text-slate-400">运行态卸载</div>
-                                    <div className="mt-1 font-semibold text-slate-700" data-testid="benchmark-chunk-unloaded">{chunkResidency.unloadedChunkIds.length}</div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 px-3 py-3 text-xs text-slate-600" data-testid="benchmark-chunk-preheat">
-                        <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-sky-700">
-                            <span>分块预热</span>
-                            <span>{chunkPreheat.loadedChunks}/{chunkPreheat.totalChunks}</span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-white/80">
-                            <div
-                                className="h-full rounded-full bg-sky-500 transition-all"
-                                style={{ width: `${chunkPreheat.totalElements > 0 ? (chunkPreheat.loadedElements / chunkPreheat.totalElements) * 100 : 0}%` }}
-                            />
-                        </div>
-                        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-                            <span>{chunkPreheat.currentChunkLabel || '待机'}</span>
-                            <span>{chunkPreheat.loadedElements}/{chunkPreheat.totalElements}</span>
-                        </div>
-                        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-                            <span>运行态</span>
-                            <span data-testid="benchmark-chunk-residency-phase">{chunkResidency.phase === 'hydrating' ? '回填中' : chunkResidency.phase === 'releasing' ? '释放中' : '稳定'}</span>
-                        </div>
-                    </div>
-
-                    <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3 text-xs text-slate-600" data-testid="benchmark-history-panel">
-                        <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-700">
-                            <span>历史面板</span>
-                            <span>{historySummary.patchCount} 步</span>
-                        </div>
-                        <div className="truncate font-medium text-slate-800">{historySummary.lastAction}</div>
-                        <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-500">
-                            <span className={`rounded-full px-2 py-0.5 ${historySummary.canUndo ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-400'}`}>撤销</span>
-                            <span className={`rounded-full px-2 py-0.5 ${historySummary.canRedo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>重做</span>
-                        </div>
-                        <div className="mt-3 space-y-2" data-testid="benchmark-history-timeline">
-                            {historyTimeline.length === 0 ? (
-                                <div className="rounded-xl bg-white/80 px-2.5 py-2 text-[10px] text-slate-400">暂无历史时间线</div>
-                            ) : historyTimeline.slice(0, 6).map((entry) => (
-                                <div key={entry.id} className={`rounded-xl border px-2.5 py-2 ${entry.active ? 'border-violet-200 bg-violet-50/70' : 'border-slate-200 bg-white/80 opacity-70'}`}>
-                                    <div className="flex items-center justify-between gap-2 text-[10px]">
-                                        <span className="truncate font-medium text-slate-700">{entry.label}</span>
-                                        <span className="text-slate-400">{new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false })}</span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                        <div className="flex items-center justify-between">
-                            <span>缓存阈值</span>
-                            <span>{Math.round(STORAGE_INFO_THRESHOLD * 100)} / {Math.round(STORAGE_WARN_THRESHOLD * 100)} / {Math.round(STORAGE_CRITICAL_THRESHOLD * 100)}%</span>
-                        </div>
-                        {storageEstimate && (
-                            <div className="mt-2 flex items-center justify-between">
-                                <span>当前占用</span>
-                                <span className={`rounded-full px-2 py-0.5 ${getStorageBadgeClass(storageEstimate.usageRatio)}`} data-testid="benchmark-storage-usage">
-                                    {formatBytes(storageEstimate.usageBytes)} / {formatBytes(storageEstimate.quotaBytes)}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="mt-3 space-y-2" data-testid="benchmark-results">
-                        {benchmarkResults.length === 0 ? (
-                            <div className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400">
-                                暂无压力测试记录
-                            </div>
-                        ) : benchmarkResults.slice(0, 4).map((result) => (
-                            <div key={result.id} className="rounded-xl border border-gray-100 px-3 py-2">
-                                <div className="flex items-center justify-between text-xs font-medium text-gray-700">
-                                    <span>{result.count} 张 · {result.mode === 'append' ? '追加' : '替换'}</span>
-                                    <span>{new Date(result.timestamp).toLocaleTimeString('zh-CN', { hour12: false })}</span>
-                                </div>
-                                <div className="mt-1 flex items-center justify-between text-[11px] text-gray-500">
-                                    <span>耗时 {result.durationMs.toFixed(0)} ms</span>
-                                    <span>{formatBytes(result.storageUsageBytes)}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                <CanvasBenchmarkPanel
+                    rightOffset={benchmarkPanelRightOffset}
+                    isBenchmarkRunning={isBenchmarkRunning}
+                    renderMetrics={renderMetrics}
+                    chunkStats={chunkStats}
+                    chunkManifestLength={chunkManifest.length}
+                    activeChunkSummary={activeChunkSummary}
+                    pinnedChunkCount={pinnedChunkIds.length}
+                    chunkResidency={chunkResidency}
+                    chunkPreheat={chunkPreheat}
+                    historySummary={historySummary}
+                    historyTimeline={historyTimeline}
+                    storageEstimate={storageEstimate}
+                    benchmarkResults={benchmarkResults}
+                    onClearResults={handleClearBenchmarkResults}
+                    onRunBenchmark={(count, mode) => void runCanvasBenchmark(count, mode)}
+                />
             )}
 
             <GenerationQueuePanel
@@ -6274,97 +4126,123 @@ function LovartCanvasContent() {
             {/* Main Editor Area */}
             <div className="absolute inset-0">
                 <CanvasArea
-                    scale={scale}
-                    pan={pan}
-                    onPanChange={setPan}
-                    onScaleChange={setScale}
-                    elements={canvasRuntimeElements}
-                    selectedIds={selectedIds}
-                    highlightedElementIds={highlightedLayerIds}
-                    onSelect={setSelectedIds}
-                    onElementChange={handleElementChange}
-                    onStoryboardSaved={handleStoryboardFieldsSaved}
-                    storyboardAutoAdvanceEnabled={autoAdvanceStoryboardIssues}
-                    onBatchElementChange={handleBatchElementChange}
-                    onDelete={handleDelete}
-                    onAddElement={addElement}
-                    activeTool={activeTool}
-                    onToolChange={setActiveTool}
-                    onDragStart={handleDragStart}
-                    onDragEnd={handleDragEnd}
-                    onConnectFlow={handleConnectFlow}
-                    onCopyElement={handleCopyElement}
-                    onCopySelection={handleCopySelection}
-                    onCutSelection={handleCutSelection}
-                    onPasteAt={handlePasteAt}
-                    onDuplicateSelection={handleDuplicateSelection}
-                    onDownloadElement={handleDownloadElement}
-                    onSendSelectionToChat={handleSendSelectionToChat}
-                    onGroupSelection={handleGroupSelection}
-                    onUngroupSelection={handleUngroupSelection}
-                    onMergeSelection={handleMergeSelection}
-                    onBringForward={handleBringForward}
-                    onSendBackward={handleSendBackward}
-                    onBringToFront={handleBringToFront}
-                    onSendToBack={handleSendToBack}
-                    onToggleElementsHidden={handleToggleElementsHidden}
-                    onToggleElementsLocked={handleToggleElementsLocked}
-                    onDeleteSelection={removeElementsByIds}
-                    onExportStoryboardSelection={(ids) => {
-                        const imageCount = ids
-                            .map((id) => elementsMapRef.current.get(id))
-                            .filter((item) => item?.type === 'image' && !!item.content)
-                            .length;
-                        if (imageCount >= 2) {
-                            setAnnotateImageTargetId(null);
-                            setCropImageTargetId(null);
-                            setSplitStoryboardTargetId(null);
-                            setIsStoryboardExportOpen(true);
-                        } else {
-                            showToast('请至少选择两张图片', 'info');
-                        }
-                    }}
-                    onGenerateStoryboardSelection={handleGenerateStoryboardSelection}
-                    onGenerateStoryboardVideoSelection={handleGenerateStoryboardVideoSelection}
-                    projectReferenceImages={projectReferenceItems}
-                    onUseProjectReferenceImage={handleUseProjectReferenceImage}
-                    onSaveAsProjectReference={saveProjectReferenceFromElement}
-                    onSaveSelectionAsProjectReference={saveProjectReferenceFromSelection}
-                    onAiEditElement={handleAiEditElement}
-                    onRecoverImageEditTask={handleRecoverEditedImageTask}
-                    onReplaceBackground={handleReplaceBackground}
-                    onMockupElement={handleMockupElement}
-                    onAnnotateImage={(element) => {
-                        setCropImageTargetId(null);
-                        setSplitStoryboardTargetId(null);
-                        setAnnotateImageTargetId((current) => current === element.id ? null : element.id);
-                    }}
-                    onCropImage={(element) => {
-                        setAnnotateImageTargetId(null);
-                        setSplitStoryboardTargetId(null);
-                        setCropImageTargetId((current) => current === element.id ? null : element.id);
-                    }}
-                    onSplitStoryboard={(element) => {
-                        setAnnotateImageTargetId(null);
-                        setCropImageTargetId(null);
-                        setSplitStoryboardTargetId((current) => current === element.id ? null : element.id);
-                    }}
-                    onStoryboardPlanFromImage={handleStoryboardPlanFromImage}
-                    onAddImage={handleAddImage}
-                    onAddVideo={handleAddVideo}
-                    onOpenImageGenerator={handleOpenImageGenerator}
-                    onOpenVideoGenerator={handleOpenVideoGenerator}
-                    onCanvasMouseMove={handleCanvasMouseMove}
-                    canvasSelectMode={canvasSelectMode}
-                    onCanvasSelectPick={handleCanvasSelectPick}
-                    onCancelCanvasSelect={handleCancelCanvasSelect}
-                    generatorSubmittingMap={generatorSubmittingMap}
-                    highlightedResultId={highlightedResultId}
-                    canPaste={clipboardRef.current.length > 0}
-                    spatialIndex={spatialIndexRef.current}
-                    resolvedImageSrcMap={runtimeImageRenderSrcs}
-                    onRenderMetricsChange={benchmarkMode ? handleRenderMetricsChange : undefined}
-                    minimapRightOffset={rightWorkbenchOffset}
+                    {...({
+                        selection: {
+                            selectedIds,
+                            highlightedElementIds: highlightedLayerIds,
+                            onSelect: setSelectedIds,
+                            activeTool,
+                            onToolChange: setActiveTool,
+                        },
+                        view: {
+                            scale,
+                            pan,
+                            onPanChange: setPan,
+                            onScaleChange: setScale,
+                        },
+                        elementCRUD: {
+                            elements: canvasRuntimeElements,
+                            onElementChange: handleElementChange,
+                            onBatchElementChange: handleBatchElementChange,
+                            onDelete: handleDelete,
+                            onAddElement: addElement,
+                        },
+                        clipboard: {
+                            canPaste: clipboardRef.current.length > 0,
+                            onCopyElement: handleCopyElement,
+                            onCopySelection: handleCopySelection,
+                            onCutSelection: handleCutSelection,
+                            onPasteAt: handlePasteAt,
+                            onDuplicateSelection: handleDuplicateSelection,
+                        },
+                        layout: {
+                            onGroupSelection: handleGroupSelection,
+                            onUngroupSelection: handleUngroupSelection,
+                            onMergeSelection: handleMergeSelection,
+                            onBringForward: handleBringForward,
+                            onSendBackward: handleSendBackward,
+                            onBringToFront: handleBringToFront,
+                            onSendToBack: handleSendToBack,
+                            onToggleElementsHidden: handleToggleElementsHidden,
+                            onToggleElementsLocked: handleToggleElementsLocked,
+                            onDeleteSelection: removeElementsByIds,
+                        },
+                        generator: {
+                            onOpenImageGenerator: handleOpenImageGenerator,
+                            onOpenVideoGenerator: handleOpenVideoGenerator,
+                            onGenerateStoryboardSelection: handleGenerateStoryboardSelection,
+                            onGenerateStoryboardVideoSelection: handleGenerateStoryboardVideoSelection,
+                            onExportStoryboardSelection: (ids) => {
+                                const imageCount = ids
+                                    .map((id) => elementsMapRef.current.get(id))
+                                    .filter((item) => item?.type === 'image' && !!item.content)
+                                    .length;
+                                if (imageCount >= 2) {
+                                    setAnnotateImageTargetId(null);
+                                    setCropImageTargetId(null);
+                                    setSplitStoryboardTargetId(null);
+                                    setIsStoryboardExportOpen(true);
+                                } else {
+                                    showToast('请至少选择两张图片', 'info');
+                                }
+                            },
+                            generatorSubmittingMap,
+                            highlightedResultId,
+                        },
+                        media: {
+                            projectReferenceImages: projectReferenceItems,
+                            onUseProjectReferenceImage: handleUseProjectReferenceImage,
+                            onSaveAsProjectReference: saveProjectReferenceFromElement,
+                            onSaveSelectionAsProjectReference: saveProjectReferenceFromSelection,
+                            onAddImage: handleAddImage,
+                            onAddVideo: handleAddVideo,
+                        },
+                        editingTools: {
+                            onAiEditElement: handleAiEditElement,
+                            onRecoverImageEditTask: handleRecoverEditedImageTask,
+                            onReplaceBackground: handleReplaceBackground,
+                            onMockupElement: handleMockupElement,
+                            onAnnotateImage: (element) => {
+                                setCropImageTargetId(null);
+                                setSplitStoryboardTargetId(null);
+                                setAnnotateImageTargetId((current) => current === element.id ? null : element.id);
+                            },
+                            onCropImage: (element) => {
+                                setAnnotateImageTargetId(null);
+                                setSplitStoryboardTargetId(null);
+                                setCropImageTargetId((current) => current === element.id ? null : element.id);
+                            },
+                            onSplitStoryboard: (element) => {
+                                setAnnotateImageTargetId(null);
+                                setCropImageTargetId(null);
+                                setSplitStoryboardTargetId((current) => current === element.id ? null : element.id);
+                            },
+                            onStoryboardPlanFromImage: handleStoryboardPlanFromImage,
+                        },
+                        export: {
+                            onDownloadElement: handleDownloadElement,
+                            onSendSelectionToChat: handleSendSelectionToChat,
+                        },
+                        canvasSelectMode: {
+                            canvasSelectMode,
+                            onCanvasSelectPick: handleCanvasSelectPick,
+                            onCancelCanvasSelect: handleCancelCanvasSelect,
+                        },
+                        storyboard: {
+                            onStoryboardSaved: handleStoryboardFieldsSaved,
+                            storyboardAutoAdvanceEnabled: autoAdvanceStoryboardIssues,
+                        },
+                        misc: {
+                            onDragStart: handleDragStart,
+                            onDragEnd: handleDragEnd,
+                            onConnectFlow: handleConnectFlow,
+                            onCanvasMouseMove: handleCanvasMouseMove,
+                            spatialIndex: spatialIndexRef.current,
+                            resolvedImageSrcMap: runtimeImageRenderSrcs,
+                            onRenderMetricsChange: benchmarkMode ? handleRenderMetricsChange : undefined,
+                            minimapRightOffset: rightWorkbenchOffset,
+                        },
+                    } satisfies CanvasAreaDomains)}
                 />
                 <FloatingToolbar
                     activeTool={activeTool}
@@ -6386,15 +4264,8 @@ function LovartCanvasContent() {
                         selectedModel={selectedModel}
                         projectReferenceImages={projectReferenceItems}
                         onUseProjectReferenceImage={handleUseProjectReferenceImage}
-                        canvasImages={canvasImages.map((image) => ({
-                            id: image.id,
-                            content: image.content,
-                            displayName: elementsMapRef.current.get(image.id)?.displayName || `图片 ${image.id.slice(0, 4)}`,
-                        }))}
-                        selectedCanvasImageIds={selectedIds.filter((id) => {
-                            const element = elementsMapRef.current.get(id);
-                            return element?.type === 'image' && !!element.content;
-                        })}
+                        canvasImages={generatorPanelCanvasImages}
+                        selectedCanvasImageIds={selectedCanvasImageIds}
                         onRequestCanvasSelect={handleRequestCanvasSelectImage}
                         onElementChange={handleElementChange}
                         onSubmittingChange={handleGeneratorSubmittingChange}
@@ -6411,11 +4282,7 @@ function LovartCanvasContent() {
                         selectedModel={selectedModel}
                         projectReferenceImages={projectReferenceItems}
                         onUseProjectReferenceImage={handleUseProjectReferenceImage}
-                        canvasImages={canvasImages.map((image) => ({
-                            id: image.id,
-                            content: image.content,
-                            displayName: elementsMapRef.current.get(image.id)?.displayName || `图片 ${image.id.slice(0, 4)}`,
-                        }))}
+                        canvasImages={generatorPanelCanvasImages}
                         selectedCanvasImageIds={[storyboardPlannerSourceElement.id]}
                         onRequestCanvasSelect={() => handleRequestCanvasSelectImage(storyboardPlannerSourceElement.id)}
                         // 普通图片模式只借用分镜面板能力，不把任务状态同步回原图，避免轮询结果反写覆盖源图。
