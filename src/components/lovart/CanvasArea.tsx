@@ -1,9 +1,8 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { ContextToolbar } from './ContextToolbar';
 import { v4 as uuidv4 } from 'uuid';
-import { MousePointerClick, AlignStartVertical, AlignEndVertical, AlignCenterHorizontal, AlignStartHorizontal, AlignEndHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Eye } from 'lucide-react';
-import { isImageRef, getImageDataUrl, type SpatialIndex } from '@/lib/editor-kernel';
-import { CanvasElementRenderer, type ElementHandlers } from './CanvasElementRenderer';
+import { AlignStartVertical, AlignEndVertical, AlignCenterHorizontal, AlignStartHorizontal, AlignEndHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter } from 'lucide-react';
+import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
+import type { ElementHandlers } from './CanvasElementRenderer';
 import { CanvasMinimap } from './CanvasMinimap';
 import type { CanvasElement } from './canvas-types';
 import type { AlignmentDirection, DistributionAxis, LayoutSelectionMode } from './canvas-alignment';
@@ -15,13 +14,14 @@ import { useCanvasAlignGuides } from './CanvasAlignGuides';
 import { canUseScreenSpaceResizeOverlayForElement } from './ScreenSpaceResizeOverlay';
 import { CanvasContextMenu, useCanvasContextMenu } from './CanvasContextMenu';
 import { useImageHoverPreview } from './CanvasMediaOverlays';
-import { MultiSelectionToolbar } from './MultiSelectionToolbar';
 import { useCanvasPointerInteraction } from './use-canvas-pointer-interaction';
 import type { CanvasAreaDomains, CanvasRenderMetrics } from './canvas-area-domains';
 import { useCanvasTestEventBridge } from './use-canvas-test-event-bridge';
 import { useCanvasSelectionLayoutActions } from './use-canvas-selection-layout-actions';
 import { useCanvasFrameActions } from './use-canvas-frame-actions';
-import { CanvasAreaViewportOverlays, CanvasAreaWorldOverlays } from './CanvasAreaOverlays';
+import { CanvasAreaViewportOverlays } from './CanvasAreaOverlays';
+import { CanvasAreaContentLayer } from './CanvasAreaContentLayer';
+import { CanvasAreaHud } from './CanvasAreaHud';
 
 function serializeRenderMetrics(metrics: CanvasRenderMetrics) {
     return JSON.stringify(metrics);
@@ -76,7 +76,6 @@ export const CanvasArea = React.memo(function CanvasArea({
     const { alignGuides, flashAlignGuides, setAlignGuidesIfChanged } = useCanvasAlignGuides(ALIGN_GUIDE_FLASH_MS);
 
     const {
-        selectedRenderableElements,
         applyElementChanges,
         getSelectedBounds,
         alignElements,
@@ -968,269 +967,47 @@ export const CanvasArea = React.memo(function CanvasArea({
                 }
             }}
         >
-            {/* Canvas Select Mode Banner */}
-            {canvasSelectMode && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[200] bg-green-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-2 duration-200"
-                     onMouseDown={(e) => e.stopPropagation()}>
-                    <MousePointerClick size={18} />
-                    <span className="text-sm font-medium">
-                        请点击画布中的{canvasSelectMode === 'image' ? '图片' : '图片/视频'}作为参考
-                    </span>
-                    <button
-                        onClick={() => onCancelCanvasSelect?.()}
-                        className="ml-2 bg-white/20 hover:bg-white/30 text-white px-2.5 py-0.5 rounded-lg text-xs font-medium transition-colors"
-                    >
-                        取消
-                    </button>
-                </div>
-            )}
+            <CanvasAreaHud
+                {...{
+                    canvasSelectMode, onCancelCanvasSelect, hiddenElementIds, onToggleElementsHidden,
+                    selectedIds, selectedElement, scale, pan, isDragging, isResizing, isPanning,
+                    isDrawing, isSelecting, storyboardAutoAdvanceEnabled, projectReferenceImages,
+                    alignmentActions, distributionActions, equalSpacingActions, layoutSelectionActions,
+                    canGenerateStoryboardBatch, canGenerateStoryboardVideoBatch, multiStoryboardGenerateIds,
+                    multiCanUngroup, multiCanMerge, multiCanSendToChat, multiReferenceCandidateCount,
+                    multiAllHidden, multiAllLocked, onElementChange, onStoryboardSaved, onDelete,
+                    onCopyElement, onDownloadElement, onUseProjectReferenceImage, onSaveAsProjectReference,
+                    onSendSelectionToChat, onToggleElementsLocked, onAiEditElement, onRecoverImageEditTask,
+                    onReplaceBackground, onMockupElement, onAnnotateImage, onCropImage, onSplitStoryboard,
+                    onStoryboardPlanFromImage, onConnectFlow, onExportStoryboardSelection,
+                    onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, onGroupSelection,
+                    onUngroupSelection, onMergeSelection, onSaveSelectionAsProjectReference,
+                }}
+                canExportStoryboardSelection={selectedIds.length >= 2 && !!onExportStoryboardSelection}
+                canFocusSelection={!!multiSelectionBounds}
+                onPointerDownCapture={handleToolbarSelectionPointerDownCapture}
+                onMouseDownCapture={handleToolbarSelectionMouseDownCapture}
+                onClickCapture={handleToolbarSelectionClickCapture}
+                onAlign={alignElements}
+                onDistribute={distributeElements}
+                onEqualSpacing={equalSpacing}
+                onLayoutSelection={layoutSelection}
+                onFocusSelection={focusSelection}
+                onDeleteSelection={deleteSelectionByIds}
+            />
 
-            {hiddenElementIds.length > 0 && !canvasSelectMode && (
-                <div
-                    className="absolute top-4 right-4 z-[200]"
-                    onMouseDown={(e) => e.stopPropagation()}
-                >
-                    <button
-                        onClick={() => onToggleElementsHidden?.(hiddenElementIds)}
-                        className="flex items-center gap-2 rounded-xl border border-blue-200 bg-white/95 px-3 py-2 text-sm font-medium text-blue-600 shadow-lg backdrop-blur hover:bg-blue-50 transition-colors"
-                        title="恢复所有隐藏元素"
-                    >
-                        <Eye size={16} />
-                        显示隐藏元素
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">{hiddenElementIds.length}</span>
-                    </button>
-                </div>
-            )}
-
-            {/* Context Toolbar - Show if exactly one element selected (skip for connector and frame) */}
-            {selectedIds.length === 1 && selectedElement && !selectedElement.hidden && !isDragging && !isResizing && !isPanning && !isDrawing && !isSelecting && !canvasSelectMode && selectedElement.type !== 'connector' && selectedElement.type !== 'frame' && selectedElement.type !== 'image-generator' && selectedElement.type !== 'video-generator' && (
-                <div
-                    onPointerDownCapture={handleToolbarSelectionPointerDownCapture}
-                    onMouseDownCapture={handleToolbarSelectionMouseDownCapture}
-                    onClickCapture={handleToolbarSelectionClickCapture}
-                    style={{
-                        position: 'absolute',
-                        left: (selectedElement.x + (selectedElement.width || 0) / 2) * scale + pan.x,
-                        top: Math.max(8, (selectedElement.y) * scale + pan.y - 48),
-                        transform: 'translateX(-50%)',
-                        zIndex: 100,
-                        width: 'max-content',
-                    }}
-                >
-                    <ContextToolbar
-                        element={selectedElement}
-                        scale={scale}
-                        onUpdate={onElementChange}
-                        onStoryboardSaved={onStoryboardSaved}
-                        storyboardAutoAdvanceEnabled={storyboardAutoAdvanceEnabled}
-                        onDelete={onDelete}
-                        onCopy={onCopyElement}
-                        onDownload={onDownloadElement}
-                        projectReferenceImages={projectReferenceImages}
-                        onUseProjectReferenceImage={onUseProjectReferenceImage}
-                        onSaveAsProjectReference={onSaveAsProjectReference}
-                        onSendToChat={onSendSelectionToChat ? (element) => onSendSelectionToChat([element.id]) : undefined}
-                        onToggleHidden={onToggleElementsHidden ? (element) => onToggleElementsHidden([element.id]) : undefined}
-                        onToggleLocked={onToggleElementsLocked ? (element) => onToggleElementsLocked([element.id]) : undefined}
-                        onAiEdit={onAiEditElement}
-                        onRecoverTask={onRecoverImageEditTask}
-                        onReplaceBackground={onReplaceBackground}
-                        onMockup={onMockupElement}
-                        onAnnotateImage={onAnnotateImage}
-                        onCropImage={onCropImage}
-                        onSplitStoryboard={onSplitStoryboard}
-                        onStoryboardPlanFromImage={onStoryboardPlanFromImage}
-                        onConnectFlow={onConnectFlow}
-                    />
-                </div>
-            )}
-
-            {/* Multi-selection Toolbar */}
-            {selectedIds.length > 1 && !isDragging && !isSelecting && (
-                <MultiSelectionToolbar
-                    selectedIds={selectedIds}
-                    alignmentActions={alignmentActions}
-                    distributionActions={distributionActions}
-                    equalSpacingActions={equalSpacingActions}
-                    layoutSelectionActions={layoutSelectionActions}
-                    onAlign={alignElements}
-                    onDistribute={distributeElements}
-                    onEqualSpacing={equalSpacing}
-                    onLayoutSelection={layoutSelection}
-                    canExportStoryboardSelection={selectedIds.length >= 2 && !!onExportStoryboardSelection}
-                    onExportStoryboardSelection={onExportStoryboardSelection}
-                    canGenerateStoryboardBatch={canGenerateStoryboardBatch}
-                    canGenerateStoryboardVideoBatch={canGenerateStoryboardVideoBatch}
-                    multiStoryboardGenerateIds={multiStoryboardGenerateIds}
-                    onGenerateStoryboardSelection={onGenerateStoryboardSelection}
-                    onGenerateStoryboardVideoSelection={onGenerateStoryboardVideoSelection}
-                    canFocusSelection={!!multiSelectionBounds}
-                    onFocusSelection={focusSelection}
-                    onGroupSelection={onGroupSelection}
-                    multiCanUngroup={multiCanUngroup}
-                    onUngroupSelection={onUngroupSelection}
-                    multiCanMerge={multiCanMerge}
-                    onMergeSelection={onMergeSelection}
-                    multiCanSendToChat={multiCanSendToChat}
-                    onSendSelectionToChat={onSendSelectionToChat}
-                    multiReferenceCandidateCount={multiReferenceCandidateCount}
-                    onSaveSelectionAsProjectReference={onSaveSelectionAsProjectReference}
-                    multiAllHidden={multiAllHidden}
-                    onToggleElementsHidden={onToggleElementsHidden}
-                    multiAllLocked={multiAllLocked}
-                    onToggleElementsLocked={onToggleElementsLocked}
-                    onDeleteSelection={deleteSelectionByIds}
-                    onPointerDownCapture={handleToolbarSelectionPointerDownCapture}
-                    onMouseDownCapture={handleToolbarSelectionMouseDownCapture}
-                    onClickCapture={handleToolbarSelectionClickCapture}
-                />
-            )}
-
-            {/* Content Container with Scale and Pan */}
-            <div
-                ref={containerRef}
-                className="w-full h-full origin-top-left"
-                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, willChange: 'transform' }}
-            >
-                {/* Grid Pattern Background */}
-                <div
-                    className="pointer-events-none absolute inset-0 opacity-[0.03]"
-                    style={{
-                        backgroundImage: 'radial-gradient(#000 1px, transparent 1px)',
-                        backgroundSize: '20px 20px',
-                        width: '10000px', // Make it huge
-                        height: '10000px'
-                    }}
-                />
-
-                {/* Connectors Layer - Render first so they appear behind elements */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
-                    {connectorElements.map((connector) => {
-                        const fromEl = elementMap.get(connector.connectorFrom || '');
-                        const toEl = elementMap.get(connector.connectorTo || '');
-                        
-                        if (!fromEl || !toEl) return null;
-
-                        const fromX = fromEl.x + (fromEl.width || 0) / 2;
-                        const fromY = fromEl.y + (fromEl.height || 0) / 2;
-                        const toX = toEl.x + (toEl.width || 0) / 2;
-                        const toY = toEl.y + (toEl.height || 0) / 2;
-
-                        return (
-                            <g key={connector.id}>
-                                <line
-                                    x1={fromX}
-                                    y1={fromY}
-                                    x2={toX}
-                                    y2={toY}
-                                    stroke={connector.color || '#6B7280'}
-                                    strokeWidth={connector.strokeWidth || 2}
-                                    strokeDasharray={connector.connectorStyle === 'dashed' ? '8 4' : '0'}
-                                    markerEnd="url(#arrowhead)"
-                                />
-                            </g>
-                        );
-                    })}
-                    {/* Arrow marker definition */}
-                    <defs>
-                        <marker
-                            id="arrowhead"
-                            markerWidth="10"
-                            markerHeight="10"
-                            refX="9"
-                            refY="3"
-                            orient="auto"
-                        >
-                            <polygon points="0 0, 10 3, 0 6" fill="#6B7280" />
-                        </marker>
-                    </defs>
-                </svg>
-
-                {/* Elements Layer */}
-                <div className="absolute inset-0" ref={elementsContainerRef}>
-                    {/* Render frames first so they appear behind other elements */}
-                    {/* Use renderElements (pre-sorted: frames first, then others, no connectors) for viewport culling */}
-                    {renderElements.map((el) => {
-                        const isSelected = selectedIds.includes(el.id);
-                        const dragPreviewOffset = dragPreviewState?.ids.includes(el.id)
-                            ? { dx: dragPreviewState.dx, dy: dragPreviewState.dy }
-                            : null;
-                        const baseZIndex = renderZIndexById.get(el.id) ?? 1;
-                        const isPickable = !!(canvasSelectMode && (el.type === 'image' || el.type === 'video') && el.content);
-                        const isNotPickable = !!(canvasSelectMode && !isPickable);
-                        const isLinked = !isSelected && !isDrawing && selectedIds.some(sid => {
-                            const sel = elements.find(e => e.id === sid);
-                            return sel?.linkedElements?.includes(el.id) || el.linkedElements?.includes(sid);
-                        });
-                        const isLayerOrderHighlighted = highlightedElementIdSet.has(el.id);
-                        return (
-                            <CanvasElementRenderer
-                                key={el.id}
-                                el={el}
-                                resolvedImageSrc={resolvedImageSrcMap?.[el.id]}
-                                isSelected={isSelected}
-                                selectedImageCount={multiReferenceCandidateCount}
-                                showToolbar={isSelected && selectedIds.length === 1 && !isDragging && !isResizing}
-                                isDropTarget={dropTargetFrameId === el.id}
-                                isEditingText={editingTextId === el.id}
-                                isEditingFrameName={editingFrameName === el.id}
-                                isEditingMark={editingMarkId === el.id}
-                                isQuickEditing={quickEditMarkId === el.id}
-                                isLinked={isLinked}
-                                isPickable={isPickable}
-                                isNotPickable={isNotPickable}
-                                frameChildCount={frameChildCounts.get(el.id) || 0}
-                                scale={scale}
-                                activeTool={activeTool}
-                                quickEditPrompt={quickEditMarkId === el.id ? quickEditPrompt : ''}
-                                showFramePresetMenu={showFramePresetMenu === el.id}
-                                showFrameExportMenu={showFrameExportMenu === el.id}
-                                canGenerateFromImage={canGenerateFromImage}
-                                markTargetHasContent={!!(el.markTargetId && elements.find(t => t.id === el.markTargetId && t.content))}
-                                isGeneratorSubmitting={!!generatorSubmittingMap?.[el.id]}
-                                isResultHighlighted={highlightedResultId === el.id}
-                                isLayerOrderHighlighted={isLayerOrderHighlighted}
-                                deferImageDetailUpgrade={isResizing && resizingElementId === el.id}
-                                imageDetailRequestKey={imageDetailRequestVersions[el.id]}
-                                dragPreviewOffset={dragPreviewOffset}
-                                zIndex={baseZIndex}
-                                handlersRef={elementHandlersRef}
-                            />
-                        );
-                    })}
-
-                    {multiSelectionBounds && !isSelecting && (
-                        <div
-                            className="pointer-events-none absolute z-40 rounded-xl border-2 border-blue-500/85 bg-blue-500/[0.03] shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
-                            style={{
-                                left: multiSelectionBounds.minX - 8,
-                                top: multiSelectionBounds.minY - 8,
-                                width: multiSelectionBounds.width + 16,
-                                height: multiSelectionBounds.height + 16,
-                                transform: multiSelectionPreviewOffset
-                                    ? `translate(${multiSelectionPreviewOffset.dx}px, ${multiSelectionPreviewOffset.dy}px)`
-                                    : undefined,
-                            }}
-                        >
-                            <div className="absolute -top-8 left-0 rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm">
-                                已选 {selectedIds.length} 个元素
-                            </div>
-                            <div className="absolute inset-0 rounded-xl border border-dashed border-blue-400/80" />
-                            <div className="absolute -left-1.5 -top-1.5 h-3 w-3 rounded-full border-2 border-white bg-blue-500 shadow-sm" />
-                            <div className="absolute -right-1.5 -top-1.5 h-3 w-3 rounded-full border-2 border-white bg-blue-500 shadow-sm" />
-                            <div className="absolute -bottom-1.5 -left-1.5 h-3 w-3 rounded-full border-2 border-white bg-blue-500 shadow-sm" />
-                            <div className="absolute -bottom-1.5 -right-1.5 h-3 w-3 rounded-full border-2 border-white bg-blue-500 shadow-sm" />
-                        </div>
-                    )}
-                </div>
-
-                <CanvasAreaWorldOverlays
-                    currentPath={currentPath}
-                    alignGuides={alignGuides}
-                    frameDrawBox={frameDrawBox}
-                    elementsLength={elements.length}
-                />
-            </div>
+            <CanvasAreaContentLayer
+                {...{
+                    containerRef, elementsContainerRef, pan, scale, connectorElements, elementMap,
+                    renderElements, elements, selectedIds, activeTool, canvasSelectMode, dragPreviewState,
+                    dropTargetFrameId, editingTextId, editingFrameName, editingMarkId, quickEditMarkId,
+                    quickEditPrompt, showFramePresetMenu, showFrameExportMenu, canGenerateFromImage,
+                    frameChildCounts, generatorSubmittingMap, highlightedResultId, highlightedElementIdSet,
+                    isDragging, isResizing, resizingElementId, isDrawing, isSelecting, imageDetailRequestVersions,
+                    renderZIndexById, resolvedImageSrcMap, multiReferenceCandidateCount, multiSelectionBounds,
+                    multiSelectionPreviewOffset, currentPath, alignGuides, frameDrawBox, elementHandlersRef,
+                }}
+            />
 
             <CanvasAreaViewportOverlays
                 selectionBoxOverlayRef={selectionBoxOverlayRef}

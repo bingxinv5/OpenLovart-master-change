@@ -2,27 +2,19 @@
 
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Sparkles, ChevronDown, Upload, X, MousePointerClick, History, RotateCcw, LibraryBig, Star, Pencil, Trash2, Check, FolderOpen, Settings2 } from 'lucide-react';
 import { debugLog } from '@/lib/debug-log';
 import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration } from './canvas-types';
 import { getGeneratorStatusState } from './GeneratorStatusCard';
-import { WorkbenchImage } from './WorkbenchImage';
-import {
-    GeneratorRecoveryTaskCard,
-    GeneratorReferenceStack,
-    GeneratorStatusSection,
-    GeneratorSubmitButton,
-    MentionComposerSuggestions,
-} from './generator-panel-sections';
+import { GeneratorStatusSection } from './generator-panel-sections';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from './generator-error-utils';
 import { createGeneratorTaskUpdate, useClearGeneratorError } from './generator-panel-hooks';
 import { useImageGeneratorPanelPersistence } from './useGeneratorPanelPersistence';
 import {
     appendImageGenerationHistory,
-    clearImageGenerationHistory,
     getRecentReferenceLibrary,
     migrateImageGenerationStorage,
     readFavoriteReferenceImages,
+    clearImageGenerationHistory,
     readImageGenerationHistory,
     removeFavoriteReferenceImage,
     renameFavoriteReferenceImage,
@@ -72,10 +64,7 @@ import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing'
 import { useImageGenerationDefaults } from '@/lib/generation-defaults';
 import {
     GROK_IMAGE_ASPECT_RATIOS,
-    describeImageSizeAspectRatio,
-    IMAGE_MODEL_LABELS,
     IMAGE_MODEL_OPTIONS,
-    IMAGE_QUALITY_LABELS,
     resolveImageGeneratorModelOptions,
     type GenerateCount,
     type ImageAspectRatio as AspectRatio,
@@ -84,6 +73,9 @@ import {
     type ImageSize,
 } from './generator-model-options';
 import { buildImageReferencePreviewItems } from './generator-reference-view-model';
+import type { ImageResourceLibraryTab } from './ImageGeneratorResourceLibrary';
+import { ImageGeneratorPromptComposer } from './ImageGeneratorPromptComposer';
+import { ImageGeneratorFooterControls } from './ImageGeneratorFooterControls';
 
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
 
@@ -158,7 +150,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [showRecoveryPanel, setShowRecoveryPanel] = useState(false);
     const [showAddImageMenu, setShowAddImageMenu] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
-    const [resourceLibraryTab, setResourceLibraryTab] = useState<'project' | 'favorite' | 'history' | 'library'>('history');
+    const [resourceLibraryTab, setResourceLibraryTab] = useState<ImageResourceLibraryTab>('history');
     const [mentionQuery, setMentionQuery] = useState<TextareaMentionQuery | null>(null);
     const maxPromptRows = 8;
 
@@ -1027,96 +1019,42 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onChange={handleFileSelect}
             />
 
-            <div className="p-3 pb-2">
-                <div className="relative">
-                    <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm">
-                        <div className="relative px-3 py-2.5">
-                            <textarea
-                                ref={promptInputRef}
-                                value={prompt}
-                                onChange={handlePromptChange}
-                                onKeyDown={handleKeyDown}
-                                onKeyUp={handlePromptSelectionChange}
-                                onSelect={handlePromptSelectionChange}
-                                onClick={handlePromptSelectionChange}
-                                onFocus={handlePromptSelectionChange}
-                                readOnly={isGenerating}
-                                spellCheck={false}
-                                rows={2}
-                                role="textbox"
-                                aria-multiline="true"
-                                aria-label="描述你想要生成的图片"
-                                placeholder="描述图片内容，输入 @ 引用参考图..."
-                                onCompositionStart={() => {
-                                    isPromptComposingRef.current = true;
-                                }}
-                                onCompositionEnd={handlePromptCompositionEnd}
-                                onBlur={() => {
-                                    flushPromptToElement();
-                                    window.setTimeout(() => setMentionQuery(null), 120);
-                                }}
-                                className="w-full resize-none overflow-hidden bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400/60"
-                                disabled={isGenerating}
-                            />
-                        </div>
-
-                        <GeneratorReferenceStack
-                            items={referencePreviewItems}
-                            canAddMore={canAddMoreImages}
-                            addButtonTitle="添加参考图"
-                            confirmClear={confirmClear}
-                            clearTitle="清空参考图"
-                            testId="image-generator-reference-count"
-                            onAdd={() => {
-                                const next = !showAddImageMenu;
-                                closeAllMenus();
-                                setShowAddImageMenu(next);
-                            }}
-                            onClear={() => {
-                                if (confirmClear) {
-                                    handleClearReferenceImages();
-                                    setConfirmClear(false);
-                                } else {
-                                    setConfirmClear(true);
-                                    setTimeout(() => setConfirmClear(false), 2000);
-                                }
-                            }}
-                            onRemove={(_item, index) => handleRemoveReferenceImage(index)}
-                        />
-
-                    </div>
-
-                    {/* Add image menu (positioned outside overflow container) */}
-                    {showAddImageMenu && (
-                        <div className="absolute bottom-[48px] left-3 bg-white/96 backdrop-blur-xl rounded-[14px] shadow-lg border border-slate-200/60 py-1 z-50 min-w-[160px]" data-popover-menu>
-                            <button type="button" onClick={() => { fileInputRef.current?.click(); setShowAddImageMenu(false); }} disabled={!canAddMoreImages} className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors mx-1 ${canAddMoreImages ? 'cursor-pointer text-slate-700 hover:bg-slate-50' : 'cursor-not-allowed text-slate-300'}`}>
-                                <Upload size={14} className="text-slate-400" /><span>上传图片</span>
-                            </button>
-                            <button type="button" onClick={() => { setShowAddImageMenu(false); onRequestCanvasSelect?.(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors mx-1 cursor-pointer text-slate-700 hover:bg-slate-50">
-                                <MousePointerClick size={14} className="text-slate-400" /><span>从画布选择</span>
-                            </button>
-                        </div>
-                    )}
-
-                    {mentionQuery && (
-                        <MentionComposerSuggestions
-                            title="可引用的参考图"
-                            suggestions={mentionSuggestions.map((mention) => ({
-                                id: mention.id,
-                                name: mention.name,
-                                label: mention.label,
-                                kind: 'image' as const,
-                                previewImage: mention.image,
-                            }))}
-                            emptyText={promptReferenceMentions.length > 0 ? '没有匹配的参考图，请继续输入或调整关键词' : '先添加参考图，再输入 @ 进行引用'}
-                            onApply={(item) => {
-                                const mention = mentionSuggestions.find((candidate) => candidate.id === item.id);
-                                if (mention) handleInsertPromptReferenceToken(mention);
-                            }}
-                        />
-                    )}
-                </div>
-            </div>
+            <ImageGeneratorPromptComposer
+                promptInputRef={promptInputRef}
+                prompt={prompt}
+                isGenerating={isGenerating}
+                referencePreviewItems={referencePreviewItems}
+                canAddMoreImages={canAddMoreImages}
+                confirmClear={confirmClear}
+                showAddImageMenu={showAddImageMenu}
+                mentionQuery={mentionQuery}
+                mentionSuggestions={mentionSuggestions}
+                hasPromptReferenceMentions={promptReferenceMentions.length > 0}
+                onPromptChange={handlePromptChange}
+                onPromptKeyDown={handleKeyDown}
+                onPromptSelectionChange={handlePromptSelectionChange}
+                onPromptCompositionStart={() => { isPromptComposingRef.current = true; }}
+                onPromptCompositionEnd={handlePromptCompositionEnd}
+                onPromptBlur={() => { flushPromptToElement(); window.setTimeout(() => setMentionQuery(null), 120); }}
+                onToggleAddImageMenu={() => {
+                    const next = !showAddImageMenu;
+                    closeAllMenus();
+                    setShowAddImageMenu(next);
+                }}
+                onClearReferences={() => {
+                    if (confirmClear) {
+                        handleClearReferenceImages();
+                        setConfirmClear(false);
+                    } else {
+                        setConfirmClear(true);
+                        setTimeout(() => setConfirmClear(false), 2000);
+                    }
+                }}
+                onRemoveReferenceImage={handleRemoveReferenceImage}
+                onUploadImage={() => { fileInputRef.current?.click(); setShowAddImageMenu(false); }}
+                onSelectFromCanvas={() => { setShowAddImageMenu(false); onRequestCanvasSelect?.(); }}
+                onApplyMention={handleInsertPromptReferenceToken}
+            />
 
             {isGrokImageModel && (
                 <div className="px-3 pb-2">
@@ -1135,380 +1073,73 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onClearError={() => setErrorMsg(null)}
             />
 
-            {/* Footer Controls — single row */}
-            <div className="relative z-10 rounded-b-[20px] border-t border-slate-100 bg-slate-50/60 px-3 py-2">
-                <div className="flex items-center gap-1.5 min-w-0">
-                    {/* Model Selector */}
-                    <div className="relative" data-popover-menu>
-                        <button
-                            onClick={() => { const next = !showModelMenu; closeAllMenus(); setShowModelMenu(next); }}
-                            className="flex items-center gap-1.5 px-2 py-1 hover:bg-white rounded-lg transition-colors text-xs font-medium text-slate-700 whitespace-nowrap"
-                        >
-                            <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center flex-shrink-0">
-                                <Sparkles size={8} className="text-white" />
-                            </div>
-                            <span className="max-w-[140px] truncate whitespace-nowrap">{IMAGE_MODEL_LABELS[model]}</span>
-                            <ChevronDown size={11} className="text-slate-400" />
-                        </button>
-                        {showModelMenu && (
-                            <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-[14px] shadow-lg border border-slate-200/60 py-1 z-30 min-w-[200px]">
-                                {models.map((m) => (
-                                    <div key={m} onClick={() => { setModel(m); setShowModelMenu(false); }} className={`px-3 py-2 cursor-pointer hover:bg-slate-50 rounded-lg mx-1 transition-colors ${model === m ? 'bg-slate-50' : ''}`}>
-                                                    <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{IMAGE_MODEL_LABELS[m]}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Params summary — click to open settings */}
-                    <div className="relative shrink-0" data-popover-menu>
-                        <button
-                            type="button"
-                            onClick={() => { const next = !showSettingsPanel; closeAllMenus(); setShowSettingsPanel(next); }}
-                            className="flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200/60 bg-slate-50/80 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white hover:text-slate-700 hover:border-slate-300"
-                        >
-                            <Settings2 size={12} />
-                            {isOpenAiGptImageModel ? (
-                                <>
-                                    <span>{imageSize}</span>
-                                    <span className="text-slate-300">·</span>
-                                    <span>{IMAGE_QUALITY_LABELS[quality]}</span>
-                                    <span className="text-slate-300">·</span>
-                                    <span>{displayedAspectRatio}</span>
-                                    <span className="text-slate-300">·</span>
-                                    <span>×{generateCount}</span>
-                                </>
-                            ) : (
-                                <>
-                                    <span>{displayedAspectRatio}</span>
-                                    <span className="text-slate-300">·</span>
-                                    <span>{imageSize}</span>
-                                    <span className="text-slate-300">·</span>
-                                    <span>×{generateCount}</span>
-                                </>
-                            )}
-                            <ChevronDown size={11} className="text-slate-400 ml-0.5" />
-                        </button>
-
-                        {showSettingsPanel && (
-                            <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/60 z-30 w-[280px] overflow-hidden">
-                                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                                    <span className="text-xs font-medium text-slate-700">生成设置</span>
-                                    <span className="text-[10px] text-slate-400">{settingsSummary}</span>
-                                </div>
-                                <div className="p-4 space-y-0">
-                                    {isOpenAiGptImageModel ? (
-                                        <>
-                                            <div className="py-3">
-                                                <div className="mb-2 text-[11px] font-medium text-slate-500">尺寸</div>
-                                                <div className="max-h-60 overflow-y-auto pr-1">
-                                                    <div className="grid grid-cols-2 gap-1.5">
-                                                        {availableImageSizes.map((size) => (
-                                                            <button
-                                                                key={size}
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    setImageSize(size);
-                                                                    setAspectRatio(resolveOpenAiGptImageAspectRatio(size, aspectRatio));
-                                                                }}
-                                                                className={`rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                                                            >
-                                                                <div>{size}</div>
-                                                                <div className={`mt-0.5 text-[10px] ${imageSize === size ? 'text-white/70' : 'text-slate-400'}`}>{describeImageSizeAspectRatio(size, aspectRatio)}</div>
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="py-3 border-t border-slate-100/80">
-                                                <div className="mb-2 text-[11px] font-medium text-slate-500">质量</div>
-                                                <div className="flex gap-1.5">
-                                                    {availableImageQualities.map((value) => (
-                                                        <button
-                                                            key={value}
-                                                            type="button"
-                                                            onClick={() => setQuality(value)}
-                                                            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${quality === value ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                                                        >
-                                                            {IMAGE_QUALITY_LABELS[value]}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="py-3">
-                                                <div className="mb-2 text-[11px] font-medium text-slate-500">画面比例</div>
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {availableAspectRatios.map((ratio) => {
-                                                        const ratioShapes: Record<string, { w: number; h: number }> = { '16:9': { w: 14, h: 8 }, '9:16': { w: 8, h: 14 }, '1:1': { w: 10, h: 10 }, '4:3': { w: 12, h: 9 }, '3:4': { w: 9, h: 12 }, '2:3': { w: 8, h: 12 }, '3:2': { w: 12, h: 8 }, '4:5': { w: 9, h: 11 }, '5:4': { w: 11, h: 9 }, '21:9': { w: 16, h: 7 }, 'auto': { w: 10, h: 10 } };
-                                                        const shape = ratioShapes[ratio] || { w: 10, h: 10 };
-                                                        return (
-                                                            <button key={ratio} type="button" onClick={() => setAspectRatio(ratio)} disabled={grokUsesReferenceAspectRatio} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${grokUsesReferenceAspectRatio ? 'cursor-not-allowed opacity-50' : ''} ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                                                <span className={`inline-block rounded-[2px] border ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} style={{ width: `${shape.w}px`, height: `${shape.h}px` }} />
-                                                                {ratio === 'auto' ? '自动' : ratio}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                                {grokUsesReferenceAspectRatio && (
-                                                    <div className="mt-1.5 text-[10px] text-amber-600">Grok 携带参考图时按参考图比例生成</div>
-                                                )}
-                                            </div>
-
-                                            <div className="py-3 border-t border-slate-100/80">
-                                                <div className="mb-2 text-[11px] font-medium text-slate-500">分辨率</div>
-                                                <div className="flex gap-1.5">
-                                                    {availableImageSizes.map((size) => (
-                                                        <button key={size} type="button" onClick={() => setImageSize(size)} className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{size}</button>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {/* Generate Count */}
-                                    <div className="py-3 border-t border-slate-100/80">
-                                        <div className="mb-2 text-[11px] font-medium text-slate-500">生成数量</div>
-                                        <div className="flex gap-1.5">
-                                            {([1, 2, 3, 4] as GenerateCount[]).map((count) => (
-                                                <button key={count} type="button" onClick={() => setGenerateCount(count)} className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${generateCount === count ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{count} 张</button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Resource Library */}
-                    {resourceLibraryCount > 0 && (
-                        <div className="relative" data-popover-menu>
-                            <button
-                                onClick={() => {
-                                    const next = !showResourceLibrary;
-                                    closeAllMenus();
-                                    setShowResourceLibrary(next);
-                                    if (next) {
-                                        const firstTab = recentHistory.length > 0 ? 'history' : projectReferenceImages.length > 0 ? 'project' : favoriteReferences.length > 0 ? 'favorite' : referenceLibrary.length > 0 ? 'library' : 'history';
-                                        setResourceLibraryTab(firstTab);
-                                    }
-                                }}
-                                className={`relative flex items-center justify-center rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${showResourceLibrary ? 'bg-violet-50 text-violet-600' : 'text-slate-500 hover:bg-white'}`}
-                                title="资源库"
-                            >
-                                <FolderOpen size={13} />
-                                <span className={`ml-1 inline-flex min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold ${showResourceLibrary ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-500'}`}>{resourceLibraryCount}</span>
-                            </button>
-
-                            {showResourceLibrary && (
-                                <div className="absolute bottom-full right-0 mb-1 bg-white/96 backdrop-blur-xl rounded-[16px] shadow-lg border border-slate-200/60 z-30 w-[400px] overflow-hidden">
-                                    {/* Tab bar */}
-                                    <div className="flex items-center border-b border-slate-100 px-1 pt-1">
-                                        {[
-                                            { key: 'project' as const, label: '项目', count: projectReferenceImages.length, icon: LibraryBig },
-                                            { key: 'favorite' as const, label: '收藏', count: favoriteReferences.length, icon: Star },
-                                            { key: 'history' as const, label: '历史', count: recentHistory.length, icon: History },
-                                            { key: 'library' as const, label: '图库', count: referenceLibrary.length, icon: LibraryBig },
-                                        ].filter(tab => tab.count > 0).map(tab => (
-                                            <button
-                                                key={tab.key}
-                                                type="button"
-                                                onClick={() => setResourceLibraryTab(tab.key)}
-                                                className={`flex items-center gap-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-                                                    resourceLibraryTab === tab.key
-                                                        ? 'border-violet-500 text-violet-700'
-                                                        : 'border-transparent text-slate-500 hover:text-slate-700'
-                                                }`}
-                                            >
-                                                <tab.icon size={12} />
-                                                {tab.label}
-                                                <span className={`text-[10px] ${resourceLibraryTab === tab.key ? 'text-violet-500' : 'text-slate-400'}`}>({tab.count})</span>
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {/* Tab content */}
-                                    <div className="max-h-[280px] overflow-y-auto panel-scroll p-2">
-                                        {/* Project tab */}
-                                        {resourceLibraryTab === 'project' && (
-                                            <div className="grid grid-cols-4 gap-1.5">
-                                                {projectReferenceImages.slice(0, 8).map((item) => {
-                                                    const alreadySelected = referenceImages.some((existing) => typeof existing === 'string' && existing === item.image);
-                                                    return (
-                                                        <button
-                                                            key={item.id}
-                                                            type="button"
-                                                            onClick={() => handleApplyProjectReference(item)}
-                                                            disabled={alreadySelected || referenceImages.length >= maxReferenceImages}
-                                                            className={`overflow-hidden rounded-lg border text-left transition-all ${
-                                                                alreadySelected ? 'cursor-not-allowed border-violet-200 bg-violet-50/80 opacity-60' : 'border-slate-200/60 bg-white hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-sm'
-                                                            }`}
-                                                            title={item.label}
-                                                        >
-                                                            <WorkbenchImage content={item.image} alt={item.label} containerClassName="h-[56px] w-full" imageClassName="transition-transform duration-200 hover:scale-[1.03]" fit="cover" showSurface={false} />
-                                                            <div className="px-1.5 py-1">
-                                                                <div className="truncate text-[10px] font-medium text-slate-700">{item.label}</div>
-                                                            </div>
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        {/* Favorite tab */}
-                                        {resourceLibraryTab === 'favorite' && (
-                                            <div className="grid grid-cols-4 gap-1.5">
-                                                {favoriteReferences.slice(0, 8).map((item) => {
-                                                    const alreadySelected = referenceImages.some((existing) => typeof existing === 'string' && existing === item.image);
-                                                    const isEditingLabel = editingFavoriteId === item.id;
-                                                    return (
-                                                        <div key={item.id} className="overflow-hidden rounded-lg border border-slate-200/60 bg-white">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleApplyFavoriteReference(item)}
-                                                                disabled={alreadySelected || referenceImages.length >= maxReferenceImages}
-                                                                aria-label={`加入常用参考 ${item.label}`}
-                                                                className={`group block w-full text-left ${alreadySelected ? 'cursor-not-allowed opacity-60' : ''}`}
-                                                            >
-                                                                <WorkbenchImage content={item.image} alt={item.label} containerClassName="h-[56px] w-full" imageClassName="transition-transform duration-200 group-hover:scale-[1.03]" fit="cover" showSurface={false} />
-                                                            </button>
-                                                            <div className="px-1.5 py-1">
-                                                                {isEditingLabel ? (
-                                                                    <div className="flex items-center gap-1">
-                                                                        <input value={favoriteLabelDraft} onChange={(event) => setFavoriteLabelDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleCommitFavoriteRename(item.id); }} className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700 outline-none focus:border-violet-400" />
-                                                                        <button type="button" onClick={() => handleCommitFavoriteRename(item.id)} className="rounded bg-violet-500 p-0.5 text-white hover:bg-violet-600"><Check size={10} /></button>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="truncate text-[10px] font-medium text-slate-700">{item.label}</div>
-                                                                )}
-                                                                <div className="mt-0.5 flex items-center justify-end gap-0.5">
-                                                                    {!isEditingLabel && <button type="button" onClick={() => handleStartRenameFavorite(item)} className="rounded p-0.5 text-slate-400 hover:bg-slate-50 hover:text-slate-600"><Pencil size={10} /></button>}
-                                                                    <button type="button" onClick={() => handleDeleteFavorite(item.id)} className="rounded p-0.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={10} /></button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        {/* History tab */}
-                                        {resourceLibraryTab === 'history' && (
-                                            <div>
-                                                <div className="divide-y divide-slate-100">
-                                                    {recentHistory.slice(0, 5).map((item) => (
-                                                        <div key={item.id} className="flex items-center gap-2 py-2 px-1">
-                                                            <div className="min-w-0 flex-1">
-                                                                <div className="truncate text-xs font-medium text-slate-700">{item.prompt}</div>
-                                                                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                                                                    <span className="text-[10px] text-slate-400">{item.aspectRatio}</span>
-                                                                    <span className="text-[10px] text-slate-300">·</span>
-                                                                    <span className="text-[10px] text-slate-400">{item.imageSize}</span>
-                                                                    <span className="text-[10px] text-slate-300">·</span>
-                                                                    <span className="text-[10px] text-slate-400">{item.generateCount}张</span>
-                                                                    {item.referenceImages.length > 0 && (
-                                                                        <>
-                                                                            <span className="text-[10px] text-slate-300">·</span>
-                                                                            <span className="text-[10px] text-amber-600">{item.referenceImages.length}张参考图</span>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <span className="text-[10px] text-slate-400 flex-shrink-0">{formatHistoryTime(item.createdAt)}</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { applyHistoryItem(item); setShowResourceLibrary(false); }}
-                                                                disabled={isGenerating}
-                                                                className={`flex-shrink-0 inline-flex items-center gap-0.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                                                                    isGenerating ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-violet-500 text-white hover:bg-violet-600'
-                                                                }`}
-                                                            >
-                                                                <RotateCcw size={10} />
-                                                                回填
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                <div className="mt-1 flex justify-end px-1">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => { clearImageGenerationHistory(); setRecentHistory([]); setReferenceLibrary([]); }}
-                                                        className="text-[10px] text-slate-400 hover:text-red-500 transition-colors"
-                                                    >
-                                                        清空历史
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Library tab */}
-                                        {resourceLibraryTab === 'library' && (
-                                            <div className="grid grid-cols-4 gap-1.5">
-                                                {referenceLibrary.slice(0, 8).map((item, index) => {
-                                                    const alreadySelected = referenceImages.some((existing) => typeof existing === 'string' && existing === item.image);
-                                                    const isFavorited = favoriteReferences.some((favorite) => favorite.image === item.image);
-                                                    return (
-                                                        <div key={`${item.historyId}-${index}`} className={`group overflow-hidden rounded-lg border text-left transition-all ${alreadySelected ? 'border-sky-200 bg-sky-50/80 opacity-60' : 'border-slate-200/60 bg-white hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-sm'}`}>
-                                                            <div className="relative">
-                                                                <button type="button" onClick={() => handleApplyReferenceLibraryImage(item.image)} disabled={alreadySelected || referenceImages.length >= maxReferenceImages} className={`block w-full text-left ${alreadySelected ? 'cursor-not-allowed' : ''}`}>
-                                                                    <WorkbenchImage content={item.image} alt={`参考图库 ${index + 1}`} containerClassName="h-[56px] w-full" imageClassName="transition-transform duration-200 group-hover:scale-[1.03]" fit="cover" showSurface={false} />
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => void handleSaveReferenceFavorite(item.image, item.prompt)}
-                                                                    className={`absolute right-1 top-1 rounded-full p-0.5 shadow-sm ${isFavorited ? 'bg-amber-500 text-white' : 'bg-white/90 text-slate-500 hover:bg-amber-50 hover:text-amber-600'}`}
-                                                                    title={isFavorited ? '已收藏' : '收藏'}
-                                                                >
-                                                                    <Star size={10} className={isFavorited ? 'fill-current' : ''} />
-                                                                </button>
-                                                            </div>
-                                                            <div className="px-1.5 py-1">
-                                                                <div className="truncate text-[10px] text-slate-500">{item.prompt}</div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        {/* Empty state */}
-                                        {resourceLibraryCount === 0 && (
-                                            <div className="py-8 text-center text-xs text-slate-400">暂无资源</div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Task recovery icon */}
-                    {onRecoverTask && (
-                        <GeneratorRecoveryTaskCard
-                            isOpen={showRecoveryPanel}
-                            taskId={recoveryTaskId}
-                            isGenerating={isGenerating}
-                            isRecovering={isRecovering}
-                            onToggle={() => { const next = !showRecoveryPanel; closeAllMenus(); setShowRecoveryPanel(next); }}
-                            onTaskIdChange={setRecoveryTaskId}
-                            onRecover={() => void handleRecoverTask()}
-                        />
-                    )}
-
-                    {/* Spacer */}
-                    <div className="flex-1" />
-
-                    {/* Generate button */}
-                    <GeneratorSubmitButton
-                        disabled={!prompt.trim() || isGenerating}
-                        busy={isGenerating}
-                        label={statusState.buttonLabel}
-                        onClick={() => prompt.trim() && !isGenerating && handleGenerate()}
-                    />
-                </div>
-            </div>
+            <ImageGeneratorFooterControls
+                models={models}
+                model={model}
+                showModelMenu={showModelMenu}
+                showSettingsPanel={showSettingsPanel}
+                showResourceLibrary={showResourceLibrary}
+                showRecoveryPanel={showRecoveryPanel}
+                canRecoverTask={!!onRecoverTask}
+                recoveryTaskId={recoveryTaskId}
+                isGenerating={isGenerating}
+                isRecovering={isRecovering}
+                submitDisabled={!prompt.trim() || isGenerating}
+                submitLabel={statusState.buttonLabel}
+                isOpenAiGptImageModel={isOpenAiGptImageModel}
+                imageSize={imageSize}
+                quality={quality}
+                displayedAspectRatio={displayedAspectRatio}
+                generateCount={generateCount}
+                aspectRatio={aspectRatio}
+                settingsSummary={settingsSummary}
+                availableImageSizes={availableImageSizes}
+                availableImageQualities={availableImageQualities}
+                availableAspectRatios={availableAspectRatios}
+                grokUsesReferenceAspectRatio={grokUsesReferenceAspectRatio}
+                resourceLibraryCount={resourceLibraryCount}
+                resourceLibraryTab={resourceLibraryTab}
+                projectReferenceImages={projectReferenceImages}
+                favoriteReferences={favoriteReferences}
+                recentHistory={recentHistory}
+                referenceLibrary={referenceLibrary}
+                referenceImages={referenceImages}
+                maxReferenceImages={maxReferenceImages}
+                editingFavoriteId={editingFavoriteId}
+                favoriteLabelDraft={favoriteLabelDraft}
+                onToggleModelMenu={() => { const next = !showModelMenu; closeAllMenus(); setShowModelMenu(next); }}
+                onModelChange={(nextModel) => { setModel(nextModel); setShowModelMenu(false); }}
+                onToggleSettings={() => { const next = !showSettingsPanel; closeAllMenus(); setShowSettingsPanel(next); }}
+                onImageSizeChange={setImageSize}
+                onAspectRatioChange={setAspectRatio}
+                onQualityChange={setQuality}
+                onGenerateCountChange={setGenerateCount}
+                onToggleResourceLibrary={() => {
+                    const next = !showResourceLibrary;
+                    closeAllMenus();
+                    setShowResourceLibrary(next);
+                    if (next) {
+                        const firstTab = recentHistory.length > 0 ? 'history' : projectReferenceImages.length > 0 ? 'project' : favoriteReferences.length > 0 ? 'favorite' : referenceLibrary.length > 0 ? 'library' : 'history';
+                        setResourceLibraryTab(firstTab);
+                    }
+                }}
+                onResourceLibraryTabChange={setResourceLibraryTab}
+                onFavoriteLabelDraftChange={setFavoriteLabelDraft}
+                onApplyProjectReference={handleApplyProjectReference}
+                onApplyFavoriteReference={handleApplyFavoriteReference}
+                onStartRenameFavorite={handleStartRenameFavorite}
+                onCommitFavoriteRename={handleCommitFavoriteRename}
+                onDeleteFavorite={handleDeleteFavorite}
+                onApplyHistoryItem={(item) => { applyHistoryItem(item); setShowResourceLibrary(false); }}
+                onClearHistory={() => { clearImageGenerationHistory(); setRecentHistory([]); setReferenceLibrary([]); }}
+                onApplyReferenceLibraryImage={handleApplyReferenceLibraryImage}
+                onSaveReferenceFavorite={(value, seedLabel) => void handleSaveReferenceFavorite(value, seedLabel)}
+                formatHistoryTime={formatHistoryTime}
+                onToggleRecovery={() => { const next = !showRecoveryPanel; closeAllMenus(); setShowRecoveryPanel(next); }}
+                onTaskIdChange={setRecoveryTaskId}
+                onRecover={() => void handleRecoverTask()}
+                onSubmit={() => prompt.trim() && !isGenerating && handleGenerate()}
+            />
         </div>
     );
 }

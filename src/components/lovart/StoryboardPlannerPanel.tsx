@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Camera, Check, CheckCircle2, ChevronDown, ChevronUp, Clapperboard, ClipboardCopy, Film, ImagePlus, Loader2, MousePointerClick, RotateCcw, Upload, Wand2, X } from 'lucide-react';
+import { Camera, ChevronDown, Clapperboard, Film, Loader2, RotateCcw, X } from 'lucide-react';
 import {
   requestStoryboardPlan,
   type StoryboardPlanMode,
@@ -43,8 +43,10 @@ import {
   type StoryboardPlannerSourceImage as SourceImage,
 } from './storyboard-planner-storage';
 import { runImageGenerationFlow, waitForImageGenerationResult } from './image-generation-flow';
-import { WorkbenchImage } from './WorkbenchImage';
 import { useCanvasImageSelectionEvent } from './generator-panel-shared';
+import { StoryboardPlannerFooter } from './StoryboardPlannerFooter';
+import { StoryboardPlannerSourcePicker } from './StoryboardPlannerSourcePicker';
+import { StoryboardPlannerResultPanel } from './StoryboardPlannerResultPanel';
 
 type PlannerCanvasImage = {
   id: string;
@@ -66,6 +68,12 @@ type PlannerLiveGenerationParams = {
   imageSize?: string;
   quality?: string;
 };
+
+type AspectRatioOption = 'auto' | ImageGenerationDefaults['aspectRatio'];
+
+const GROK_ASPECT_RATIO_OPTIONS: AspectRatioOption[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
+const STORYBOARD_ASPECT_RATIO_OPTIONS: AspectRatioOption[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1', '4:5', '5:4', '21:9'];
+const STORYBOARD_MODEL_OPTIONS: ImageGenerationDefaults['model'][] = ['gemini-3.1-flash-image-preview', 'nano-banana-2', 'gpt-image-2', 'grok-4.2-image', 'doubao-seedream-5-0-260128'];
 
 interface StoryboardPlannerPanelProps {
   elementId: string;
@@ -231,8 +239,6 @@ export function StoryboardPlannerPanel({
   selectedModel,
   canvasImages,
   selectedCanvasImageIds = [],
-  projectReferenceImages = [],
-  onUseProjectReferenceImage,
   onRequestCanvasSelect,
   onClose,
   onCreateDraft,
@@ -290,10 +296,6 @@ export function StoryboardPlannerPanel({
   const imageDefaults = useImageGenerationDefaults();
 
   // ── 用户可选的生成参数（对齐图片生成器） ──
-  type AspectRatioOption = 'auto' | ImageGenerationDefaults['aspectRatio'];
-  const grokAspectRatioOptions: AspectRatioOption[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
-  const aspectRatioOptions: AspectRatioOption[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1', '4:5', '5:4', '21:9'];
-  const modelOptions: ImageGenerationDefaults['model'][] = ['gemini-3.1-flash-image-preview', 'nano-banana-2', 'gpt-image-2', 'grok-4.2-image', 'doubao-seedream-5-0-260128'];
   const imageSizeOptions: ImageGenerationDefaults['imageSize'][] = [...STANDARD_IMAGE_SIZE_OPTIONS];
   const hasPersistedAspectRatioOverride = persisted.userAspectRatioOverride === true
     || (typeof persisted.userAspectRatio === 'string' && persisted.userAspectRatio !== 'auto');
@@ -322,7 +324,7 @@ export function StoryboardPlannerPanel({
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const isGrokImageModel = userModel === 'grok-4.2-image';
   const isOpenAiGptImageModel = userModel === 'gpt-image-2';
-  const availableAspectRatioOptions = isGrokImageModel ? grokAspectRatioOptions : aspectRatioOptions;
+  const availableAspectRatioOptions = isGrokImageModel ? GROK_ASPECT_RATIO_OPTIONS : STORYBOARD_ASPECT_RATIO_OPTIONS;
   const availableImageSizeOptions: string[] = isOpenAiGptImageModel
     ? [...OPENAI_GPT_IMAGE_SIZE_OPTIONS]
     : isGrokImageModel
@@ -348,7 +350,7 @@ export function StoryboardPlannerPanel({
       resolveOpenAiGptImageSize(imageDefaults.imageSize, defaultAspectRatioSeed),
       defaultAspectRatioSeed,
     )
-    : isGrokImageModel && !grokAspectRatioOptions.includes(imageDefaults.aspectRatio as AspectRatioOption)
+    : isGrokImageModel && !GROK_ASPECT_RATIO_OPTIONS.includes(imageDefaults.aspectRatio as AspectRatioOption)
       ? '1:1'
       : imageDefaults.aspectRatio === '9:21'
         ? '9:16'
@@ -390,7 +392,7 @@ export function StoryboardPlannerPanel({
   }, [effectiveDefaultQuality, userQuality, userQualityOverride]);
 
   useEffect(() => {
-    if (isGrokImageModel && !grokAspectRatioOptions.includes(userAspectRatio)) {
+    if (isGrokImageModel && !GROK_ASPECT_RATIO_OPTIONS.includes(userAspectRatio)) {
       setUserAspectRatio('1:1');
       return;
     }
@@ -639,7 +641,6 @@ export function StoryboardPlannerPanel({
     const runId = activeRunRef.current + 1;
     activeRunRef.current = runId;
     resumePendingBoardTask(taskId, runId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persisted.generationImageUrl, persisted.pendingTaskId, resumePendingBoardTask]);
 
   // 如果当前没有参考图且有画布选中图片，自动添加
@@ -647,7 +648,7 @@ export function StoryboardPlannerPanel({
     if (sourceImages.length === 0 && selectedCanvasImage?.content) {
       setSourceImages([{ content: selectedCanvasImage.content, label: selectedCanvasImage.displayName || '当前图片' }]);
     }
-  }, [selectedCanvasImage]);
+  }, [selectedCanvasImage, sourceImages.length]);
 
   const addSourceImage = useCallback((content: string, label: string) => {
     setSourceImages((prev) => {
@@ -948,74 +949,17 @@ export function StoryboardPlannerPanel({
       {/* ─── 可滚动主体 ─── */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
 
-        {/* ① 选择参考图 */}
-        <section>
-          <SectionLabel step={1}>选择参考图 <span className="font-normal text-slate-400">（最多 {MAX_SOURCE_IMAGES} 张）</span></SectionLabel>
-          <div className="flex items-start gap-2 flex-wrap">
-            {sourceImages.map((img, imgIndex) => (
-              <div key={imgIndex} className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-sky-400 shadow-sm">
-                <WorkbenchImage content={img.content} alt={img.label} containerClassName="h-full w-full" imageClassName="h-full w-full" fit="cover" />
-                <button type="button" onClick={() => removeSourceImage(img.content)} className="absolute -right-1 -top-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-white shadow-sm transition-colors hover:bg-rose-600" title="移除">
-                  <X size={8} strokeWidth={3} />
-                </button>
-              </div>
-            ))}
-            {sourceImages.length < MAX_SOURCE_IMAGES && (
-              <button type="button" onClick={handleUploadClick} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-400 transition-colors hover:border-sky-300 hover:text-sky-400" title="添加图片">
-                <ImagePlus size={14} />
-              </button>
-            )}
-          </div>
-          <div className="mt-2 flex gap-1.5">
-            <button type="button" onClick={handleUploadClick} className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50">
-              <Upload size={12} />
-              上传图片
-            </button>
-            {canvasImages.length > 0 && (
-              <button type="button" onClick={() => setShowCanvasPicker((v) => !v)} className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50">
-                <ImagePlus size={12} />
-                从画布选取
-                {showCanvasPicker ? <ChevronUp size={11} className="ml-auto" /> : <ChevronDown size={11} className="ml-auto" />}
-              </button>
-            )}
-            {onRequestCanvasSelect && (
-              <button type="button" onClick={() => onRequestCanvasSelect()} className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50">
-                <MousePointerClick size={12} />
-                从画布点选
-              </button>
-            )}
-          </div>
-          {/* 画布图片多选网格 */}
-          {showCanvasPicker && canvasImages.length > 0 && (
-            <div className="mt-2 rounded-md border border-slate-200 bg-slate-50/80 p-2">
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-[10px] font-medium text-slate-400">画布图片 ({canvasImages.length})</span>
-                <span className="text-[10px] text-slate-400">已选 {sourceImages.filter((s) => canvasImages.some((c) => c.content === s.content)).length}/{MAX_SOURCE_IMAGES}</span>
-              </div>
-              <div className="grid grid-cols-6 gap-1.5 max-h-[120px] overflow-y-auto">
-                {canvasImages.map((img) => {
-                  const isSelected = sourceImages.some((s) => s.content === img.content);
-                  return (
-                    <button
-                      key={img.id}
-                      type="button"
-                      onClick={() => toggleSourceImage(img.content, img.displayName || img.id.slice(0, 6))}
-                      className={`relative aspect-square overflow-hidden rounded-md border transition-all hover:scale-105 ${isSelected ? 'border-sky-500 ring-1 ring-sky-200' : 'border-transparent hover:border-slate-300'}`}
-                      title={img.displayName || img.id}
-                    >
-                      <WorkbenchImage content={img.content} alt={img.displayName || ''} containerClassName="h-full w-full" imageClassName="h-full w-full" fit="cover" />
-                      {isSelected && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-sky-500/20">
-                          <Check size={14} className="text-sky-600" />
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </section>
+        <StoryboardPlannerSourcePicker
+          sourceImages={sourceImages}
+          canvasImages={canvasImages}
+          showCanvasPicker={showCanvasPicker}
+          maxSourceImages={MAX_SOURCE_IMAGES}
+          onUploadClick={handleUploadClick}
+          onToggleCanvasPicker={() => setShowCanvasPicker((value) => !value)}
+          onRequestCanvasSelect={onRequestCanvasSelect}
+          onRemoveSourceImage={removeSourceImage}
+          onToggleSourceImage={toggleSourceImage}
+        />
 
         {/* ② 分镜方式 + 格数 */}
         <section>
@@ -1083,269 +1027,63 @@ export function StoryboardPlannerPanel({
           </div>
         )}
 
-        {/* ⑤ 分镜方案结果 */}
         {result && (
-          <section className="rounded-md border border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-800">
-                <CheckCircle2 size={14} className="text-emerald-500" />
-                <span>{result.title}</span>
-              </div>
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{result.shots.length} 格 · {getStoryboardGridColumns(result.shotCount)}×{Math.ceil(result.shotCount / getStoryboardGridColumns(result.shotCount))}</span>
-            </div>
-
-            {/* 宫格图预览（仅在渲染中或完成时显示） */}
-            {(generationState.imageUrl || generationState.status === 'rendering') && (
-              <div className="overflow-hidden rounded-md border border-slate-200">
-                {generationState.imageUrl ? (
-                  <WorkbenchImage content={generationState.imageUrl} alt="分镜宫格图" containerClassName="w-full" imageClassName="w-full" fit="contain" />
-                ) : (
-                  <div className="flex h-28 items-center justify-center bg-slate-800 text-[11px] text-white/70">
-                    <div className="flex flex-col items-center gap-1.5">
-                      <Loader2 size={16} className="animate-spin text-sky-400" />
-                      <span>生成宫格图 {Math.max(generationState.progress, 5)}%</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {generationState.imageUrl && (
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleImportStoryboardBoardToCanvas}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  <Clapperboard size={13} />
-                  <span>导入到画布</span>
-                </button>
-              </div>
-            )}
-
-            {/* 总提示词 */}
-            <div className="mt-3">
-              <div className="mb-1.5 flex items-center justify-between">
-                <div className="text-[11px] font-semibold text-slate-600">总提示词 <span className="font-normal text-slate-400">（中文，可编辑）</span></div>
-                <div className="flex items-center gap-1">
-                  <button type="button" onClick={handleCopyPrompt} className={`rounded border p-1 transition-colors ${copyFeedback ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-slate-200 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`} title="复制提示词">
-                    {copyFeedback ? <Check size={11} /> : <ClipboardCopy size={11} />}
-                  </button>
-                </div>
-              </div>
-              <textarea
-                value={combinedPrompt}
-                onChange={(event) => { setCombinedPrompt(event.target.value); }}
-                placeholder="生成提示词后，系统会自动汇总到这里，你也可以手动修改。"
-                className="h-32 w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] leading-[18px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-sky-300 focus:ring-1 focus:ring-sky-100 transition-all"
-              />
-            </div>
-
-            {/* 分镜概要 */}
-            <div className="mt-2 flex flex-wrap gap-1">
-              {result.shots.map((shot, index) => (
-                <span key={`${shot.shotCode}-${shot.index}`} className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600" title={shot.note}>
-                  <span className="font-bold text-sky-700">{index + 1}</span>
-                  <span className="text-slate-400">{shot.shotCode}</span>
-                </span>
-              ))}
-            </div>
-          </section>
+          <StoryboardPlannerResultPanel
+            result={result}
+            generationState={generationState}
+            combinedPrompt={combinedPrompt}
+            copyFeedback={copyFeedback}
+            onCombinedPromptChange={setCombinedPrompt}
+            onCopyPrompt={handleCopyPrompt}
+            onImportStoryboardBoardToCanvas={handleImportStoryboardBoardToCanvas}
+          />
         )}
       </div>
 
-      {/* ─── 底部操作栏 ─── */}
-      <div className="shrink-0 border-t border-slate-100 bg-slate-50/60 px-4 py-2.5">
-        {/* 步骤提示 */}
-        {!result && (
-          <div className="mb-2 flex items-center justify-center gap-3 text-[10px] text-slate-400">
-            <span className="flex items-center gap-1"><span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-800 text-[8px] font-bold text-white">1</span> 生成提示词</span>
-            <span className="text-slate-300">→</span>
-            <span className="flex items-center gap-1"><span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-200 text-[8px] font-bold text-slate-500">2</span> 生成宫格图</span>
-          </div>
-        )}
-
-        {/* 生成参数选择行 */}
-        <div className="mb-2 flex flex-wrap items-center gap-1">
-          {isOpenAiGptImageModel ? (
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 pl-2 pr-1.5 py-1 rounded-md border border-slate-200/60 bg-slate-50/80">
-              <span className="text-slate-400">比例</span>
-              <span className="text-slate-700 font-medium">{derivedOpenAiGptAspectRatio}</span>
-            </div>
-          ) : (
-            <div className="relative">
-              <button type="button" onClick={() => { setShowAspectRatioMenu(!showAspectRatioMenu); setShowModelMenu(false); setShowSizeMenu(false); setShowQualityMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
-                <span className="text-slate-400">比例</span>
-                <span className="text-slate-700 font-medium">{userAspectRatio === 'auto' ? `自动(${storyboardAspectRatio})` : userAspectRatio}</span>
-                <ChevronDown size={10} className="text-slate-400" />
-              </button>
-              {showAspectRatioMenu && (
-                <div className="absolute bottom-full mb-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg z-10 min-w-[70px] max-h-[200px] overflow-y-auto">
-                  {availableAspectRatioOptions.map((ratio) => (
-                    <div key={ratio} onClick={() => { setUserAspectRatio(ratio); setUserAspectRatioOverride(ratio !== imageDefaults.aspectRatio); setShowAspectRatioMenu(false); }} className={`px-2.5 py-1 text-[11px] cursor-pointer hover:bg-slate-50 rounded mx-0.5 transition-colors ${userAspectRatio === ratio ? 'text-sky-600 font-semibold bg-sky-50/60' : 'text-slate-700'}`}>
-                      {ratio === 'auto' ? `自动(${storyboardAspectRatio})` : ratio}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 尺寸 */}
-          <div className="relative">
-            <button type="button" onClick={() => { setShowSizeMenu(!showSizeMenu); setShowModelMenu(false); setShowAspectRatioMenu(false); setShowQualityMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
-              <span className="text-slate-400">尺寸</span>
-              <span className="text-slate-700 font-medium">{userImageSize}</span>
-              <ChevronDown size={10} className="text-slate-400" />
-            </button>
-            {showSizeMenu && (
-              <div className={`absolute bottom-full mb-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg z-10 ${isOpenAiGptImageModel ? 'min-w-[220px]' : 'min-w-[50px]'}`}>
-                {isOpenAiGptImageModel && (
-                  <div className="border-b border-slate-100 px-2.5 py-2">
-                    <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-slate-500">
-                      <span>尺寸</span>
-                      {isOpenAiGptImageExperimentalSize && <span className="text-amber-600">当前为自定义尺寸</span>}
-                    </div>
-                    <div className="text-[10px] text-slate-400">支持 auto、官方推荐 preset，也支持输入任意满足约束的尺寸</div>
-                  </div>
-                )}
-                <div className={isOpenAiGptImageModel ? 'max-h-[180px] overflow-y-auto' : undefined}>
-                  {availableImageSizeOptions.map((size) => (
-                    <div key={size} onClick={() => {
-                      setUserImageSize(size);
-                      setUserImageSizeOverride(size !== imageDefaults.imageSize);
-                      if (isOpenAiGptImageModel) {
-                        setUserAspectRatio(resolveOpenAiGptImageAspectRatio(size, userAspectRatio));
-                        setUserAspectRatioOverride(false);
-                        setExperimentalUserImageSizeError(null);
-                      }
-                      setShowSizeMenu(false);
-                    }} className={`px-2.5 py-1 text-[11px] cursor-pointer hover:bg-slate-50 rounded mx-0.5 transition-colors ${userImageSize === size ? 'text-sky-600 font-semibold bg-sky-50/60' : 'text-slate-700'}`}>
-                      <div>{size}</div>
-                      {isOpenAiGptImageModel && <div className="text-[10px] text-slate-400">{describeOpenAiGptImageAspectRatio(size, userAspectRatio)}</div>}
-                    </div>
-                  ))}
-                </div>
-                {isOpenAiGptImageModel && (
-                  <div className="border-t border-slate-100 px-2.5 py-2">
-                    <div className="mb-1 text-[10px] font-medium text-slate-500">自定义尺寸</div>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        value={experimentalUserImageSizeInput}
-                        onChange={(event) => {
-                          setExperimentalUserImageSizeInput(event.target.value);
-                          if (experimentalUserImageSizeError) {
-                            setExperimentalUserImageSizeError(null);
-                          }
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            handleApplyExperimentalUserImageSize();
-                          }
-                        }}
-                        placeholder="2048x1152"
-                        className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleApplyExperimentalUserImageSize}
-                        className="rounded-md bg-slate-800 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-slate-700"
-                      >
-                        应用
-                      </button>
-                    </div>
-                    <div className="mt-1 text-[10px] leading-4 text-slate-400">约束：最长边不超过 3840，宽高均为 16 的倍数，长短边比不超过 3:1，总像素在 655,360 到 8,294,400 之间</div>
-                    {experimentalUserImageSizeError && <div className="mt-1 text-[10px] text-red-600">{experimentalUserImageSizeError}</div>}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {isOpenAiGptImageModel && (
-            <div className="relative">
-              <button type="button" onClick={() => { setShowQualityMenu(!showQualityMenu); setShowModelMenu(false); setShowAspectRatioMenu(false); setShowSizeMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
-                <span className="text-slate-400">质量</span>
-                <span className="text-slate-700 font-medium">{userQuality}</span>
-                <ChevronDown size={10} className="text-slate-400" />
-              </button>
-              {showQualityMenu && (
-                <div className="absolute bottom-full mb-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg z-10 min-w-[72px]">
-                  {availableImageQualityOptions.map((value) => (
-                    <div
-                      key={value}
-                      onClick={() => {
-                        setUserQuality(value);
-                        setUserQualityOverride(value !== resolveOpenAiGptImageQuality(imageDefaults.quality));
-                        setShowQualityMenu(false);
-                      }}
-                      className={`px-2.5 py-1 text-[11px] cursor-pointer hover:bg-slate-50 rounded mx-0.5 transition-colors ${userQuality === value ? 'text-sky-600 font-semibold bg-sky-50/60' : 'text-slate-700'}`}
-                    >
-                      {value}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 模型 */}
-          <div className="relative">
-            <button type="button" onClick={() => { setShowModelMenu(!showModelMenu); setShowAspectRatioMenu(false); setShowSizeMenu(false); setShowQualityMenu(false); }} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer hover:bg-slate-100/80 pl-2 pr-1.5 py-1 rounded-md transition-all border border-slate-200/60">
-              <span className="text-slate-400">模型</span>
-              <span className="text-slate-700 font-medium truncate max-w-[120px]">{userModel}</span>
-              <ChevronDown size={10} className="text-slate-400" />
-            </button>
-            {showModelMenu && (
-              <div className="absolute bottom-full mb-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg z-10 min-w-[140px]">
-                {modelOptions.map((m) => (
-                  <div key={m} onClick={() => {
-                    setUserModel(m);
-                    setUserModelOverride(m !== imageDefaults.model);
-                    if (m === 'gpt-image-2') {
-                      if (!userQualityOverride) {
-                        setUserQuality(resolveOpenAiGptImageQuality(imageDefaults.quality));
-                      }
-                    } else {
-                      setUserQuality('auto');
-                      setUserQualityOverride(false);
-                    }
-                    setShowModelMenu(false);
-                  }} className={`px-2.5 py-1 text-[11px] cursor-pointer hover:bg-slate-50 rounded mx-0.5 transition-colors ${userModel === m ? 'text-sky-600 font-semibold bg-sky-50/60' : 'text-slate-700'}`}>
-                    {m}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-md border border-slate-200/60 px-3 py-1.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700">
-            关闭
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleBuildStoryboardPrompt()}
-            disabled={isPlanning || isGeneratingBoard}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isPlanning ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-            <span>{isPlanning ? '生成中...' : '生成提示词'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleGenerateStoryboardBoard()}
-            disabled={isPlanning || isGeneratingBoard || !result || !combinedPrompt.trim()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-slate-700 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isGeneratingBoard ? <Loader2 size={14} className="animate-spin" /> : <Film size={14} />}
-            <span>{isGeneratingBoard ? '生成中...' : '生成宫格图'}</span>
-          </button>
-        </div>
-      </div>
+      <StoryboardPlannerFooter
+        hasResult={!!result}
+        combinedPrompt={combinedPrompt}
+        isPlanning={isPlanning}
+        isGeneratingBoard={isGeneratingBoard}
+        imageDefaults={imageDefaults}
+        isOpenAiGptImageModel={isOpenAiGptImageModel}
+        derivedOpenAiGptAspectRatio={derivedOpenAiGptAspectRatio}
+        isOpenAiGptImageExperimentalSize={isOpenAiGptImageExperimentalSize}
+        storyboardAspectRatio={storyboardAspectRatio}
+        userAspectRatio={userAspectRatio}
+        userImageSize={userImageSize}
+        userQuality={userQuality}
+        userModel={userModel}
+        userQualityOverride={userQualityOverride}
+        experimentalUserImageSizeInput={experimentalUserImageSizeInput}
+        experimentalUserImageSizeError={experimentalUserImageSizeError}
+        showAspectRatioMenu={showAspectRatioMenu}
+        showSizeMenu={showSizeMenu}
+        showQualityMenu={showQualityMenu}
+        showModelMenu={showModelMenu}
+        availableAspectRatioOptions={availableAspectRatioOptions}
+        availableImageSizeOptions={availableImageSizeOptions}
+        availableImageQualityOptions={availableImageQualityOptions}
+        modelOptions={STORYBOARD_MODEL_OPTIONS}
+        onClose={onClose}
+        onBuildStoryboardPrompt={() => void handleBuildStoryboardPrompt()}
+        onGenerateStoryboardBoard={() => void handleGenerateStoryboardBoard()}
+        onApplyExperimentalUserImageSize={handleApplyExperimentalUserImageSize}
+        setUserAspectRatio={setUserAspectRatio}
+        setUserAspectRatioOverride={setUserAspectRatioOverride}
+        setUserImageSize={setUserImageSize}
+        setUserImageSizeOverride={setUserImageSizeOverride}
+        setUserQuality={setUserQuality}
+        setUserQualityOverride={setUserQualityOverride}
+        setUserModel={setUserModel}
+        setUserModelOverride={setUserModelOverride}
+        setExperimentalUserImageSizeInput={setExperimentalUserImageSizeInput}
+        setExperimentalUserImageSizeError={setExperimentalUserImageSizeError}
+        setShowAspectRatioMenu={setShowAspectRatioMenu}
+        setShowSizeMenu={setShowSizeMenu}
+        setShowQualityMenu={setShowQualityMenu}
+        setShowModelMenu={setShowModelMenu}
+      />
     </div>
   );
 }

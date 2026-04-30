@@ -10,6 +10,7 @@
 
 import { extractDataUrlBase64, isDataUrl, parseDataUrl } from '@/lib/data-url';
 import type { ChatAttachment, ChatMessage } from './ai-designer-panel-types';
+import { formatTime } from './ai-designer-message-utils';
 
 // ── Re-exports from sub-modules ─────────────────────────────
 
@@ -41,6 +42,33 @@ export function createChatAttachment(params: {
         dataUrl,
         base64Data: isDataUrl(dataUrl) ? extractBase64Data(dataUrl) : '',
     };
+}
+
+export async function exportChatMarkdown(params: {
+    messages: ChatMessage[];
+    modelLabel: string;
+    onCopied: () => void;
+}) {
+    const { messages, modelLabel, onCopied } = params;
+    let text = `# AI 设计对话记录\n模型: ${modelLabel}\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n`;
+    for (const message of messages) {
+        const role = message.role === 'user' ? '👤 用户' : '🤖 AI';
+        const time = formatTime(message.timestamp);
+        text += `### ${role}  [${time}]\n\n${message.content}\n\n---\n\n`;
+    }
+
+    try {
+        await navigator.clipboard.writeText(text);
+        onCopied();
+    } catch {
+        const blob = new Blob([text], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `chat-${new Date().toISOString().slice(0, 10)}.md`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+    }
 }
 
 export function buildApiMessages(params: {

@@ -2,17 +2,14 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { LibraryBig, Sparkles, ChevronDown, Upload, X, Video, MousePointerClick, FolderOpen, Film, Volume2, Settings2, ChevronRight } from 'lucide-react';
+import { ChevronDown, Video } from 'lucide-react';
 import { debugLog } from '@/lib/debug-log';
 import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration } from './canvas-types';
 import { getGeneratorStatusState } from './GeneratorStatusCard';
-import { WorkbenchImage } from './WorkbenchImage';
 import {
     GeneratorRecoveryTaskCard,
-    GeneratorReferenceStack,
     GeneratorStatusSection,
     GeneratorSubmitButton,
-    MentionComposerSuggestions,
 } from './generator-panel-sections';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from './generator-error-utils';
 import { createGeneratorTaskUpdate, useClearGeneratorError } from './generator-panel-hooks';
@@ -36,7 +33,6 @@ import {
     type TextareaSelection,
 } from './textarea-mention-utils';
 import {
-    buildPromptComposerSegments,
     getPromptMentionSuggestions,
     materializePromptMentions,
     resolvePromptMentionDeletion,
@@ -83,6 +79,10 @@ import {
     type ReferenceMediaKind,
     type ResourceLibraryTab,
 } from './generator-reference-view-model';
+import { VideoGeneratorSettingsPanel } from './VideoGeneratorPanelSettings';
+import { VideoGeneratorResourceLibrary } from './VideoGeneratorResourceLibrary';
+import { VideoGeneratorPromptComposer } from './VideoGeneratorPromptComposer';
+import { VideoGeneratorFileInputs } from './VideoGeneratorFileInputs';
 
 type PromptSelection = TextareaSelection;
 
@@ -179,8 +179,6 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     // Dropdown states
     const [showModelMenu, setShowModelMenu] = useState(false);
-    const [showAspectRatioMenu, setShowAspectRatioMenu] = useState(false);
-    const [showDurationMenu, setShowDurationMenu] = useState(false);
     const [showAddImageMenu, setShowAddImageMenu] = useState(false);
     const [addImageType, setAddImageType] = useState<'first_frame' | 'last_frame' | 'reference'>('first_frame');
     const [showResourceLibrary, setShowResourceLibrary] = useState(false);
@@ -200,8 +198,6 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     const closeAllMenus = useCallback(() => {
         setShowModelMenu(false);
-        setShowAspectRatioMenu(false);
-        setShowDurationMenu(false);
         setShowAddImageMenu(false);
         setShowResourceLibrary(false);
         setShowSettingsPanel(false);
@@ -253,10 +249,6 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         };
     }), [basePromptMentions, promptMentionBindingMap, usesFrameImages]);
     const promptMentionMap = useMemo(() => new Map(promptMentions.map((mention) => [mention.id, mention])), [promptMentions]);
-    const promptComposerSegments = useMemo(
-        () => buildPromptComposerSegments(prompt, promptMentions),
-        [prompt, promptMentions],
-    );
     const mentionSuggestions = useMemo(() => getPromptMentionSuggestions(promptMentions, mentionQuery), [mentionQuery, promptMentions]);
     const promptMentionPlaceholder = useMemo(
         () => getPromptMentionPlaceholder({ usesFrameImages, isDomesticOmniMode }),
@@ -270,17 +262,6 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         () => getPromptMentionEmptyState({ usesFrameImages, isDomesticOmniMode }),
         [isDomesticOmniMode, usesFrameImages],
     );
-    const referencedPromptMentions = useMemo(() => {
-        const seen = new Set<string>();
-        return promptComposerSegments.flatMap((segment) => {
-            if (segment.type !== 'mention' || seen.has(segment.mention.id)) {
-                return [];
-            }
-
-            seen.add(segment.mention.id);
-            return [segment.mention];
-        });
-    }, [promptComposerSegments]);
     const hasAnyReferenceAssets = frameImages.length > 0 || referenceVideos.length > 0 || referenceAudios.length > 0;
     const canGenerate = (prompt.trim().length > 0 || (isDomesticModel && hasAnyReferenceAssets)) && !isGenerating && !isReferenceUploadBusy;
 
@@ -959,7 +940,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         addFrameImage(item.image, item.label, imageType);
         onUseProjectReferenceImage?.(item.id);
         setShowResourceLibrary(false);
-    }, [addImageType, onUseProjectReferenceImage, usesReferenceImages]);
+    }, [addFrameImage, addImageType, onUseProjectReferenceImage, usesReferenceImages]);
 
     const handleApplyProjectMediaReference = useCallback((item: ProjectMediaHistoryItem) => {
         if (item.kind !== 'video' && item.kind !== 'audio') {
@@ -1025,144 +1006,67 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 }
             }}
         >
-            {/* Hidden file inputs */}
-            <input
-                type="file"
-                ref={imageInputRef}
-                className="hidden"
-                accept="image/*"
-                multiple
-                aria-label="上传参考图片"
-                onChange={handleImageFileSelect}
-            />
-            <input
-                type="file"
-                ref={videoInputRef}
-                className="hidden"
-                accept="video/*"
-                multiple
-                aria-label="上传参考视频"
-                onChange={(event) => { void handleVideoFileSelect(event); }}
-            />
-            <input
-                type="file"
-                ref={audioInputRef}
-                className="hidden"
-                accept="audio/*"
-                multiple
-                aria-label="上传参考音频"
-                onChange={(event) => { void handleAudioFileSelect(event); }}
+            <VideoGeneratorFileInputs
+                imageInputRef={imageInputRef}
+                videoInputRef={videoInputRef}
+                audioInputRef={audioInputRef}
+                onImageChange={handleImageFileSelect}
+                onVideoChange={(event) => { void handleVideoFileSelect(event); }}
+                onAudioChange={(event) => { void handleAudioFileSelect(event); }}
             />
 
-            <div className="p-3 pb-2">
-                <div className="relative">
-                    <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm">
-                        <div className="relative px-3 py-2.5">
-                            <textarea
-                                ref={promptInputRef}
-                                value={prompt}
-                                readOnly={isGenerating}
-                                spellCheck={false}
-                                rows={2}
-                                role="textbox"
-                                aria-multiline="true"
-                                aria-label="描述你想要生成的视频"
-                                placeholder={promptMentionPlaceholder}
-                                onChange={handlePromptChange}
-                                onKeyDown={handleKeyDown}
-                                onKeyUp={handlePromptSelectionChange}
-                                onSelect={handlePromptSelectionChange}
-                                onClick={handlePromptSelectionChange}
-                                onFocus={handlePromptSelectionChange}
-                                onCompositionStart={() => {
-                                    isPromptComposingRef.current = true;
-                                }}
-                                onCompositionEnd={handlePromptCompositionEnd}
-                                onBlur={() => {
-                                    window.setTimeout(() => setMentionQuery(null), 120);
-                                }}
-                                className="w-full resize-none overflow-hidden bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400/60"
-                            />
-                        </div>
-
-                        <GeneratorReferenceStack
-                            items={referencePreviewItems}
-                            canAddMore={canAddMoreReferences}
-                            isAddBusy={isReferenceUploadBusy}
-                            addButtonTitle={getVideoAddImageTitle(model, domesticMode)}
-                            confirmClear={confirmClear}
-                            clearTitle="清空素材"
-                            onAdd={() => {
-                                if (availableImageTypes.length > 0) setAddImageType(availableImageTypes[0].value);
-                                const next = !showAddImageMenu;
-                                closeAllMenus();
-                                setShowAddImageMenu(next);
-                            }}
-                            onClear={() => {
-                                if (confirmClear) {
-                                    clearMountedReferences();
-                                    setConfirmClear(false);
-                                } else {
-                                    setConfirmClear(true);
-                                    setTimeout(() => setConfirmClear(false), 2000);
-                                }
-                            }}
-                            onRemove={(item) => item.kind === 'image' ? removeFrameImage(item.id) : removeReferenceAsset(item.id, item.kind)}
-                        />
-                    </div>
-
-                    {/* Add image menu (positioned outside overflow container) */}
-                    {showAddImageMenu && (
-                        <div className="absolute bottom-[48px] left-3 bg-white/96 backdrop-blur-xl rounded-[14px] shadow-lg border border-slate-200/60 py-1 z-50 min-w-[160px]" data-popover-menu>
-                            {usesFrameImages && availableImageTypes.length > 1 && (
-                                <>
-                                    <div className="px-2 py-1 text-[10px] text-slate-400 uppercase">帧类型</div>
-                                    <div className="flex gap-1 px-2 pb-1">
-                                        {availableImageTypes.map(t => (
-                                            <button key={t.value} onClick={() => setAddImageType(t.value)} className={`px-2 py-0.5 text-xs rounded-md transition-colors ${addImageType === t.value ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{t.label}</button>
-                                        ))}
-                                    </div>
-                                    <div className="border-t border-slate-100 my-1" />
-                                </>
-                            )}
-                            <button type="button" onClick={() => { imageInputRef.current?.click(); setShowAddImageMenu(false); }} disabled={!canAddMoreImages} className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors mx-1 ${canAddMoreImages ? 'cursor-pointer text-slate-700 hover:bg-slate-50' : 'cursor-not-allowed text-slate-300'}`}>
-                                <Upload size={14} className="text-slate-400" /><span>上传图片</span>
-                            </button>
-                            {isDomesticOmniMode && (
-                                <>
-                                    <button type="button" onClick={() => { videoInputRef.current?.click(); setShowAddImageMenu(false); }} disabled={!canAddMoreVideos} className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors mx-1 ${canAddMoreVideos ? 'cursor-pointer text-slate-700 hover:bg-slate-50' : 'cursor-not-allowed text-slate-300'}`}>
-                                        <Film size={14} className="text-slate-400" /><span>上传视频</span>
-                                    </button>
-                                    <button type="button" onClick={() => { audioInputRef.current?.click(); setShowAddImageMenu(false); }} disabled={!canAddMoreAudios} className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors mx-1 ${canAddMoreAudios ? 'cursor-pointer text-slate-700 hover:bg-slate-50' : 'cursor-not-allowed text-slate-300'}`}>
-                                        <Volume2 size={14} className="text-slate-400" /><span>上传音频</span>
-                                    </button>
-                                </>
-                            )}
-                            <button type="button" onClick={() => { setShowAddImageMenu(false); onRequestCanvasSelect?.(usesReferenceImages ? 'reference' : addImageType); }} disabled={!canAddMoreImages} className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors mx-1 ${canAddMoreImages ? 'cursor-pointer text-slate-700 hover:bg-slate-50' : 'cursor-not-allowed text-slate-300'}`}>
-                                <MousePointerClick size={14} className="text-slate-400" /><span>从画布选择</span>
-                            </button>
-                        </div>
-                    )}
-
-                    {mentionQuery && (
-                        <MentionComposerSuggestions
-                            title={promptMentionPanelTitle}
-                            suggestions={mentionSuggestions.map((mention) => ({
-                                id: mention.id,
-                                name: mention.name,
-                                label: mention.label,
-                                kind: mention.kind,
-                                previewImage: mention.previewImage,
-                            }))}
-                            emptyText={promptMentionEmptyState}
-                            onApply={(item) => {
-                                const mention = mentionSuggestions.find((candidate) => candidate.id === item.id);
-                                if (mention) applyPromptMention(mention);
-                            }}
-                        />
-                    )}
-                </div>
-            </div>
+            <VideoGeneratorPromptComposer
+                promptInputRef={promptInputRef}
+                prompt={prompt}
+                isGenerating={isGenerating}
+                placeholder={promptMentionPlaceholder}
+                referencePreviewItems={referencePreviewItems}
+                canAddMoreReferences={canAddMoreReferences}
+                isReferenceUploadBusy={isReferenceUploadBusy}
+                addButtonTitle={getVideoAddImageTitle(model, domesticMode)}
+                confirmClear={confirmClear}
+                showAddImageMenu={showAddImageMenu}
+                usesFrameImages={usesFrameImages}
+                availableImageTypes={availableImageTypes}
+                addImageType={addImageType}
+                canAddMoreImages={canAddMoreImages}
+                canAddMoreVideos={canAddMoreVideos}
+                canAddMoreAudios={canAddMoreAudios}
+                isDomesticOmniMode={isDomesticOmniMode}
+                usesReferenceImages={usesReferenceImages}
+                mentionQuery={mentionQuery}
+                mentionPanelTitle={promptMentionPanelTitle}
+                mentionEmptyState={promptMentionEmptyState}
+                mentionSuggestions={mentionSuggestions}
+                onPromptChange={handlePromptChange}
+                onPromptKeyDown={handleKeyDown}
+                onPromptSelectionChange={handlePromptSelectionChange}
+                onPromptCompositionStart={() => { isPromptComposingRef.current = true; }}
+                onPromptCompositionEnd={handlePromptCompositionEnd}
+                onPromptBlur={() => { window.setTimeout(() => setMentionQuery(null), 120); }}
+                onToggleAddImageMenu={() => {
+                    if (availableImageTypes.length > 0) setAddImageType(availableImageTypes[0].value);
+                    const next = !showAddImageMenu;
+                    closeAllMenus();
+                    setShowAddImageMenu(next);
+                }}
+                onClearReferences={() => {
+                    if (confirmClear) {
+                        clearMountedReferences();
+                        setConfirmClear(false);
+                    } else {
+                        setConfirmClear(true);
+                        setTimeout(() => setConfirmClear(false), 2000);
+                    }
+                }}
+                onRemoveReferenceItem={(item) => item.kind === 'image' ? removeFrameImage(item.id) : removeReferenceAsset(item.id, item.kind)}
+                onAddImageTypeChange={setAddImageType}
+                onUploadImage={() => { imageInputRef.current?.click(); setShowAddImageMenu(false); }}
+                onUploadVideo={() => { videoInputRef.current?.click(); setShowAddImageMenu(false); }}
+                onUploadAudio={() => { audioInputRef.current?.click(); setShowAddImageMenu(false); }}
+                onSelectFromCanvas={(imageType) => { setShowAddImageMenu(false); onRequestCanvasSelect?.(imageType); }}
+                onApplyMention={applyPromptMention}
+            />
 
             <GeneratorStatusSection
                 kind="video"
@@ -1198,222 +1102,51 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                         )}
                     </div>
 
-                    {/* Params summary labels — click to open settings */}
-                    <div className="relative shrink-0" data-popover-menu>
-                        <button
-                            type="button"
-                            onClick={() => { const next = !showSettingsPanel; closeAllMenus(); setShowSettingsPanel(next); }}
-                            className="flex items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200/60 bg-slate-50/80 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white hover:text-slate-700 hover:border-slate-300"
-                        >
-                            {isDomesticModel && <><Settings2 size={12} /><span className="font-medium">{domesticMode === 'first-last-frame' ? '首尾帧' : '全能参考'}</span><span className="text-slate-300">·</span></>}
-                            <span>{aspectRatio}</span>
-                            <span className="text-slate-300">·</span>
-                            {isDomesticModel && <><span>{resolution.toUpperCase()}</span><span className="text-slate-300">·</span></>}
-                            <span>{duration}</span>
-                            {isDomesticModel && <><span className="text-slate-300">·</span><Volume2 size={11} className={generateAudio ? 'text-emerald-500' : 'text-slate-300'} /></>}
-                            {enhancePrompt && <><span className="text-slate-300">·</span><Sparkles size={11} className="text-violet-500" /></>}
-                            <ChevronDown size={11} className="text-slate-400 ml-0.5" />
-                        </button>
+                    <VideoGeneratorSettingsPanel
+                        isOpen={showSettingsPanel}
+                        isDomesticModel={isDomesticModel}
+                        domesticMode={domesticMode}
+                        aspectRatio={aspectRatio}
+                        resolution={resolution}
+                        duration={duration}
+                        generateAudio={generateAudio}
+                        enhancePrompt={enhancePrompt}
+                        isGenerating={isGenerating}
+                        isReferenceUploadBusy={isReferenceUploadBusy}
+                        aspectRatios={aspectRatios}
+                        resolutionOptions={resolutionOptions}
+                        durations={durations}
+                        onToggle={() => { const next = !showSettingsPanel; closeAllMenus(); setShowSettingsPanel(next); }}
+                        onDomesticModeChange={setDomesticMode}
+                        onAspectRatioChange={setAspectRatio}
+                        onResolutionChange={setResolution}
+                        onDurationChange={setDuration}
+                        onGenerateAudioChange={setGenerateAudio}
+                        onEnhancePromptChange={setEnhancePrompt}
+                    />
 
-                        {showSettingsPanel && (
-                            <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/60 z-30 w-[280px] overflow-hidden">
-                                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                                    <span className="text-xs font-medium text-slate-700">生成设置</span>
-                                    <span className="text-[10px] text-slate-400">{isDomesticModel ? `${domesticMode === 'first-last-frame' ? '首尾帧' : '全能参考'} · ` : ''}{aspectRatio}{isDomesticModel ? ` · ${resolution.toUpperCase()}` : ''} · {duration}</span>
-                                </div>
-                                <div className="p-4 space-y-0">
-                                    {/* Domestic mode toggle — prominent card */}
-                                    {isDomesticModel && (
-                                        <div className="rounded-xl bg-gradient-to-r from-slate-50 to-slate-100/80 p-3 mb-4">
-                                            <div className="mb-2 text-[11px] font-semibold text-slate-600">生成方式</div>
-                                            <div className="flex items-center gap-1 rounded-xl bg-white p-1 shadow-sm">
-                                                {([{ value: 'first-last-frame' as const, label: '首尾帧' }, { value: 'omni-reference' as const, label: '全能参考' }]).map((opt) => (
-                                                    <button key={opt.value} type="button" onClick={() => setDomesticMode(opt.value)} disabled={isGenerating || isReferenceUploadBusy} className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${domesticMode === opt.value ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{opt.label}</button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Aspect ratio with visual icons */}
-                                    <div className="py-3 border-t border-slate-100/80">
-                                        <div className="mb-2 text-[11px] font-medium text-slate-500">画面比例</div>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {aspectRatios.map((ratio) => {
-                                                const ratioShapes: Record<string, { w: number; h: number }> = { '16:9': { w: 14, h: 8 }, '9:16': { w: 8, h: 14 }, '1:1': { w: 10, h: 10 }, '4:3': { w: 12, h: 9 }, '3:4': { w: 9, h: 12 } };
-                                                const shape = ratioShapes[ratio] || { w: 10, h: 10 };
-                                                return (
-                                                    <button key={ratio} type="button" onClick={() => setAspectRatio(ratio)} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                                        <span className={`inline-block rounded-[2px] border ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} style={{ width: `${shape.w}px`, height: `${shape.h}px` }} />
-                                                        {ratio}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    {/* Resolution (domestic only) */}
-                                    {isDomesticModel && (
-                                        <div className="py-3 border-t border-slate-100/80">
-                                            <div className="mb-2 text-[11px] font-medium text-slate-500">分辨率</div>
-                                            <div className="flex gap-1.5">
-                                                {resolutionOptions.map((opt) => (
-                                                    <button key={opt} type="button" onClick={() => setResolution(opt)} disabled={isGenerating || isReferenceUploadBusy} className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${resolution === opt ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{opt.toUpperCase()}</button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Duration — compact grid */}
-                                    <div className="py-3 border-t border-slate-100/80">
-                                        <div className="mb-2 text-[11px] font-medium text-slate-500">时长</div>
-                                        <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(durations.length, 6)}, 1fr)` }}>
-                                            {durations.map((d) => (
-                                                <button key={d} type="button" onClick={() => setDuration(d)} className={`rounded-lg py-1.5 text-xs font-medium transition-colors text-center ${duration === d ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{d}</button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Audio toggle (domestic only) — inline toggle */}
-                                    {isDomesticModel && (
-                                        <div className="flex items-center justify-between py-3 border-t border-slate-100/80">
-                                            <div className="flex items-center gap-1.5">
-                                                <Volume2 size={13} className={generateAudio ? 'text-emerald-500' : 'text-slate-400'} />
-                                                <span className="text-[11px] font-medium text-slate-600">生成音频</span>
-                                            </div>
-                                            <button type="button" onClick={() => setGenerateAudio(!generateAudio)} disabled={isGenerating || isReferenceUploadBusy} className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${generateAudio ? 'bg-emerald-500' : 'bg-slate-200'}`}>
-                                                <span className={`inline-block h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-transform ${generateAudio ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* Enhance prompt toggle — inline toggle */}
-                                    <div className="flex items-center justify-between py-3 border-t border-slate-100/80">
-                                        <div className="flex items-center gap-1.5">
-                                            <Sparkles size={13} className={enhancePrompt ? 'text-violet-500' : 'text-slate-400'} />
-                                            <span className="text-[11px] font-medium text-slate-600">提示词增强</span>
-                                        </div>
-                                        <button type="button" onClick={() => setEnhancePrompt(!enhancePrompt)} className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${enhancePrompt ? 'bg-violet-500' : 'bg-slate-200'}`}>
-                                            <span className={`inline-block h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-transform ${enhancePrompt ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Resource Library */}
-                    {resourceLibraryCount > 0 && (
-                        <div className="relative" data-popover-menu>
-                            <button
-                                onClick={() => { const next = !showResourceLibrary; closeAllMenus(); setShowResourceLibrary(next); }}
-                                className={`relative flex items-center justify-center rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${showResourceLibrary ? 'bg-violet-50 text-violet-600' : 'text-slate-500 hover:bg-white'}`}
-                                title="资源库"
-                            >
-                                <FolderOpen size={13} />
-                                <span className={`ml-1 inline-flex min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold ${showResourceLibrary ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-500'}`}>{resourceLibraryCount}</span>
-                            </button>
-
-                            {showResourceLibrary && (
-                                <div className="absolute bottom-full right-0 mb-1 bg-white/96 backdrop-blur-xl rounded-[16px] shadow-lg border border-slate-200/60 z-30 w-[400px] overflow-hidden">
-                                    <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
-                                        <LibraryBig size={12} className="text-violet-600" />
-                                        <span className="text-xs font-medium text-slate-700">项目素材库</span>
-                                        <span className="text-[10px] text-slate-400">({resourceLibraryCount})</span>
-                                    </div>
-
-                                    {isDomesticModel && (
-                                        <div className="flex items-center gap-1 border-b border-slate-100 px-3 py-2">
-                                            {([
-                                                { id: 'image' as const, label: '图片', count: projectReferenceImages.length },
-                                                ...(isDomesticOmniMode
-                                                    ? [
-                                                        { id: 'video' as const, label: '视频', count: projectVideoLibrary.length },
-                                                        { id: 'audio' as const, label: '音频', count: projectAudioLibrary.length },
-                                                    ]
-                                                    : []),
-                                            ]).map((tab) => (
-                                                <button key={tab.id} type="button" onClick={() => setResourceLibraryTab(tab.id)} className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${activeResourceTab === tab.id ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{tab.label} {tab.count}</button>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {activeResourceTab === 'image' && usesFrameImages && availableImageTypes.length > 0 && (
-                                        <div className="px-3 py-1.5 border-b border-slate-100 flex items-center gap-1.5">
-                                            <span className="text-[10px] text-slate-400">帧类型:</span>
-                                            {availableImageTypes.map((typeOption) => (
-                                                <button key={typeOption.value} type="button" onClick={() => setAddImageType(typeOption.value)} className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${addImageType === typeOption.value ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{typeOption.label}</button>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    <div className="max-h-[240px] overflow-y-auto panel-scroll p-2">
-                                        {activeResourceTab === 'image' && (
-                                            projectReferenceImages.length > 0 ? (
-                                                <div className="grid grid-cols-4 gap-1.5">
-                                                    {projectReferenceImages.slice(0, 8).map((item) => {
-                                                        const isDisabled = !canAddMoreImages;
-                                                        return (
-                                                            <button key={item.id} type="button" onClick={() => handleApplyProjectReference(item)} disabled={isDisabled} className={`overflow-hidden rounded-lg border text-left transition-all ${isDisabled ? 'cursor-not-allowed border-violet-200 bg-violet-50/70 opacity-60' : 'border-slate-200/60 bg-white hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-sm'}`} title={item.label}>
-                                                                <WorkbenchImage content={item.image} alt={item.label} containerClassName="h-[56px] w-full" imageClassName="transition-transform duration-200 hover:scale-[1.03]" fit="cover" showSurface={false} />
-                                                                <div className="px-1.5 py-1">
-                                                                    <div className="truncate text-[10px] font-medium text-slate-700">{item.label}</div>
-                                                                    <div className="text-[9px] text-violet-600">{isDisabled ? '已达上限' : usesReferenceImages ? '加入参考' : `加入${addImageType === 'last_frame' ? '尾帧' : '首帧'}`}</div>
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : (
-                                                <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-[12px] text-slate-400">项目里还没有可用的参考图片</div>
-                                            )
-                                        )}
-
-                                        {activeResourceTab === 'video' && (
-                                            projectVideoLibrary.length > 0 ? (
-                                                <div className="space-y-1.5">
-                                                    {projectVideoLibrary.slice(0, 8).map((item) => {
-                                                        const isDisabled = !canAddMoreVideos;
-                                                        return (
-                                                            <button key={item.id} type="button" onClick={() => handleApplyProjectMediaReference(item)} disabled={isDisabled} className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${isDisabled ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-300' : 'border-slate-200 bg-white hover:border-violet-300 hover:bg-violet-50/40'}`}>
-                                                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white"><Film size={15} /></div>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <div className="truncate text-[11px] font-medium text-slate-700">{item.prompt || '项目视频素材'}</div>
-                                                                    <div className="text-[10px] text-slate-400">{isDisabled ? '视频参考已达上限' : '加入参考视频'}</div>
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : (
-                                                <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-[12px] text-slate-400">当前项目还没有可复用的视频素材</div>
-                                            )
-                                        )}
-
-                                        {activeResourceTab === 'audio' && (
-                                            projectAudioLibrary.length > 0 ? (
-                                                <div className="space-y-1.5">
-                                                    {projectAudioLibrary.slice(0, 8).map((item) => {
-                                                        const isDisabled = !canAddMoreAudios;
-                                                        return (
-                                                            <button key={item.id} type="button" onClick={() => handleApplyProjectMediaReference(item)} disabled={isDisabled} className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${isDisabled ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-300' : 'border-slate-200 bg-white hover:border-violet-300 hover:bg-violet-50/40'}`}>
-                                                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><Volume2 size={15} /></div>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <div className="truncate text-[11px] font-medium text-slate-700">{item.prompt || '项目音频素材'}</div>
-                                                                    <div className="text-[10px] text-slate-400">{isDisabled ? '音频参考已达上限' : '加入参考音频'}</div>
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : (
-                                                <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-[12px] text-slate-400">当前项目还没有可复用的音频素材</div>
-                                            )
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    <VideoGeneratorResourceLibrary
+                        isOpen={showResourceLibrary}
+                        resourceLibraryCount={resourceLibraryCount}
+                        isDomesticModel={isDomesticModel}
+                        isDomesticOmniMode={isDomesticOmniMode}
+                        activeResourceTab={activeResourceTab}
+                        usesFrameImages={usesFrameImages}
+                        usesReferenceImages={usesReferenceImages}
+                        availableImageTypes={availableImageTypes}
+                        addImageType={addImageType}
+                        projectReferenceImages={projectReferenceImages}
+                        projectVideoLibrary={projectVideoLibrary}
+                        projectAudioLibrary={projectAudioLibrary}
+                        canAddMoreImages={canAddMoreImages}
+                        canAddMoreVideos={canAddMoreVideos}
+                        canAddMoreAudios={canAddMoreAudios}
+                        onToggle={() => { const next = !showResourceLibrary; closeAllMenus(); setShowResourceLibrary(next); }}
+                        onTabChange={setResourceLibraryTab}
+                        onAddImageTypeChange={setAddImageType}
+                        onApplyProjectReference={handleApplyProjectReference}
+                        onApplyProjectMediaReference={handleApplyProjectMediaReference}
+                    />
 
                     {/* Task Recovery */}
                     <GeneratorRecoveryTaskCard

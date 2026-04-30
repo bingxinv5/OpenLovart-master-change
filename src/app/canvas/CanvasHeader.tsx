@@ -1,6 +1,6 @@
 import { ChevronLeft, Sparkles, Cloud, CloudOff, HardDrive } from 'lucide-react';
 import Link from 'next/link';
-import { ApiSettingsButton } from '@/components/lovart/ApiSettingsDialog';
+import { ApiSettingsButton } from '@/components/lovart/ApiSettingsButton';
 import { CanvasWorkbenchSwitcher } from '@/components/lovart/CanvasWorkbenchSwitcher';
 
 export type CanvasSaveStatus = 'saved' | 'saving' | 'offline';

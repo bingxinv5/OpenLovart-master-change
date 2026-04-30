@@ -1,11 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import {
-    MessageSquare, Clock, Share2, Layout, X,
-    Check, Maximize2, Trash2, Minimize2, PanelRight
-} from 'lucide-react';
 import { AiDesignerHistoryPanel } from './AiDesignerHistoryPanel';
+import { AiDesignerHeader } from './AiDesignerHeader';
 import { AiDesignerInputArea } from './AiDesignerInputArea';
 import { AiDesignerMessageList } from './AiDesignerMessageList';
 import { aiModels, mentionItems, suggestions } from './ai-designer-panel-constants';
@@ -16,8 +13,8 @@ import {
     createChatSession,
     detectGenerationIntent,
     detectToolPrefix,
+    exportChatMarkdown,
     extractBase64Data,
-    formatTime,
 } from './ai-designer-panel-utils';
 import {
     clearActiveChat,
@@ -169,12 +166,10 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
     const mentionMenuTitle = mentionQuery ? '匹配的提及工具' : '@ 提及工具';
     const mentionMenuEmptyText = mentionQuery ? '没有匹配的工具，继续输入或按 Esc 关闭' : '暂无可用工具';
 
-    // ── Task polling (extracted to ai-designer-task-polling.ts) ──
     const { pollGeneratedTask, resumedTaskKeysRef } = useAiDesignerTaskPolling(messages, setMessages);
 
     const [isPersistenceReady, setIsPersistenceReady] = useState(false);
     const isPersistenceReadyRef = useRef(false);
-    // Keep latest values in refs for beforeunload handler
     const messagesRef = useRef(messages);
     const selectedModelRef = useRef(selectedModel);
     useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -700,30 +695,17 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
         setChatSessions(prev => prev.filter(s => s.id !== sessionId));
     };
 
-    // ========== Export / Share ==========
     const handleExportChat = async () => {
         if (messages.length === 0) return;
         const modelLabel = aiModels.find(m => m.id === selectedModel)?.label || selectedModel;
-        let text = `# AI 设计对话记录\n模型: ${modelLabel}\n导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n`;
-        for (const msg of messages) {
-            const role = msg.role === 'user' ? '👤 用户' : '🤖 AI';
-            const time = formatTime(msg.timestamp);
-            text += `### ${role}  [${time}]\n\n${msg.content}\n\n---\n\n`;
-        }
-        // Try clipboard first, fallback to file download
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopiedId('export');
-            setTimeout(() => setCopiedId(null), 2000);
-        } catch {
-            const blob = new Blob([text], { type: 'text/markdown' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `chat-${new Date().toISOString().slice(0, 10)}.md`;
-            a.click();
-            URL.revokeObjectURL(url);
-        }
+        await exportChatMarkdown({
+            messages,
+            modelLabel,
+            onCopied: () => {
+                setCopiedId('export');
+                setTimeout(() => setCopiedId(null), 2000);
+            },
+        });
     };
 
     const handleSuggestionClick = (description: string) => {
@@ -945,79 +927,17 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
 
     return (
         <div className="flex flex-col h-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-            {/* Header Icons */}
-            <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                <div className="flex items-center gap-2">
-                    {messages.length > 0 && (
-                        <button
-                            onClick={handleClearChat}
-                            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            title="清空对话"
-                        >
-                            <Trash2 size={12} />
-                            <span>清空</span>
-                        </button>
-                    )}
-                </div>
-                <div className="flex items-center gap-3 text-gray-400">
-                    {/* New Chat */}
-                    <button
-                        onClick={handleNewChat}
-                        className={`hover:text-gray-600 transition-colors ${messages.length > 0 ? 'text-gray-400' : 'text-gray-200 cursor-not-allowed'}`}
-                        title="新建对话"
-                        disabled={messages.length === 0}
-                    >
-                        <MessageSquare size={18} />
-                    </button>
-
-                    {/* History */}
-                    <button
-                        onClick={() => setShowHistory(prev => !prev)}
-                        className={`transition-colors ${showHistory ? 'text-blue-500' : 'hover:text-gray-600'}`}
-                        title="历史记录"
-                    >
-                        <Clock size={18} />
-                    </button>
-
-                    {/* Export / Share */}
-                    <button
-                        onClick={handleExportChat}
-                        className={`transition-colors ${messages.length > 0 ? 'hover:text-gray-600' : 'text-gray-200 cursor-not-allowed'} ${copiedId === 'export' ? 'text-green-500' : ''}`}
-                        title={copiedId === 'export' ? '已复制到剪贴板!' : '导出对话'}
-                        disabled={messages.length === 0}
-                    >
-                        {copiedId === 'export' ? <Check size={18} /> : <Share2 size={18} />}
-                    </button>
-
-                    {/* Panel Layout */}
-                    <button
-                        onClick={() => onPanelModeChange?.(panelMode === 'side' ? 'bottom' : 'side')}
-                        className={`transition-colors ${onPanelModeChange ? 'hover:text-gray-600' : 'text-gray-200 cursor-not-allowed'} ${panelMode === 'bottom' ? 'text-blue-500' : ''}`}
-                        title={panelMode === 'bottom' ? '侧边面板' : '底部面板'}
-                    >
-                        {panelMode === 'bottom' ? <PanelRight size={18} /> : <Layout size={18} />}
-                    </button>
-
-                    {/* Expand / Collapse */}
-                    <button
-                        onClick={() => onExpandToggle?.()}
-                        className={`transition-colors ${onExpandToggle ? 'hover:text-gray-600' : 'text-gray-200 cursor-not-allowed'} ${isExpanded ? 'text-blue-500' : ''}`}
-                        title={isExpanded ? '收缩面板' : '展开面板'}
-                    >
-                        {isExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                    </button>
-
-                    {onClose && (
-                        <button onClick={onClose} title="关闭 AI 设计师" aria-label="关闭 AI 设计师" className="hover:text-gray-600 transition-colors ml-1">
-                            <X size={18} />
-                        </button>
-                    )}
-                </div>
-            </div>
+            <AiDesignerHeader
+                {...{ showHistory, copiedId, panelMode, isExpanded, onPanelModeChange, onExpandToggle, onClose }}
+                messageCount={messages.length}
+                onClearChat={handleClearChat}
+                onNewChat={handleNewChat}
+                onToggleHistory={() => setShowHistory(prev => !prev)}
+                onExportChat={handleExportChat}
+            />
 
             <AiDesignerHistoryPanel
-                showHistory={showHistory}
-                chatSessions={chatSessions}
+                {...{ showHistory, chatSessions }}
                 onClose={() => setShowHistory(false)}
                 onRestoreSession={handleRestoreSession}
                 onDeleteSession={handleDeleteSession}
@@ -1025,63 +945,47 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
             />
 
             <AiDesignerMessageList
-                messages={messages}
-                suggestionIndex={suggestionIndex}
-                copiedId={copiedId}
-                messagesEndRef={messagesEndRef}
+                {...{ messages, suggestionIndex, copiedId, messagesEndRef }}
                 onSuggestionClick={handleSuggestionClick}
                 onShuffleSuggestions={handleShuffleSuggestions}
                 onCopy={handleCopy}
             />
 
             <AiDesignerInputArea
-                inputValue={inputValue}
-                attachments={attachments}
-                webSearchEnabled={webSearchEnabled}
-                selectedModel={selectedModel}
-                showCanvasImagesMenu={showCanvasImagesMenu}
+                {...{
+                    inputValue, attachments, webSearchEnabled, selectedModel, showCanvasImagesMenu,
+                    mentionSuggestions, mentionMenuTitle, mentionMenuEmptyText, showQuickMenu,
+                    showMarksMenu, showModelMenu, isStreaming, isGenerating, canvasImages, marks,
+                    fileInputRef, textareaRef, quickMenuRef, modelMenuRef, mentionRef,
+                    canvasImagesMenuRef, onDeleteMark,
+                }}
                 showMentionMenu={isMentionMenuOpen}
-                mentionSuggestions={mentionSuggestions}
-                mentionMenuTitle={mentionMenuTitle}
-                mentionMenuEmptyText={mentionMenuEmptyText}
-                showQuickMenu={showQuickMenu}
-                showMarksMenu={showMarksMenu}
-                showModelMenu={showModelMenu}
-                isStreaming={isStreaming}
-                isGenerating={isGenerating}
-                canvasImages={canvasImages}
-                marks={marks}
                 onPickFromCanvas={() => {
                     setShowCanvasImagesMenu(false);
                     onPickFromCanvas?.();
                 }}
-                onDeleteMark={onDeleteMark}
                 onClearAllMarks={() => {
                     onClearAllMarks?.();
                     setShowMarksMenu(false);
                 }}
-                fileInputRef={fileInputRef}
-                textareaRef={textareaRef}
-                quickMenuRef={quickMenuRef}
-                modelMenuRef={modelMenuRef}
-                mentionRef={mentionRef}
-                canvasImagesMenuRef={canvasImagesMenuRef}
                 onInputChange={setInputValue}
-                onInputSelectionChange={syncInputSelection}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                onFileSelect={handleFileSelect}
-                onRemoveAttachment={removeAttachment}
+                {...{
+                    onInputSelectionChange: syncInputSelection,
+                    onKeyDown: handleKeyDown,
+                    onPaste: handlePaste,
+                    onFileSelect: handleFileSelect,
+                    onRemoveAttachment: removeAttachment,
+                    onAddCanvasImageAttachment: handleAddCanvasImageAttachment,
+                    onToggleMentionMenu: handleToggleMentionMenu,
+                    onMentionSelect: handleMentionSelect,
+                    onQuickCommand: handleQuickCommand,
+                    onReferenceMark: handleReferenceMark,
+                    onReferenceAllMarks: handleReferenceAllMarks,
+                }}
                 onToggleCanvasImagesMenu={() => setShowCanvasImagesMenu(prev => !prev)}
-                onAddCanvasImageAttachment={handleAddCanvasImageAttachment}
-                onToggleMentionMenu={handleToggleMentionMenu}
-                onMentionSelect={handleMentionSelect}
                 onToggleQuickMenu={() => setShowQuickMenu(prev => !prev)}
-                onQuickCommand={handleQuickCommand}
                 onToggleWebSearch={() => setWebSearchEnabled(prev => !prev)}
                 onToggleMarksMenu={() => setShowMarksMenu(prev => !prev)}
-                onReferenceMark={handleReferenceMark}
-                onReferenceAllMarks={handleReferenceAllMarks}
                 onToggleModelMenu={() => setShowModelMenu(prev => !prev)}
                 onSelectModel={(modelId) => {
                     setSelectedModel(modelId);
