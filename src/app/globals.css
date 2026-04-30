@@ -253,21 +253,3 @@ body::before {
 .workbench-image-hires {
   image-rendering: auto;
 }
-
-@supports (image-rendering: -webkit-optimize-contrast) {
-  .workbench-image-hires {
-    image-rendering: -webkit-optimize-contrast;
-  }
-}
-
-@supports (image-rendering: crisp-edges) {
-  .workbench-image-hires {
-    image-rendering: crisp-edges;
-  }
-}
-
-@supports (image-rendering: high-quality) {
-  .workbench-image-hires {
-    image-rendering: high-quality;
-  }
-}

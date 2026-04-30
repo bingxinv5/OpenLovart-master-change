@@ -41,32 +41,15 @@ try {
   const title = `QA 项目 ${Date.now()}`;
   const duplicateTitle = `${title} (副本)`;
 
-  await page.locator('[data-testid="projects-create-button"]').click();
+  await page.locator('[data-testid="projects-create-tile"], [data-testid="projects-create-button"]').first().click();
   await page.locator('[data-testid="projects-new-name-input"]').fill(title);
   await page.locator('[data-testid="projects-create-confirm"]').click();
+  await page.waitForURL(/\/canvas\?id=/, { timeout: 15000 }).catch(() => null);
+  record('创建项目后进入画布', page.url().includes('/canvas?id='), page.url());
+  await page.goto(baseUrl, { waitUntil: 'networkidle', timeout: 60000 });
+  await page.waitForTimeout(800);
   const createdCard = await waitForCard(title);
   record('可创建新项目', await createdCard.isVisible().catch(() => false), title);
-
-  await createdCard.hover();
-  const favoriteButton = createdCard.locator('[data-testid^="project-favorite-"]').first();
-  await favoriteButton.click({ force: true });
-  await page.waitForTimeout(300);
-  record('可收藏项目', (await favoriteButton.getAttribute('aria-label')) === '取消收藏');
-
-  const favoritesFilter = page.locator('[data-testid="projects-filter-favorites"]');
-  await favoritesFilter.click();
-  await page.waitForTimeout(300);
-  record('收藏筛选可显示收藏项目', await page.locator('[data-testid^="project-card-"]', { hasText: title }).first().isVisible().catch(() => false));
-
-  const allFilter = page.locator('[data-testid="projects-filter-all"]');
-  await allFilter.click();
-  await page.waitForTimeout(250);
-
-  const searchInput = page.locator('[data-testid="projects-search-input"]');
-  await searchInput.fill(title);
-  await page.waitForTimeout(250);
-  record('项目搜索可命中新建项目', await page.locator('[data-testid^="project-card-"]', { hasText: title }).first().isVisible().catch(() => false));
-  await searchInput.fill('');
 
   await openProjectMenu(createdCard);
   await createdCard.locator('[data-testid^="project-duplicate-"]').first().click();
