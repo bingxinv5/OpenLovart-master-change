@@ -28,6 +28,11 @@ import type { CanvasElement } from './canvas-types';
 import { getLayerDropPlacement, type LayerDropIndicator, type LayerParentDropTarget } from './layers-dnd-model';
 import { getLayerLabel, type FlattenedLayerRow } from './layers-tree-model';
 import { getStoryboardSummaryParts, isElementLocked, type StoryboardDraftKey, type StoryboardDraftValue } from './layers-panel-utils';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
+
+function toLayerRowPx(value: number | undefined) {
+    return `${Number.isFinite(value) ? value : 0}px`;
+}
 
 function LayerTypeIcon({ element, size }: { element: CanvasElement; size: number }) {
     switch (element.type) {
@@ -60,13 +65,17 @@ function StoryboardMetaEditor({
     hasValidationError: boolean;
     children: React.ReactNode;
 }) {
+    const editorIndentClassName = `storyboard-meta-editor-indent-${Math.max(0, depth)}`;
+
     return (
+        <>
+        <style>{`.${editorIndentClassName} { margin-left: ${Math.max(0, depth * 12 + 30)}px; }`}</style>
         <div
-            className={`mt-1 rounded-md border bg-white p-2.5 shadow-sm ${hasValidationError ? 'border-rose-200' : 'border-slate-200'}`}
-            style={{ marginLeft: `${depth * 12 + 30}px` }}
+            className={`${editorIndentClassName} mt-1 rounded-md border bg-white p-2.5 shadow-sm ${hasValidationError ? 'border-rose-200' : 'border-slate-200'}`}
         >
             {children}
         </div>
+        </>
     );
 }
 
@@ -160,16 +169,117 @@ export function LayerRow({
     const showStoryboardEditor = selected && element.type === 'image';
     const storyboardSummaryParts = getStoryboardSummaryParts(element);
     const storyboardNote = element.storyboardNote?.trim();
+    const rowPositionClassName = buildFloatingPanelPositionClassName('layer-row-position', element.id);
+    const dropBeforeIndentClassName = buildFloatingPanelPositionClassName('layer-drop-before-indent', element.id);
+    const rowIndentClassName = buildFloatingPanelPositionClassName('layer-row-indent', element.id);
+    const dropAfterIndentClassName = buildFloatingPanelPositionClassName('layer-drop-after-indent', element.id);
+    const nestTargetIndentClassName = buildFloatingPanelPositionClassName('layer-nest-target-indent', element.id);
+    const selectedActionsIndentClassName = buildFloatingPanelPositionClassName('layer-selected-actions-indent', element.id);
+    const layerRowCss = `
+.${rowPositionClassName} {
+    transform: translateY(${toLayerRowPx(top)});
+    height: ${toLayerRowPx(height)};
+}
+
+.${dropBeforeIndentClassName} {
+    margin-left: ${toLayerRowPx(depth * 12 + 8)};
+}
+
+.${rowIndentClassName} {
+    margin-left: ${toLayerRowPx(depth * 12)};
+}
+
+.${dropAfterIndentClassName} {
+    margin-left: ${toLayerRowPx(depth * 14 + 10)};
+}
+
+.${nestTargetIndentClassName} {
+    margin-left: ${toLayerRowPx(depth * 14 + 42)};
+}
+
+.${selectedActionsIndentClassName} {
+    margin-left: ${toLayerRowPx(depth * 12 + 30)};
+}
+`;
+    const renderLayerSelectionContent = () => (
+        <>
+            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${selected ? 'bg-violet-100 text-blue-700 ring-violet-200' : 'bg-slate-100 text-slate-500 ring-slate-200'}`}>
+                <LayerTypeIcon element={element} size={14} />
+            </div>
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1">
+                    {editingNameId === element.id ? (
+                        <input
+                            data-testid={`layer-name-input-${element.id}`}
+                            title="重命名图层"
+                            value={editingNameValue}
+                            autoFocus
+                            onChange={(event) => onSetEditingNameValue(event.target.value)}
+                            onBlur={onCommitRename}
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => {
+                                event.stopPropagation();
+                                if (event.key === 'Enter') onCommitRename();
+                                if (event.key === 'Escape') {
+                                    onCancelRename();
+                                }
+                            }}
+                            className="h-6 min-w-0 max-w-[160px] rounded border border-blue-200 bg-white px-1.5 text-[12px] font-medium text-slate-800 outline-none ring-2 ring-blue-100"
+                        />
+                    ) : (
+                        <span
+                            className="truncate text-[12px] font-medium text-slate-800"
+                            title="双击重命名"
+                            onDoubleClick={(event) => {
+                                event.stopPropagation();
+                                onStartRename(element);
+                            }}
+                        >
+                            {getLayerLabel(element)}
+                        </span>
+                    )}
+                    {element.groupFrame && (
+                        <span className="rounded bg-violet-100 px-1 py-px text-[9px] font-semibold text-blue-700">组</span>
+                    )}
+                    {element.type === 'frame' && !element.groupFrame && (
+                        <span className="rounded bg-sky-100 px-1 py-px text-[9px] font-semibold text-sky-700">板</span>
+                    )}
+                    {hidden && <span className="rounded bg-slate-100 px-1 py-px text-[9px] text-slate-500">隐</span>}
+                    {locked && <span className="rounded bg-amber-50 px-1 py-px text-[9px] text-amber-600">锁</span>}
+                    {hasChildren && <span className="text-[9px] text-slate-400">{children.length}</span>}
+                </div>
+                {element.type === 'image' && (storyboardSummaryParts.length > 0 || storyboardNote) && (
+                    <div className="mt-px flex flex-wrap items-center gap-0.5">
+                        {storyboardSummaryParts.map((part, index) => (
+                            <span
+                                key={`${element.id}-storyboard-${index}-${part}`}
+                                className="rounded border border-amber-200/70 bg-amber-50/80 px-1 py-px text-[8px] font-medium text-amber-700"
+                            >
+                                {part}
+                            </span>
+                        ))}
+                        {storyboardNote && (
+                            <span
+                                className="max-w-[120px] truncate rounded border border-slate-200/70 bg-slate-50/80 px-1 py-px text-[8px] text-slate-500"
+                                title={storyboardNote}
+                            >
+                                {storyboardNote}
+                            </span>
+                        )}
+                    </div>
+                )}
+            </div>
+        </>
+    );
 
     return (
         <div
-            className="absolute left-0 right-0"
-            style={{ transform: `translateY(${top}px)`, height: `${height}px` }}
+            className={`${rowPositionClassName} absolute left-0 right-0`}
         >
+            <style>{layerRowCss}</style>
             <div
                 data-testid={`layer-drop-before-${element.id}`}
-                className={`h-1 rounded-full transition-all ${dropIndicator?.targetId === element.id && dropIndicator.placement === 'before' ? 'bg-blue-400/80' : 'bg-transparent'}`}
-                style={{ marginLeft: `${depth * 12 + 8}px` }}
+                className={`${dropBeforeIndentClassName} h-1 rounded-full transition-all ${dropIndicator?.targetId === element.id && dropIndicator.placement === 'before' ? 'bg-blue-400/80' : 'bg-transparent'}`}
                 onDragOver={(event) => {
                     event.preventDefault();
                     if (!draggingId || draggingId === element.id) return;
@@ -189,8 +299,7 @@ export function LayerRow({
                     const placement = getLayerDropPlacement(event.clientY, rect.top, rect.height);
                     onDrop(event, element.id, placement);
                 }}
-                className={`group relative flex items-center gap-1 rounded-md border px-1 py-1 transition-all duration-200 ${selected ? 'border-blue-200 bg-blue-50/70' : 'border-transparent bg-white/80 hover:border-slate-200 hover:bg-white'} ${isHighlighted ? 'border-amber-300 bg-amber-50/95 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]' : ''} ${hidden ? 'opacity-60' : ''} ${isDragging ? 'opacity-40' : ''}`}
-                style={{ marginLeft: `${depth * 12}px` }}
+                className={`${rowIndentClassName} group relative flex items-center gap-1 rounded-md border px-1 py-1 transition-all duration-200 ${selected ? 'border-blue-200 bg-blue-50/70' : 'border-transparent bg-white/80 hover:border-slate-200 hover:bg-white'} ${isHighlighted ? 'border-amber-300 bg-amber-50/95 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]' : ''} ${hidden ? 'opacity-60' : ''} ${isDragging ? 'opacity-40' : ''}`}
             >
                 <div
                     data-testid={`layer-drag-${element.id}`}
@@ -211,79 +320,24 @@ export function LayerRow({
                     {hasChildren ? (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <span className="h-1.5 w-1.5" />}
                 </button>
 
-                <button
-                    type="button"
-                    data-testid={`layer-select-${element.id}`}
-                    onClick={(event) => onSelect(event, element.id)}
-                    onDoubleClick={() => onLocate(element.id)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-0.5 text-left"
-                >
-                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${selected ? 'bg-violet-100 text-blue-700 ring-violet-200' : 'bg-slate-100 text-slate-500 ring-slate-200'}`}>
-                        <LayerTypeIcon element={element} size={14} />
+                {editingNameId === element.id ? (
+                    <div
+                        data-testid={`layer-select-${element.id}`}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-0.5 text-left"
+                    >
+                        {renderLayerSelectionContent()}
                     </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1">
-                            {editingNameId === element.id ? (
-                                <input
-                                    data-testid={`layer-name-input-${element.id}`}
-                                    value={editingNameValue}
-                                    autoFocus
-                                    onChange={(event) => onSetEditingNameValue(event.target.value)}
-                                    onBlur={onCommitRename}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onKeyDown={(event) => {
-                                        event.stopPropagation();
-                                        if (event.key === 'Enter') onCommitRename();
-                                        if (event.key === 'Escape') {
-                                            onCancelRename();
-                                        }
-                                    }}
-                                    className="h-6 min-w-0 max-w-[160px] rounded border border-blue-200 bg-white px-1.5 text-[12px] font-medium text-slate-800 outline-none ring-2 ring-blue-100"
-                                />
-                            ) : (
-                                <span
-                                    className="truncate text-[12px] font-medium text-slate-800"
-                                    title="双击重命名"
-                                    onDoubleClick={(event) => {
-                                        event.stopPropagation();
-                                        onStartRename(element);
-                                    }}
-                                >
-                                    {getLayerLabel(element)}
-                                </span>
-                            )}
-                            {element.groupFrame && (
-                                <span className="rounded bg-violet-100 px-1 py-px text-[9px] font-semibold text-blue-700">组</span>
-                            )}
-                            {element.type === 'frame' && !element.groupFrame && (
-                                <span className="rounded bg-sky-100 px-1 py-px text-[9px] font-semibold text-sky-700">板</span>
-                            )}
-                            {hidden && <span className="rounded bg-slate-100 px-1 py-px text-[9px] text-slate-500">隐</span>}
-                            {locked && <span className="rounded bg-amber-50 px-1 py-px text-[9px] text-amber-600">锁</span>}
-                            {hasChildren && <span className="text-[9px] text-slate-400">{children.length}</span>}
-                        </div>
-                        {element.type === 'image' && (storyboardSummaryParts.length > 0 || storyboardNote) && (
-                            <div className="mt-px flex flex-wrap items-center gap-0.5">
-                                {storyboardSummaryParts.map((part, index) => (
-                                    <span
-                                        key={`${element.id}-storyboard-${index}-${part}`}
-                                        className="rounded border border-amber-200/70 bg-amber-50/80 px-1 py-px text-[8px] font-medium text-amber-700"
-                                    >
-                                        {part}
-                                    </span>
-                                ))}
-                                {storyboardNote && (
-                                    <span
-                                        className="max-w-[120px] truncate rounded border border-slate-200/70 bg-slate-50/80 px-1 py-px text-[8px] text-slate-500"
-                                        title={storyboardNote}
-                                    >
-                                        {storyboardNote}
-                                    </span>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </button>
+                ) : (
+                    <button
+                        type="button"
+                        data-testid={`layer-select-${element.id}`}
+                        onClick={(event) => onSelect(event, element.id)}
+                        onDoubleClick={() => onLocate(element.id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-0.5 text-left"
+                    >
+                        {renderLayerSelectionContent()}
+                    </button>
+                )}
 
                 <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded-lg bg-white/95 shadow-sm ring-1 ring-slate-100 px-0.5 backdrop-blur-sm transition-opacity ${selected ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'}`}>
                     <button
@@ -340,8 +394,7 @@ export function LayerRow({
             </div>
             <div
                 data-testid={`layer-drop-after-${element.id}`}
-                className={`h-2 rounded-full transition-all ${dropIndicator?.targetId === element.id && dropIndicator.placement === 'after' ? 'bg-violet-400/80' : 'bg-transparent'}`}
-                style={{ marginLeft: `${depth * 14 + 10}px` }}
+                className={`${dropAfterIndentClassName} h-2 rounded-full transition-all ${dropIndicator?.targetId === element.id && dropIndicator.placement === 'after' ? 'bg-violet-400/80' : 'bg-transparent'}`}
                 onDragOver={(event) => {
                     event.preventDefault();
                     if (!draggingId || draggingId === element.id) return;
@@ -357,8 +410,7 @@ export function LayerRow({
             {element.type === 'frame' && draggingId !== element.id && (
                 <div
                     data-testid={`layer-nest-target-${element.id}`}
-                    className={`ml-10 rounded-2xl border border-dashed text-[11px] font-medium transition-all ${draggingId ? 'px-3 py-2' : 'min-h-[8px] px-0 py-0 border-transparent bg-transparent text-transparent'} ${parentDropTarget === element.id ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : draggingId ? 'border-slate-200 bg-slate-50/80 text-slate-500' : ''}`}
-                    style={{ marginLeft: `${depth * 14 + 42}px` }}
+                    className={`${nestTargetIndentClassName} rounded-2xl border border-dashed text-[11px] font-medium transition-all ${draggingId ? 'px-3 py-2' : 'min-h-[8px] px-0 py-0 border-transparent bg-transparent text-transparent'} ${parentDropTarget === element.id ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : draggingId ? 'border-slate-200 bg-slate-50/80 text-slate-500' : ''}`}
                     onDragOver={(event) => {
                         if (!draggingId) return;
                         event.preventDefault();
@@ -376,7 +428,7 @@ export function LayerRow({
             )}
 
             {selected && (
-                <div className="flex items-center gap-0.5 py-0.5" style={{ marginLeft: `${depth * 12 + 30}px` }}>
+                <div className={`${selectedActionsIndentClassName} flex items-center gap-0.5 py-0.5`}>
                     <button
                         type="button"
                         title="上移一层"

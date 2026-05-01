@@ -58,18 +58,18 @@ interface ImageGeneratorSettingsPanelProps {
     onGenerateCountChange: (count: GenerateCount) => void;
 }
 
-const RATIO_SHAPES: Record<string, { w: number; h: number }> = {
-    '16:9': { w: 14, h: 8 },
-    '9:16': { w: 8, h: 14 },
-    '1:1': { w: 10, h: 10 },
-    '4:3': { w: 12, h: 9 },
-    '3:4': { w: 9, h: 12 },
-    '2:3': { w: 8, h: 12 },
-    '3:2': { w: 12, h: 8 },
-    '4:5': { w: 9, h: 11 },
-    '5:4': { w: 11, h: 9 },
-    '21:9': { w: 16, h: 7 },
-    auto: { w: 10, h: 10 },
+const RATIO_SHAPE_CLASSES: Record<string, string> = {
+    '16:9': 'w-[14px] h-2',
+    '9:16': 'w-2 h-[14px]',
+    '1:1': 'h-2.5 w-2.5',
+    '4:3': 'w-3 h-[9px]',
+    '3:4': 'w-[9px] h-3',
+    '2:3': 'w-2 h-3',
+    '3:2': 'w-3 h-2',
+    '4:5': 'w-[9px] h-[11px]',
+    '5:4': 'w-[11px] h-[9px]',
+    '21:9': 'w-4 h-[7px]',
+    auto: 'h-2.5 w-2.5',
 };
 
 export function ImageGeneratorSettingsPanel({
@@ -172,15 +172,12 @@ export function ImageGeneratorSettingsPanel({
                                 <div className="py-3">
                                     <div className="mb-2 text-[11px] font-medium text-slate-500">画面比例</div>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {availableAspectRatios.map((ratio) => {
-                                            const shape = RATIO_SHAPES[ratio] || { w: 10, h: 10 };
-                                            return (
-                                                <button key={ratio} type="button" onClick={() => onAspectRatioChange(ratio)} disabled={grokUsesReferenceAspectRatio} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${grokUsesReferenceAspectRatio ? 'cursor-not-allowed opacity-50' : ''} ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                                    <span className={`inline-block rounded-[2px] border ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} style={{ width: `${shape.w}px`, height: `${shape.h}px` }} />
-                                                    {ratio === 'auto' ? '自动' : ratio}
-                                                </button>
-                                            );
-                                        })}
+                                        {availableAspectRatios.map((ratio) => (
+                                            <button key={ratio} type="button" onClick={() => onAspectRatioChange(ratio)} disabled={grokUsesReferenceAspectRatio} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${grokUsesReferenceAspectRatio ? 'cursor-not-allowed opacity-50' : ''} ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                                <span className={`inline-block rounded-[2px] border ${RATIO_SHAPE_CLASSES[ratio] || 'h-2.5 w-2.5'} ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} />
+                                                {ratio === 'auto' ? '自动' : ratio}
+                                            </button>
+                                        ))}
                                     </div>
                                     {grokUsesReferenceAspectRatio && (
                                         <div className="mt-1.5 text-[10px] text-amber-600">Grok 携带参考图时按参考图比例生成</div>

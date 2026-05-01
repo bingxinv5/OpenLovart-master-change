@@ -198,9 +198,9 @@ export function FloatingToolbar({ activeTool, onToolChange, onAddImage, onAddVid
                             <div className="absolute left-full top-0 pl-3">
                                 <div className="tool-menu-enter workbench-panel rounded-2xl p-1.5">
                                     <div className="flex gap-0.5 p-0.5">
-                                        <button onClick={() => handleShapeClick('square')} className="rounded-xl p-2.5 text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900"><Square size={16} /></button>
-                                        <button onClick={() => handleShapeClick('circle')} className="rounded-xl p-2.5 text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900"><Circle size={16} /></button>
-                                        <button onClick={() => handleShapeClick('triangle')} className="rounded-xl p-2.5 text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900"><Triangle size={16} /></button>
+                                        <button type="button" onClick={() => handleShapeClick('square')} className="rounded-xl p-2.5 text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900" title="添加矩形" aria-label="添加矩形"><Square size={16} /></button>
+                                        <button type="button" onClick={() => handleShapeClick('circle')} className="rounded-xl p-2.5 text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900" title="添加圆形" aria-label="添加圆形"><Circle size={16} /></button>
+                                        <button type="button" onClick={() => handleShapeClick('triangle')} className="rounded-xl p-2.5 text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900" title="添加三角形" aria-label="添加三角形"><Triangle size={16} /></button>
                                     </div>
                                 </div>
                             </div>

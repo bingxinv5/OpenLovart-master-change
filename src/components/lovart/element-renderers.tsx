@@ -4,6 +4,21 @@ import { captureVideoThumbnailDataUrl } from '@/lib/project-thumbnail';
 import { renderPathPoints } from './canvas-ui-utils';
 import type { CanvasElement } from './canvas-types';
 import type { ElementHandlers } from './CanvasElementRenderer';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
+
+function toRendererPx(value: number | undefined, fallback = 0) {
+    return `${Number.isFinite(value) ? value : fallback}px`;
+}
+
+function sanitizeRendererCssColor(value: string | undefined, fallback = '#9CA3AF') {
+    const color = (value || '').trim();
+    return /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : fallback;
+}
+
+function sanitizeRendererFontFamily(value: string | undefined) {
+    const family = (value || 'Inter').trim().replace(/[;{}]/g, '');
+    return family || 'Inter';
+}
 
 export function ImageGeneratorElementRenderer({ el, isGeneratorSubmitting }: { el: CanvasElement; isGeneratorSubmitting: boolean }) {
     const isBusy = !!(el.generatingTaskId || isGeneratorSubmitting);
@@ -123,21 +138,51 @@ export function VideoElementRenderer({ el }: { el: CanvasElement }) {
 
 export function TextElementRenderer({ el, isEditingText, handlersRef }: { el: CanvasElement; isEditingText: boolean; handlersRef: React.RefObject<ElementHandlers> }) {
     const h = handlersRef.current!;
-    const textStyle = { fontSize: el.fontSize || 24, fontFamily: el.fontFamily || 'Inter', color: el.color || '#000000' };
+    const textClassName = buildFloatingPanelPositionClassName('canvas-text-renderer-style', el.id);
+    const textCss = `
+.${textClassName} {
+    font-size: ${toRendererPx(el.fontSize, 24)};
+    font-family: ${sanitizeRendererFontFamily(el.fontFamily)};
+    color: ${sanitizeRendererCssColor(el.color, '#000000')};
+}
+`;
 
     return isEditingText ? (
-        <textarea autoFocus className="w-full h-full bg-transparent outline-none resize-none overflow-hidden" style={textStyle} value={el.content} onChange={(e) => h.onElementChange(el.id, { content: e.target.value })} onBlur={() => h.setEditingTextId(null)} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} />
+        <>
+            <style>{textCss}</style>
+            <textarea autoFocus title="编辑文本内容" className={`${textClassName} w-full h-full bg-transparent outline-none resize-none overflow-hidden`} value={el.content} onChange={(e) => h.onElementChange(el.id, { content: e.target.value })} onBlur={() => h.setEditingTextId(null)} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} />
+        </>
     ) : (
-        <div className="w-full h-full whitespace-nowrap select-none flex items-center" style={textStyle}>{el.content || '双击编辑文本'}</div>
+        <>
+            <style>{textCss}</style>
+            <div className={`${textClassName} w-full h-full whitespace-nowrap select-none flex items-center`}>{el.content || '双击编辑文本'}</div>
+        </>
     );
 }
 
 export function ShapeElementRenderer({ el }: { el: CanvasElement }) {
+    const shapeColorClassName = buildFloatingPanelPositionClassName('canvas-shape-renderer-color', el.id);
+    const triangleClassName = buildFloatingPanelPositionClassName('canvas-shape-renderer-triangle', el.id);
+    const shapeColor = sanitizeRendererCssColor(el.color);
+    const shapeCss = `
+.${shapeColorClassName} {
+    background-color: ${shapeColor};
+}
+
+.${triangleClassName} {
+    border-bottom-color: ${shapeColor};
+    border-bottom-width: ${toRendererPx(el.height)};
+    border-left-width: ${toRendererPx((el.width || 0) / 2)};
+    border-right-width: ${toRendererPx((el.width || 0) / 2)};
+}
+`;
+
     return (
         <div className="w-full h-full flex items-center justify-center">
-            {(!el.shapeType || el.shapeType === 'square') && <div className="w-full h-full" style={{ backgroundColor: el.color || '#9CA3AF' }} />}
-            {el.shapeType === 'circle' && <div className="w-full h-full rounded-full" style={{ backgroundColor: el.color || '#9CA3AF' }} />}
-            {el.shapeType === 'triangle' && <div className="w-0 h-0 border-l-[50px] border-r-[50px] border-b-[100px] border-l-transparent border-r-transparent" style={{ borderBottomColor: el.color || '#9CA3AF', borderBottomWidth: el.height, borderLeftWidth: (el.width || 0) / 2, borderRightWidth: (el.width || 0) / 2 }} />}
+            <style>{shapeCss}</style>
+            {(!el.shapeType || el.shapeType === 'square') && <div className={`${shapeColorClassName} w-full h-full`} />}
+            {el.shapeType === 'circle' && <div className={`${shapeColorClassName} w-full h-full rounded-full`} />}
+            {el.shapeType === 'triangle' && <div className={`${triangleClassName} w-0 h-0 border-l-[50px] border-r-[50px] border-b-[100px] border-l-transparent border-r-transparent`} />}
             {el.shapeType === 'message' && <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>}
             {el.shapeType === 'arrow-left' && <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" /></svg>}
             {el.shapeType === 'arrow-right' && <svg viewBox="0 0 24 24" className="w-full h-full" fill={el.color || '#9CA3AF'}><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" /></svg>}

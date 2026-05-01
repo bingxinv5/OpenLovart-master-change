@@ -83,6 +83,7 @@ import { VideoGeneratorSettingsPanel } from './VideoGeneratorPanelSettings';
 import { VideoGeneratorResourceLibrary } from './VideoGeneratorResourceLibrary';
 import { VideoGeneratorPromptComposer } from './VideoGeneratorPromptComposer';
 import { VideoGeneratorFileInputs } from './VideoGeneratorFileInputs';
+import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 
 type PromptSelection = TextareaSelection;
 
@@ -987,12 +988,15 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         referenceVideos,
         referenceAudios,
     }), [frameImages, referenceAudios, referenceVideos]);
+    const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('video-generator-panel-position', elementId), [elementId]);
+    const panelPositionCss = useMemo(() => buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, style]);
 
     return (
+        <>
+        <style>{panelPositionCss}</style>
         <div
-            className="absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
+            className={`${panelPositionClassName} absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]`}
             data-testid="video-generator-panel"
-            style={style}
             ref={panelRef}
             onKeyDown={(e) => {
                 e.stopPropagation();
@@ -1173,5 +1177,6 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 </div>
             </div>
         </div>
+        </>
     );
 }

@@ -31,6 +31,7 @@ import {
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
 import type { CanvasElement } from './canvas-types';
+import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 import {
   STORYBOARD_PLANNER_SAVE_DEBOUNCE_MS,
   getStoryboardPlannerStorageKey,
@@ -916,11 +917,14 @@ export function StoryboardPlannerPanel({
       combinedPrompt.trim() || undefined,
     );
   }, [combinedPrompt, generationState.imageUrl, onCreateDraft, result, sourceImages]);
+  const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('storyboard-planner-panel-position', elementId), [elementId]);
+  const panelPositionCss = useMemo(() => buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, style]);
 
   return (
+    <>
+    <style>{panelPositionCss}</style>
     <div
-      className="absolute z-[120] flex w-[min(560px,calc(100vw-40px))] max-h-[min(92vh,960px)] flex-col overflow-hidden rounded-xl border border-slate-200/60 bg-white shadow-xl"
-      style={style}
+      className={`${panelPositionClassName} absolute z-[120] flex w-[min(560px,calc(100vw-40px))] max-h-[min(92vh,960px)] flex-col overflow-hidden rounded-xl border border-slate-200/60 bg-white shadow-xl`}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" aria-label="上传分镜参考图" onChange={handleFileChange} />
@@ -1085,5 +1089,6 @@ export function StoryboardPlannerPanel({
         setShowModelMenu={setShowModelMenu}
       />
     </div>
+    </>
   );
 }

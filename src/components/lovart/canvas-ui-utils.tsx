@@ -69,6 +69,8 @@ export function DragNumberInput({ label, value, onChange, min = 10, step = 1 }: 
                 <input
                     ref={inputRef}
                     type="number"
+                    title={label}
+                    aria-label={label}
                     className="w-[72px] px-2.5 py-1.5 text-sm text-slate-700 bg-white border border-indigo-400 rounded-lg text-center outline-none ring-1 ring-indigo-200"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}

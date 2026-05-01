@@ -4,6 +4,10 @@ import type { CanvasElement } from './canvas-types';
 import { CanvasElementRenderer, type ElementHandlers } from './CanvasElementRenderer';
 import { CanvasAreaWorldOverlays } from './CanvasAreaOverlays';
 
+function toLayerPx(value: number | undefined) {
+    return `${Number.isFinite(value) ? value : 0}px`;
+}
+
 interface CanvasAreaContentLayerProps {
     containerRef: React.RefObject<HTMLDivElement | null>;
     elementsContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -89,12 +93,27 @@ export function CanvasAreaContentLayer({
     frameDrawBox,
     elementHandlersRef,
 }: CanvasAreaContentLayerProps) {
+    const contentLayerCss = `
+.canvas-content-layer-transform {
+    transform: translate(${toLayerPx(pan.x)}, ${toLayerPx(pan.y)}) scale(${Number.isFinite(scale) ? scale : 1});
+    will-change: transform;
+}
+
+.canvas-multi-selection-bounds {
+    left: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.minX - 8 : 0)};
+    top: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.minY - 8 : 0)};
+    width: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.width + 16 : 0)};
+    height: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.height + 16 : 0)};
+    transform: ${multiSelectionPreviewOffset ? `translate(${toLayerPx(multiSelectionPreviewOffset.dx)}, ${toLayerPx(multiSelectionPreviewOffset.dy)})` : 'none'};
+}
+`;
+
     return (
         <div
             ref={containerRef}
-            className="w-full h-full origin-top-left"
-            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, willChange: 'transform' }}
+            className="canvas-content-layer-transform w-full h-full origin-top-left"
         >
+            <style>{contentLayerCss}</style>
             <div className="pointer-events-none absolute inset-0 h-[10000px] w-[10000px] bg-[radial-gradient(#000_1px,transparent_1px)] bg-[length:20px_20px] opacity-[0.03]" />
 
             <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
@@ -183,16 +202,7 @@ export function CanvasAreaContentLayer({
 
                 {multiSelectionBounds && !isSelecting && (
                     <div
-                        className="pointer-events-none absolute z-40 rounded-xl border-2 border-blue-500/85 bg-blue-500/[0.03] shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
-                        style={{
-                            left: multiSelectionBounds.minX - 8,
-                            top: multiSelectionBounds.minY - 8,
-                            width: multiSelectionBounds.width + 16,
-                            height: multiSelectionBounds.height + 16,
-                            transform: multiSelectionPreviewOffset
-                                ? `translate(${multiSelectionPreviewOffset.dx}px, ${multiSelectionPreviewOffset.dy}px)`
-                                : undefined,
-                        }}
+                        className="canvas-multi-selection-bounds pointer-events-none absolute z-40 rounded-xl border-2 border-blue-500/85 bg-blue-500/[0.03] shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
                     >
                         <div className="absolute -top-8 left-0 rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm">
                             已选 {selectedIds.length} 个元素

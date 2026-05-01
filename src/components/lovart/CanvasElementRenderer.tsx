@@ -19,6 +19,16 @@ import {
 import { FrameExportMenu } from './frame-export-menu';
 import { FRAME_LAYOUT_ALIGN_LABELS, FRAME_LAYOUT_MODE_LABELS, FrameAutoLayoutControls, FramePresetButton, FramePresetMenu } from './frame-toolbar-controls';
 import { ImageElementOverlays } from './image-element-overlays';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
+
+function toCanvasElementPx(value: number | undefined) {
+    return `${Number.isFinite(value) ? value : 0}px`;
+}
+
+function sanitizeElementCssColor(value: string | undefined, fallback = '#FFFFFF') {
+    const color = (value || '').trim();
+    return /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : fallback;
+}
 
 // ─── Handlers interface: passed via stable ref to avoid React.memo invalidation ───
 export interface ElementHandlers {
@@ -196,20 +206,23 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
             && isSelected
             && !isNotPickable
             && (storyboardStatus.hasAny || ((el.width || 0) * scale >= 108 && (el.height || 0) * scale >= 84));
+        const elementPositionClassName = buildFloatingPanelPositionClassName('canvas-element-position', el.id);
+        const elementPositionCss = `
+.${elementPositionClassName} {
+    left: ${toCanvasElementPx(el.x)};
+    top: ${toCanvasElementPx(el.y)};
+    width: ${toCanvasElementPx(el.width)};
+    height: ${toCanvasElementPx(el.height)};
+    z-index: ${Number.isFinite(zIndex) ? zIndex : 'auto'};
+    transform: ${dragPreviewOffset ? `translate(${toCanvasElementPx(dragPreviewOffset.dx)}, ${toCanvasElementPx(dragPreviewOffset.dy)})` : 'none'};
+    pointer-events: ${activeTool === 'draw' || isNotPickable ? 'none' : 'auto'};
+}
+`;
 
         return (
             <div
                 data-element-id={el.id}
-                className={`absolute group ${el.type === 'frame' ? 'z-0' : ''} ${isPickable ? 'cursor-pointer ring-4 ring-green-400 ring-offset-2 rounded-lg z-20' : ''} ${isNotPickable ? 'opacity-30 pointer-events-none' : ''} ${isLocked ? 'cursor-not-allowed' : ''}`}
-                style={{
-                    left: el.x,
-                    top: el.y,
-                    width: el.width,
-                    height: el.height,
-                    zIndex,
-                    transform: dragPreviewOffset ? `translate(${dragPreviewOffset.dx}px, ${dragPreviewOffset.dy}px)` : undefined,
-                    pointerEvents: activeTool === 'draw' || isNotPickable ? 'none' : 'auto',
-                }}
+                className={`${elementPositionClassName} absolute group ${el.type === 'frame' ? 'z-0' : ''} ${isPickable ? 'cursor-pointer ring-4 ring-green-400 ring-offset-2 rounded-lg z-20' : ''} ${isNotPickable ? 'opacity-30 pointer-events-none' : ''} ${isLocked ? 'cursor-not-allowed' : ''}`}
                 onDragStart={(e) => e.preventDefault()}
                 onMouseEnter={() => {
                     if (el.type === 'image') {
@@ -259,6 +272,7 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     if (el.type === 'image') h.fitToElement(el);
                 }}
             >
+                <style>{elementPositionCss}</style>
                 {isResultHighlighted && (
                     <div className="pointer-events-none absolute -inset-3 z-0 animate-pulse rounded-[28px] border-2 border-emerald-400/80 shadow-[0_0_0_6px_rgba(52,211,153,0.18)]" />
                 )}
@@ -408,16 +422,20 @@ function FrameContent({
     handlersRef: React.RefObject<ElementHandlers>;
 }) {
     const h = handlersRef.current!;
+    const frameColorClassName = buildFloatingPanelPositionClassName('canvas-frame-color', el.id);
+    const frameColorCss = `.${frameColorClassName} { background-color: ${sanitizeElementCssColor(el.frameBgColor)}; }`;
 
     return (
-        <div className="w-full h-full relative" style={{ overflow: 'visible' }}>
+        <div className="w-full h-full relative overflow-visible">
+            <style>{frameColorCss}</style>
             {/* Frame label */}
-            <div className="absolute -top-6 left-0 flex items-center gap-1.5 select-none" style={{ whiteSpace: 'nowrap' }}>
+            <div className="absolute -top-6 left-0 flex items-center gap-1.5 select-none whitespace-nowrap">
                 <Frame size={12} className="text-blue-500" />
                 {isEditingFrameName ? (
                     <input
                         autoFocus
                         type="text"
+                        title="编辑画板名称"
                         className="text-xs font-medium text-blue-500 bg-white border border-blue-300 rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-blue-400 min-w-[60px]"
                         value={el.frameName || 'Frame'}
                         onChange={(e) => h.onElementChange(el.id, { frameName: e.target.value })}
@@ -459,14 +477,13 @@ function FrameContent({
             <div
                 data-frame-body="true"
                 data-testid={`frame-body-${el.id}`}
-                className={`w-full h-full border rounded-sm transition-colors ${
+                className={`${frameColorClassName} w-full h-full border rounded-sm transition-colors ${el.frameClip ? 'overflow-hidden' : 'overflow-visible'} ${
                     isDropTarget
                         ? 'border-blue-500 border-2 shadow-lg shadow-blue-100'
                         : el.groupFrame
                             ? 'border-violet-400 border-2 bg-violet-50/30'
                             : 'border-gray-300'
                 }`}
-                style={{ backgroundColor: el.frameBgColor || '#FFFFFF', overflow: el.frameClip ? 'hidden' : 'visible' }}
             />
 
             {/* Drop target indicator overlay */}
@@ -509,6 +526,8 @@ function FrameToolbar({
     handlersRef: React.RefObject<ElementHandlers>;
 }) {
     const h = handlersRef.current!;
+    const frameColorClassName = buildFloatingPanelPositionClassName('canvas-frame-toolbar-color', el.id);
+    const frameColorCss = `.${frameColorClassName} { background-color: ${sanitizeElementCssColor(el.frameBgColor)}; }`;
 
     return (
         <div
@@ -516,6 +535,7 @@ function FrameToolbar({
             onMouseDown={(e) => e.stopPropagation()}
             data-testid={`frame-toolbar-${el.id}`}
         >
+            <style>{frameColorCss}</style>
             <div className="flex items-center bg-white rounded-xl shadow-xl border border-gray-200 px-3 py-2 gap-2">
                 <FramePresetButton el={el} showFramePresetMenu={showFramePresetMenu} handlersRef={handlersRef} />
                 <div className="w-px h-7 bg-gray-200" />
@@ -526,8 +546,7 @@ function FrameToolbar({
                 {/* Background color */}
                 <div className="relative">
                     <div
-                        className="w-8 h-8 rounded-lg border border-gray-200 cursor-pointer relative overflow-hidden hover:ring-2 hover:ring-blue-200 transition-all"
-                        style={{ backgroundColor: el.frameBgColor || '#FFFFFF' }}
+                        className={`${frameColorClassName} w-8 h-8 rounded-lg border border-gray-200 cursor-pointer relative overflow-hidden hover:ring-2 hover:ring-blue-200 transition-all`}
                         title="背景颜色"
                     >
                         <StableColorInput
@@ -625,15 +644,18 @@ function MarkContent({
     handlersRef: React.RefObject<ElementHandlers>;
 }) {
     const h = handlersRef.current!;
+    const markColorClassName = buildFloatingPanelPositionClassName('canvas-mark-color', el.id);
+    const markColorCss = `.${markColorClassName} { color: ${sanitizeElementCssColor(el.color, '#EF4444')}; }`;
 
     return (
-        <div className="w-full h-full relative" style={{ overflow: 'visible' }}>
+        <div className="w-full h-full relative overflow-visible">
+            <style>{markColorCss}</style>
             {/* Pin icon */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 drop-shadow-lg flex items-start gap-0.5" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))' }}>
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)] flex items-start gap-0.5">
                 <div className="relative">
                     <MapPin size={32} fill={el.color || '#EF4444'} color="white" strokeWidth={1.5} />
                     <div className="absolute top-[4px] left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white flex items-center justify-center">
-                        <span className="text-[9px] font-bold" style={{ color: el.color || '#EF4444' }}>{el.markNumber || '?'}</span>
+                        <span className={`${markColorClassName} text-[9px] font-bold`}>{el.markNumber || '?'}</span>
                     </div>
                 </div>
                 {/* Quick edit button */}
@@ -653,7 +675,7 @@ function MarkContent({
             </div>
             {/* Quick edit prompt bar */}
             {isQuickEditing && el.markTargetId && (
-                <div className="absolute top-9 left-1/2 -translate-x-1/2 z-30" style={{ minWidth: '240px' }} onMouseDown={(e) => e.stopPropagation()}>
+                <div className="absolute top-9 left-1/2 -translate-x-1/2 z-30 min-w-[240px]" onMouseDown={(e) => e.stopPropagation()}>
                     <div className="bg-white border border-purple-200 rounded-xl shadow-xl p-2 flex flex-col gap-1.5">
                         <div className="flex items-center gap-1.5 px-1">
                             <Wand2 size={12} className="text-purple-500 flex-shrink-0" />
@@ -681,6 +703,8 @@ function MarkContent({
                             />
                             <button
                                 className={`p-1.5 rounded-lg transition-all ${quickEditPrompt.trim() ? 'bg-purple-500 text-white hover:bg-purple-600 shadow-sm' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
+                                title="提交快速编辑"
+                                aria-label="提交快速编辑"
                                 disabled={!quickEditPrompt.trim()}
                                 onMouseDown={(e) => {
                                     e.stopPropagation();
@@ -695,7 +719,7 @@ function MarkContent({
             )}
             {/* Mark text tooltip */}
             {!isQuickEditing && (isEditingMark || el.markText) && (
-                <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20" style={{ minWidth: '120px' }}>
+                <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 min-w-[120px]">
                     {isEditingMark ? (
                         <input
                             autoFocus

@@ -101,13 +101,15 @@ interface VideoGeneratorSettingsPanelProps {
     onEnhancePromptChange: (enabled: boolean) => void;
 }
 
-const RATIO_SHAPES: Record<string, { w: number; h: number }> = {
-    '16:9': { w: 14, h: 8 },
-    '9:16': { w: 8, h: 14 },
-    '1:1': { w: 10, h: 10 },
-    '4:3': { w: 12, h: 9 },
-    '3:4': { w: 9, h: 12 },
+const RATIO_SHAPE_CLASSES: Record<string, string> = {
+    '16:9': 'w-[14px] h-2',
+    '9:16': 'w-2 h-[14px]',
+    '1:1': 'h-2.5 w-2.5',
+    '4:3': 'w-3 h-[9px]',
+    '3:4': 'w-[9px] h-3',
 };
+
+const DURATION_GRID_COLUMN_CLASSES = ['grid-cols-1', 'grid-cols-2', 'grid-cols-3', 'grid-cols-4', 'grid-cols-5', 'grid-cols-6'];
 
 export function VideoGeneratorSettingsPanel({
     isOpen,
@@ -131,6 +133,8 @@ export function VideoGeneratorSettingsPanel({
     onGenerateAudioChange,
     onEnhancePromptChange,
 }: VideoGeneratorSettingsPanelProps) {
+    const durationGridClassName = DURATION_GRID_COLUMN_CLASSES[Math.max(0, Math.min(durations.length, 6) - 1)] || 'grid-cols-1';
+
     return (
         <div className="relative shrink-0" data-popover-menu>
             <button
@@ -169,15 +173,12 @@ export function VideoGeneratorSettingsPanel({
                         <div className="py-3 border-t border-slate-100/80">
                             <div className="mb-2 text-[11px] font-medium text-slate-500">画面比例</div>
                             <div className="flex flex-wrap gap-1.5">
-                                {aspectRatios.map((ratio) => {
-                                    const shape = RATIO_SHAPES[ratio] || { w: 10, h: 10 };
-                                    return (
-                                        <button key={ratio} type="button" onClick={() => onAspectRatioChange(ratio)} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                            <span className={`inline-block rounded-[2px] border ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} style={{ width: `${shape.w}px`, height: `${shape.h}px` }} />
-                                            {ratio}
-                                        </button>
-                                    );
-                                })}
+                                {aspectRatios.map((ratio) => (
+                                    <button key={ratio} type="button" onClick={() => onAspectRatioChange(ratio)} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${aspectRatio === ratio ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                        <span className={`inline-block rounded-[2px] border ${RATIO_SHAPE_CLASSES[ratio] || 'h-2.5 w-2.5'} ${aspectRatio === ratio ? 'border-white/50' : 'border-slate-400/50'}`} />
+                                        {ratio}
+                                    </button>
+                                ))}
                             </div>
                         </div>
 
@@ -194,7 +195,7 @@ export function VideoGeneratorSettingsPanel({
 
                         <div className="py-3 border-t border-slate-100/80">
                             <div className="mb-2 text-[11px] font-medium text-slate-500">时长</div>
-                            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(durations.length, 6)}, 1fr)` }}>
+                            <div className={`grid gap-1.5 ${durationGridClassName}`}>
                                 {durations.map((item) => (
                                     <button key={item} type="button" onClick={() => onDurationChange(item)} className={`rounded-lg py-1.5 text-xs font-medium transition-colors text-center ${duration === item ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{item}</button>
                                 ))}
@@ -207,7 +208,7 @@ export function VideoGeneratorSettingsPanel({
                                     <Volume2 size={13} className={generateAudio ? 'text-emerald-500' : 'text-slate-400'} />
                                     <span className="text-[11px] font-medium text-slate-600">生成音频</span>
                                 </div>
-                                <button type="button" onClick={() => onGenerateAudioChange(!generateAudio)} disabled={isGenerating || isReferenceUploadBusy} className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${generateAudio ? 'bg-emerald-500' : 'bg-slate-200'}`}>
+                                <button type="button" onClick={() => onGenerateAudioChange(!generateAudio)} disabled={isGenerating || isReferenceUploadBusy} className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${generateAudio ? 'bg-emerald-500' : 'bg-slate-200'}`} title={generateAudio ? '关闭生成音频' : '开启生成音频'} aria-label={generateAudio ? '关闭生成音频' : '开启生成音频'}>
                                     <span className={`inline-block h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-transform ${generateAudio ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
                                 </button>
                             </div>
@@ -218,7 +219,7 @@ export function VideoGeneratorSettingsPanel({
                                 <Sparkles size={13} className={enhancePrompt ? 'text-violet-500' : 'text-slate-400'} />
                                 <span className="text-[11px] font-medium text-slate-600">提示词增强</span>
                             </div>
-                            <button type="button" onClick={() => onEnhancePromptChange(!enhancePrompt)} className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${enhancePrompt ? 'bg-violet-500' : 'bg-slate-200'}`}>
+                            <button type="button" onClick={() => onEnhancePromptChange(!enhancePrompt)} className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${enhancePrompt ? 'bg-violet-500' : 'bg-slate-200'}`} title={enhancePrompt ? '关闭提示词增强' : '开启提示词增强'} aria-label={enhancePrompt ? '关闭提示词增强' : '开启提示词增强'}>
                                 <span className={`inline-block h-[14px] w-[14px] rounded-full bg-white shadow-sm transition-transform ${enhancePrompt ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
                             </button>
                         </div>

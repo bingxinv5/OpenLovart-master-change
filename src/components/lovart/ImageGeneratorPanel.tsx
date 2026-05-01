@@ -76,6 +76,7 @@ import { buildImageReferencePreviewItems } from './generator-reference-view-mode
 import type { ImageResourceLibraryTab } from './ImageGeneratorResourceLibrary';
 import { ImageGeneratorPromptComposer } from './ImageGeneratorPromptComposer';
 import { ImageGeneratorFooterControls } from './ImageGeneratorFooterControls';
+import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
 
@@ -989,12 +990,15 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const resourceLibraryCount = projectReferenceImages.length + favoriteReferences.length + recentHistory.length + referenceLibrary.length;
     const canAddMoreImages = referenceImages.length < maxReferenceImages;
     const referencePreviewItems = useMemo(() => buildImageReferencePreviewItems(referenceImages), [referenceImages]);
+    const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('image-generator-panel-position', elementId), [elementId]);
+    const panelPositionCss = useMemo(() => buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, style]);
 
     return (
+        <>
+        <style>{panelPositionCss}</style>
         <div
-            className="absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]"
+            className={`${panelPositionClassName} absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]`}
             data-testid="image-generator-panel"
-            style={style}
             ref={panelRef}
             onKeyDown={(e) => {
                 e.stopPropagation();
@@ -1141,5 +1145,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onSubmit={() => prompt.trim() && !isGenerating && handleGenerate()}
             />
         </div>
+        </>
     );
 }

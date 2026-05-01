@@ -158,15 +158,15 @@ export function ImageGeneratorResourceLibrary({
                                             <div className="px-1.5 py-1">
                                                 {isEditingLabel ? (
                                                     <div className="flex items-center gap-1">
-                                                        <input value={favoriteLabelDraft} onChange={(event) => onFavoriteLabelDraftChange(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onCommitFavoriteRename(item.id); }} className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700 outline-none focus:border-violet-400" />
-                                                        <button type="button" onClick={() => onCommitFavoriteRename(item.id)} className="rounded bg-violet-500 p-0.5 text-white hover:bg-violet-600"><Check size={10} /></button>
+                                                        <input value={favoriteLabelDraft} title="常用参考名称" aria-label="常用参考名称" onChange={(event) => onFavoriteLabelDraftChange(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onCommitFavoriteRename(item.id); }} className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-700 outline-none focus:border-violet-400" />
+                                                        <button type="button" onClick={() => onCommitFavoriteRename(item.id)} className="rounded bg-violet-500 p-0.5 text-white hover:bg-violet-600" title="保存常用参考名称" aria-label="保存常用参考名称"><Check size={10} /></button>
                                                     </div>
                                                 ) : (
                                                     <div className="truncate text-[10px] font-medium text-slate-700">{item.label}</div>
                                                 )}
                                                 <div className="mt-0.5 flex items-center justify-end gap-0.5">
-                                                    {!isEditingLabel && <button type="button" onClick={() => onStartRenameFavorite(item)} className="rounded p-0.5 text-slate-400 hover:bg-slate-50 hover:text-slate-600"><Pencil size={10} /></button>}
-                                                    <button type="button" onClick={() => onDeleteFavorite(item.id)} className="rounded p-0.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={10} /></button>
+                                                    {!isEditingLabel && <button type="button" onClick={() => onStartRenameFavorite(item)} className="rounded p-0.5 text-slate-400 hover:bg-slate-50 hover:text-slate-600" title="重命名常用参考" aria-label="重命名常用参考"><Pencil size={10} /></button>}
+                                                    <button type="button" onClick={() => onDeleteFavorite(item.id)} className="rounded p-0.5 text-rose-400 hover:bg-rose-50 hover:text-rose-600" title="删除常用参考" aria-label="删除常用参考"><Trash2 size={10} /></button>
                                                 </div>
                                             </div>
                                         </div>
@@ -231,7 +231,7 @@ export function ImageGeneratorResourceLibrary({
                                     return (
                                         <div key={`${item.historyId}-${index}`} className={`group overflow-hidden rounded-lg border text-left transition-all ${alreadySelected ? 'border-sky-200 bg-sky-50/80 opacity-60' : 'border-slate-200/60 bg-white hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-sm'}`}>
                                             <div className="relative">
-                                                <button type="button" onClick={() => onApplyReferenceLibraryImage(item.image)} disabled={alreadySelected || referenceLimitReached} className={`block w-full text-left ${alreadySelected ? 'cursor-not-allowed' : ''}`}>
+                                                <button type="button" onClick={() => onApplyReferenceLibraryImage(item.image)} disabled={alreadySelected || referenceLimitReached} className={`block w-full text-left ${alreadySelected ? 'cursor-not-allowed' : ''}`} title={`加入参考图库 ${index + 1}`} aria-label={`加入参考图库 ${index + 1}`}>
                                                     <WorkbenchImage content={item.image} alt={`参考图库 ${index + 1}`} containerClassName="h-[56px] w-full" imageClassName="transition-transform duration-200 group-hover:scale-[1.03]" fit="cover" showSurface={false} />
                                                 </button>
                                                 <button

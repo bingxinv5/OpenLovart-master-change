@@ -111,6 +111,8 @@ export function GenerationQueuePanel({
                         const toneStyles = getToneStyles(item.tone);
                         const isGroupRow = item.entityType === 'group';
                         const isLast = idx === items.length - 1;
+                        const progressClassName = `generation-queue-progress-${item.id.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+                        const progressPercent = Math.max(0, Math.min(item.progress, 100));
 
                         return (
                             <div
@@ -120,9 +122,9 @@ export function GenerationQueuePanel({
                                 {/* Progress bar (thin stripe at top of each item) */}
                                 {item.progress > 0 && item.tone !== 'failed' && (
                                     <div className="absolute top-0 left-0 right-0 h-[2px] bg-slate-100">
+                                        <style>{`.${progressClassName} { width: ${progressPercent}%; }`}</style>
                                         <div
-                                            className={`h-full transition-all duration-500 ${toneStyles.progress}`}
-                                            style={{ width: `${item.progress}%` }}
+                                            className={`${progressClassName} h-full transition-all duration-500 ${toneStyles.progress}`}
                                         />
                                     </div>
                                 )}

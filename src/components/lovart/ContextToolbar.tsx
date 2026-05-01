@@ -8,12 +8,22 @@ import type { ProjectReferenceImageItem } from '@/lib/project-reference-library'
 import { validateStoryboardDuration, validateStoryboardShotCode } from '@/lib/storyboard-utils';
 import { mockupTemplates, bgOptions, parseSavedReferenceImages } from './toolbar-actions';
 import { StableColorInput } from './canvas-ui-utils';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
 // mockupTemplates, bgOptions, parseSavedReferenceImages — imported from toolbar-actions
 
 const splitStoryboardTool = getCanvasImageTool('split-storyboard');
 const cropImageTool = getCanvasImageTool('crop-image');
 const annotateImageTool = getCanvasImageTool('annotate-image');
+
+function toToolbarPx(value: number | undefined) {
+    return `${Number.isFinite(value) ? value : 0}px`;
+}
+
+function sanitizeToolbarCssColor(value: string) {
+    const color = value.trim();
+    return /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#9CA3AF';
+}
 
 interface ContextToolbarProps {
     element: CanvasElement;
@@ -277,13 +287,19 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
     // 针对图片和视频元素显示特殊的工具栏
     if (element.type === 'image' || element.type === 'video') {
+        const editInputPositionClassName = buildFloatingPanelPositionClassName('context-toolbar-edit-input-position', element.id);
+        const editInputPositionCss = `
+.${editInputPositionClassName} {
+    top: ${toToolbarPx(48 + (element.height || 0) * scale + 8)};
+}
+`;
         return (
             <div className="relative pointer-events-none">
+                <style>{editInputPositionCss}</style>
                 {/* AI Edit prompt input */}
                 {showEditInput && (
                     <div
-                        style={{ top: 48 + (element.height || 0) * scale + 8 }}
-                        className="pointer-events-auto absolute left-1/2 -translate-x-1/2 w-[22rem] workbench-panel-elevated rounded-xl z-50 p-3"
+                        className={`${editInputPositionClassName} pointer-events-auto absolute left-1/2 -translate-x-1/2 w-[22rem] workbench-panel-elevated rounded-xl z-50 p-3`}
                         onMouseDown={(e) => e.stopPropagation()}
                     >
                         <div className="flex items-center justify-between mb-2">
@@ -715,8 +731,12 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
     // 其他元素类型的工具栏
     const resolvedElementColor = element.color || (element.type === 'text' ? '#000000' : '#9CA3AF');
+    const colorSwatchClassName = buildFloatingPanelPositionClassName('context-toolbar-color-swatch', element.id);
+    const colorSwatchCss = `.${colorSwatchClassName} { background-color: ${sanitizeToolbarCssColor(resolvedElementColor)}; }`;
 
     return (
+        <>
+        <style>{colorSwatchCss}</style>
         <div
             className="pointer-events-auto workbench-panel rounded-[16px] p-1.5 flex items-center gap-2.5"
             onMouseDown={(e) => e.stopPropagation()}
@@ -724,8 +744,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
             {/* Color Picker (for Shapes and Text) */}
             <div className="flex items-center gap-2">
                 <div
-                    className="w-7 h-7 rounded-full border-2 border-white shadow-sm cursor-pointer relative overflow-hidden ring-1 ring-slate-200"
-                    style={{ backgroundColor: resolvedElementColor }}
+                    className={`${colorSwatchClassName} w-7 h-7 rounded-full border-2 border-white shadow-sm cursor-pointer relative overflow-hidden ring-1 ring-slate-200`}
                 >
                     <StableColorInput
                         value={element.color}
@@ -846,5 +865,6 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                 </button>
             </div>
         </div>
+        </>
     );
 }

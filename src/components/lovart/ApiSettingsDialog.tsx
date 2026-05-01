@@ -391,9 +391,13 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
     const shellClassName = mode === 'page'
         ? 'mx-auto w-full max-w-6xl px-6 py-8'
         : 'w-[880px] max-w-[94vw] rounded-2xl border border-gray-200 bg-[#f5f5f7] shadow-2xl';
+    const storageUsagePercent = storageEstimate
+        ? Math.min(Math.max(storageEstimate.usageRatio * 100, 0), 100)
+        : 0;
 
     return (
         <div data-testid={`settings-center-${mode}`} className={shellClassName}>
+            <style>{`.api-settings-storage-usage { width: ${storageUsagePercent}%; }`}</style>
             <div className={mode === 'page' ? 'grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)]' : 'grid min-h-[580px] gap-0 lg:grid-cols-[200px_minmax(0,1fr)]'}>
                 <aside className={mode === 'page' ? 'rounded-2xl border border-gray-200 bg-white p-4 shadow-sm' : 'rounded-l-2xl border-r border-gray-100 bg-white p-4'}>
                     <div className="mb-4 flex items-center justify-between gap-2">
@@ -499,8 +503,7 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                         {storageEstimate && (
                                             <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
                                                 <div
-                                                    className={`h-full rounded-full transition-all ${storageEstimate.usageRatio > 0.8 ? 'bg-amber-500' : storageEstimate.usageRatio > 0.6 ? 'bg-yellow-400' : 'bg-gray-900'}`}
-                                                    style={{ width: `${Math.min(Math.max(storageEstimate.usageRatio * 100, 0), 100)}%` }}
+                                                    className={`api-settings-storage-usage h-full rounded-full transition-all ${storageEstimate.usageRatio > 0.8 ? 'bg-amber-500' : storageEstimate.usageRatio > 0.6 ? 'bg-yellow-400' : 'bg-gray-900'}`}
                                                 />
                                             </div>
                                         )}

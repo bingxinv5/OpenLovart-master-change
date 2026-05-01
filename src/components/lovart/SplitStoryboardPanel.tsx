@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { ChevronDown, Loader2, Scissors, Sparkles, X, Zap } from 'lucide-react';
 import type { CanvasElement } from './canvas-types';
+import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 import { buildDefaultNamePrefix } from './panel-defaults';
 import type { StoryboardSplitOptions } from '@/lib/storyboard-split';
 import { checkUpscaleApiHealth, UPSCALE_MODELS } from '@/lib/upscale-api';
@@ -97,11 +98,14 @@ function SplitStoryboardPanelContent({
         : value,
     }));
   };
+  const panelPositionClassName = buildFloatingPanelPositionClassName('split-storyboard-panel-position', element.id);
+  const panelPositionCss = buildFloatingPanelPositionCss(panelPositionClassName, style);
 
   return (
+    <>
+    <style>{panelPositionCss}</style>
     <div
-      className="absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3"
-      style={style}
+      className={`${panelPositionClassName} absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3`}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Header */}
@@ -196,6 +200,8 @@ function SplitStoryboardPanelContent({
           <button
             type="button"
             onClick={() => updateField('upscaleEnabled', !options.upscaleEnabled)}
+            title={options.upscaleEnabled ? '关闭 AI 放大' : '开启 AI 放大'}
+            aria-label={options.upscaleEnabled ? '关闭 AI 放大' : '开启 AI 放大'}
             className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
               options.upscaleEnabled ? 'bg-violet-500' : 'bg-slate-300'
             }`}
@@ -296,5 +302,6 @@ function SplitStoryboardPanelContent({
         </button>
       </div>
     </div>
+    </>
   );
 }

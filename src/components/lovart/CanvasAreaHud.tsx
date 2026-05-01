@@ -5,6 +5,11 @@ import { ContextToolbar } from './ContextToolbar';
 import { MultiSelectionToolbar } from './MultiSelectionToolbar';
 import type { AlignmentDirection, DistributionAxis, LayoutSelectionMode } from './canvas-alignment';
 import type { CanvasElement, CanvasElementExportFormat } from './canvas-types';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
+
+function toHudPx(value: number | undefined) {
+    return `${Number.isFinite(value) ? value : 0}px`;
+}
 
 type AlignmentAction = {
     direction: AlignmentDirection;
@@ -177,9 +182,25 @@ export function CanvasAreaHud({
         && selectedElement.type !== 'frame'
         && selectedElement.type !== 'image-generator'
         && selectedElement.type !== 'video-generator';
+    const contextToolbarClassName = selectedElement
+        ? buildFloatingPanelPositionClassName('canvas-context-toolbar-position', selectedElement.id)
+        : '';
+    const contextToolbarCss = selectedElement
+        ? `
+.${contextToolbarClassName} {
+    position: absolute;
+    left: ${toHudPx((selectedElement.x + (selectedElement.width || 0) / 2) * scale + pan.x)};
+    top: ${toHudPx(Math.max(8, selectedElement.y * scale + pan.y - 48))};
+    transform: translateX(-50%);
+    z-index: 100;
+    width: max-content;
+}
+`
+        : '';
 
     return (
         <>
+            {contextToolbarCss && <style>{contextToolbarCss}</style>}
             {canvasSelectMode && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[200] bg-green-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-2 duration-200" onMouseDown={(event) => event.stopPropagation()}>
                     <MousePointerClick size={18} />
@@ -211,17 +232,10 @@ export function CanvasAreaHud({
 
             {canShowContextToolbar && selectedElement && (
                 <div
+                    className={contextToolbarClassName}
                     onPointerDownCapture={onPointerDownCapture}
                     onMouseDownCapture={onMouseDownCapture}
                     onClickCapture={onClickCapture}
-                    style={{
-                        position: 'absolute',
-                        left: (selectedElement.x + (selectedElement.width || 0) / 2) * scale + pan.x,
-                        top: Math.max(8, selectedElement.y * scale + pan.y - 48),
-                        transform: 'translateX(-50%)',
-                        zIndex: 100,
-                        width: 'max-content',
-                    }}
                 >
                     <ContextToolbar
                         element={selectedElement}

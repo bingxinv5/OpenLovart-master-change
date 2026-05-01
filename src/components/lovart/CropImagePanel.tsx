@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ChevronDown, ChevronRight, Crop, Loader2, Move, Search, X } from 'lucide-react';
 import type { CanvasElement } from './canvas-types';
+import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 import { buildDefaultNamePrefix } from './panel-defaults';
 import { useToolPresets } from './useToolPresets';
 import { getImageBlobUrlWithLOD, isImageRef } from '@/lib/editor-kernel';
@@ -104,6 +105,10 @@ function getDisplayRect(size: ImageNaturalSize | null): DisplayRect {
     width,
     height,
   };
+}
+
+function toPreviewPx(value: number | undefined) {
+  return `${Number.isFinite(value) ? value : 0}px`;
 }
 
 function buildCropRectFromControls(options: CropImageOptions, size: ImageNaturalSize): CropRect {
@@ -461,11 +466,37 @@ function CropImagePanelContent({
       window.removeEventListener('pointercancel', handlePointerUp);
     };
   }, [commitRect, cropRect, displayRect.height, displayRect.width, imageSize, options.aspectRatio, resizeWithAspect]);
+  const panelPositionClassName = buildFloatingPanelPositionClassName('crop-image-panel-position', element.id);
+  const panelPositionCss = buildFloatingPanelPositionCss(panelPositionClassName, style);
+  const previewStageClassName = buildFloatingPanelPositionClassName('crop-preview-stage', element.id);
+  const previewImageClassName = buildFloatingPanelPositionClassName('crop-preview-image', element.id);
+  const cropOverlayClassName = buildFloatingPanelPositionClassName('crop-preview-overlay', element.id);
+  const cropPreviewCss = `
+.${previewStageClassName} {
+  width: ${PREVIEW_STAGE_WIDTH}px;
+  height: ${PREVIEW_STAGE_HEIGHT}px;
+}
+
+.${previewImageClassName} {
+  left: ${toPreviewPx(displayRect.left)};
+  top: ${toPreviewPx(displayRect.top)};
+  width: ${toPreviewPx(displayRect.width)};
+  height: ${toPreviewPx(displayRect.height)};
+}
+
+.${cropOverlayClassName} {
+  left: ${toPreviewPx(cropOverlayStyle?.left)};
+  top: ${toPreviewPx(cropOverlayStyle?.top)};
+  width: ${toPreviewPx(cropOverlayStyle?.width)};
+  height: ${toPreviewPx(cropOverlayStyle?.height)};
+}
+`;
 
   return (
+    <>
+    <style>{`${panelPositionCss}${cropPreviewCss}`}</style>
     <div
-      className="absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3"
-      style={style}
+      className={`${panelPositionClassName} absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3`}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-between">
@@ -488,20 +519,14 @@ function CropImagePanelContent({
 
       <div className="mt-2.5">
         <div className="mb-2.5 overflow-hidden rounded-lg border border-slate-200 bg-slate-900">
-            <div className="relative overflow-hidden" style={{ width: PREVIEW_STAGE_WIDTH, height: PREVIEW_STAGE_HEIGHT }}>
+            <div className={`${previewStageClassName} relative overflow-hidden`}>
               {previewSrc ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={previewSrc}
                     alt="crop-preview"
-                    className="absolute select-none object-contain"
-                    style={{
-                      left: displayRect.left,
-                      top: displayRect.top,
-                      width: displayRect.width,
-                      height: displayRect.height,
-                    }}
+                    className={`${previewImageClassName} absolute select-none object-contain`}
                     draggable={false}
                     onLoad={(e) => {
                       const img = e.currentTarget;
@@ -517,8 +542,7 @@ function CropImagePanelContent({
                     <>
                       <div className="absolute inset-0 bg-black/40" />
                       <div
-                        className="absolute border border-white/80 bg-white/5 shadow-[0_0_0_9999px_rgba(2,6,23,0.45)]"
-                        style={cropOverlayStyle}
+                        className={`${cropOverlayClassName} absolute border border-white/80 bg-white/5 shadow-[0_0_0_9999px_rgba(2,6,23,0.45)]`}
                       >
                         <div
                           className="absolute inset-0 cursor-move"
@@ -744,5 +768,6 @@ function CropImagePanelContent({
         </button>
       </div>
     </div>
+    </>
   );
 }

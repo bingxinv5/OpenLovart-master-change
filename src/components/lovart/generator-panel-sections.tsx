@@ -29,6 +29,27 @@ interface GeneratorReferenceStackProps {
     onRemove: (item: GeneratorReferencePreviewItem, index: number) => void;
 }
 
+const REFERENCE_STACK_WIDTH_CLASSES = ['w-0', 'w-[32px]', 'w-[42px]', 'w-[52px]'];
+const REFERENCE_STACK_PREVIEW_CLASSES = [
+    'left-0 z-[1]',
+    'left-[10px] z-[2]',
+    'left-[20px] z-[3]',
+];
+const REFERENCE_STACK_DELAY_CLASSES = [
+    'delay-0',
+    'delay-[40ms]',
+    'delay-[80ms]',
+    'delay-[120ms]',
+    'delay-[160ms]',
+    'delay-[200ms]',
+    'delay-[240ms]',
+    'delay-[280ms]',
+    'delay-[320ms]',
+    'delay-[360ms]',
+    'delay-[400ms]',
+    'delay-[440ms]',
+];
+
 function ReferencePreviewTile({
     item,
     sizeClassName,
@@ -84,26 +105,23 @@ export function GeneratorReferenceStack({
             data-testid={testId}
             data-reference-count={items.length}
         >
-            <div className="relative" style={{ minHeight: '32px' }}>
+            <div className="relative min-h-8">
                 <div className={`relative z-0 flex items-end gap-1 transition-all duration-300 ease-out ${items.length > 0 ? 'group-hover/refs:opacity-0 group-hover/refs:scale-95 group-hover/refs:pointer-events-none' : ''}`}>
                     {items.length > 0 && (
                         <div
-                            className="relative flex items-end"
-                            style={{ width: `${Math.min(items.length, 3) * 10 + 22}px`, height: '32px' }}
+                            className={`relative flex h-8 items-end ${REFERENCE_STACK_WIDTH_CLASSES[Math.min(items.length, 3)] || 'w-[52px]'}`}
                         >
                             {items.slice(0, 3).map((item, index) => (
                                 <div
                                     key={item.id}
-                                    className="absolute bottom-0 rounded-lg border-2 border-white shadow-sm overflow-hidden"
-                                    style={{ left: `${index * 10}px`, zIndex: index + 1, width: '32px', height: '32px' }}
+                                    className={`absolute bottom-0 h-8 w-8 overflow-hidden rounded-lg border-2 border-white shadow-sm ${REFERENCE_STACK_PREVIEW_CLASSES[index] || 'left-0 z-[1]'}`}
                                 >
                                     <ReferencePreviewTile item={item} sizeClassName="h-full w-full rounded-md" imageClassName="rounded-md" iconSize={10} />
                                 </div>
                             ))}
                             {items.length > 3 && (
                                 <div
-                                    className="absolute bottom-0 flex h-8 w-8 items-center justify-center rounded-lg border-2 border-white bg-slate-100 text-[10px] font-medium text-slate-500 shadow-sm"
-                                    style={{ left: `${3 * 10}px`, zIndex: 4 }}
+                                    className="absolute bottom-0 left-[30px] z-[4] flex h-8 w-8 items-center justify-center rounded-lg border-2 border-white bg-slate-100 text-[10px] font-medium text-slate-500 shadow-sm"
                                 >
                                     +{items.length - 3}
                                 </div>
@@ -135,8 +153,7 @@ export function GeneratorReferenceStack({
                         {items.map((item, index) => (
                             <div
                                 key={item.id}
-                                className="group/item relative shrink-0 transition-all duration-300 ease-out"
-                                style={{ transitionDelay: `${index * 40}ms` }}
+                                className={`group/item relative shrink-0 transition-all duration-300 ease-out ${REFERENCE_STACK_DELAY_CLASSES[index] || 'delay-[440ms]'}`}
                                 title={`${item.title}${item.subtitle ? ` · ${item.subtitle}` : ''}`}
                             >
                                 <ReferencePreviewTile item={item} sizeClassName="h-10 w-10 rounded-xl border border-slate-200/60" imageClassName="rounded-xl" iconSize={14} />

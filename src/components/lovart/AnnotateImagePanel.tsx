@@ -3,6 +3,7 @@
 import React, { useState, type CSSProperties } from 'react';
 import { ChevronDown, ChevronRight, Highlighter, Loader2, Palette, Type, X } from 'lucide-react';
 import type { CanvasElement } from './canvas-types';
+import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 import { buildDefaultNamePrefix } from './panel-defaults';
 import { useToolPresets } from './useToolPresets';
 import type { AnnotateImageOptions, AnnotateLabelPosition } from '@/lib/image-annotate';
@@ -32,6 +33,13 @@ const positionOptions: Array<{ id: AnnotateLabelPosition; label: string }> = [
 ];
 
 const accentPresets = ['#7c3aed', '#ef4444', '#f59e0b', '#10b981', '#0ea5e9'];
+const accentPresetClasses: Record<string, string> = {
+  '#7c3aed': 'bg-violet-600',
+  '#ef4444': 'bg-red-500',
+  '#f59e0b': 'bg-amber-500',
+  '#10b981': 'bg-emerald-500',
+  '#0ea5e9': 'bg-sky-500',
+};
 
 export function AnnotateImagePanel({
   element,
@@ -78,11 +86,14 @@ function AnnotateImagePanelContent({
       [key]: value,
     }));
   };
+  const panelPositionClassName = buildFloatingPanelPositionClassName('annotate-image-panel-position', element.id);
+  const panelPositionCss = buildFloatingPanelPositionCss(panelPositionClassName, style);
 
   return (
+    <>
+    <style>{panelPositionCss}</style>
     <div
-      className="absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3"
-      style={style}
+      className={`${panelPositionClassName} absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3`}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Header */}
@@ -184,8 +195,7 @@ function AnnotateImagePanelContent({
                 key={color}
                 type="button"
                 onClick={() => updateField('accentColor', color)}
-                className={`h-5 w-5 rounded-full transition-all ${options.accentColor === color ? 'ring-2 ring-slate-800 ring-offset-1' : ''}`}
-                style={{ backgroundColor: color }}
+                className={`h-5 w-5 rounded-full transition-all ${accentPresetClasses[color]} ${options.accentColor === color ? 'ring-2 ring-slate-800 ring-offset-1' : ''}`}
                 title={color}
               />
             ))}
@@ -266,5 +276,6 @@ function AnnotateImagePanelContent({
         </button>
       </div>
     </div>
+    </>
   );
 }

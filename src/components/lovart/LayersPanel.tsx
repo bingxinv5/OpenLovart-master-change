@@ -126,7 +126,8 @@ function LayerVirtualList({
                     <p className="mt-1 text-[11px] leading-4 text-slate-500">{flattenedRowCount === 0 ? '添加形状、图片或画板后，这里会自动显示层级结构。' : '可以尝试修改搜索词或切换筛选类型。'}</p>
                 </div>
             ) : (
-                <div className="relative" style={{ height: `${filteredRowsState.totalHeight}px` }}>
+                <div className="relative layers-virtual-list-height">
+                    <style>{`.layers-virtual-list-height { height: ${Math.max(0, filteredRowsState.totalHeight)}px; }`}</style>
                     {visibleRows.map((row) => renderRow(row))}
                 </div>
             )}

@@ -6,6 +6,7 @@ import { WorkbenchImage } from './WorkbenchImage';
 import { suggestions } from './ai-designer-panel-constants';
 import type { ChatMessage } from './ai-designer-panel-types';
 import { formatTime, renderMarkdown } from './ai-designer-panel-utils';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
 type AiDesignerMessageListProps = {
   messages: ChatMessage[];
@@ -16,6 +17,15 @@ type AiDesignerMessageListProps = {
   onShuffleSuggestions: () => void;
   onCopy: (content: string, id: string) => void;
 };
+
+function getMessageProgressClassName(messageId: string) {
+  return buildFloatingPanelPositionClassName('ai-message-progress', messageId);
+}
+
+function getMessageProgressCss(message: ChatMessage) {
+  const progressPercent = Math.max(message.taskProgress || 0, 5);
+  return `.${getMessageProgressClassName(message.id)} { width: ${progressPercent}%; }`;
+}
 
 const TOOL_TAG_COLORS: Record<string, string> = {
   '@图片生成': 'bg-purple-50 text-purple-600',
@@ -128,13 +138,13 @@ export function AiDesignerMessageList({
                     {(message.taskStatus === 'processing' || message.taskStatus === 'pending') && (
                       <div className="mt-3">
                         <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                          <style>{getMessageProgressCss(message)}</style>
                           <div
-                            className={`h-1.5 rounded-full transition-all duration-500 ease-out ${
+                            className={`${message.taskStatus === 'processing' ? getMessageProgressClassName(message.id) : ''} h-1.5 rounded-full transition-all duration-500 ease-out ${
                               message.taskStatus === 'pending'
                                 ? 'bg-gray-300 animate-pulse w-full'
                                 : 'bg-gradient-to-r from-blue-500 to-purple-500'
                             }`}
-                            style={message.taskStatus === 'processing' ? { width: `${Math.max(message.taskProgress || 0, 5)}%` } : undefined}
                           />
                         </div>
                         <p className="text-[10px] text-gray-400 mt-1">

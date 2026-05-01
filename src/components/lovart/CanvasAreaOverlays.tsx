@@ -33,8 +33,18 @@ export function CanvasAreaWorldOverlays({
     frameDrawBox,
     elementsLength,
 }: CanvasAreaWorldOverlaysProps) {
+    const frameDrawBoxStyleSheet = frameDrawBox ? `
+.canvas-frame-draw-box {
+    left: ${Math.min(frameDrawBox.startX, frameDrawBox.currentX)}px;
+    top: ${Math.min(frameDrawBox.startY, frameDrawBox.currentY)}px;
+    width: ${Math.abs(frameDrawBox.currentX - frameDrawBox.startX)}px;
+    height: ${Math.abs(frameDrawBox.currentY - frameDrawBox.startY)}px;
+}
+` : '';
+
     return (
         <>
+            {frameDrawBox && <style>{frameDrawBoxStyleSheet}</style>}
             {currentPath && (
                 <div className="absolute inset-0 pointer-events-none z-50">
                     <svg className="w-full h-full overflow-visible">
@@ -53,17 +63,7 @@ export function CanvasAreaWorldOverlays({
             <CanvasAlignGuides guides={alignGuides} />
 
             {frameDrawBox && (
-                <div
-                    className="absolute pointer-events-none z-50"
-                    style={{
-                        left: Math.min(frameDrawBox.startX, frameDrawBox.currentX),
-                        top: Math.min(frameDrawBox.startY, frameDrawBox.currentY),
-                        width: Math.abs(frameDrawBox.currentX - frameDrawBox.startX),
-                        height: Math.abs(frameDrawBox.currentY - frameDrawBox.startY),
-                        border: '2px dashed #3B82F6',
-                        backgroundColor: 'rgba(59,130,246,0.05)',
-                    }}
-                >
+                <div className="canvas-frame-draw-box pointer-events-none absolute z-50 border-2 border-dashed border-blue-500 bg-blue-500/5">
                     <div className="absolute -top-5 left-0 text-[10px] text-blue-500 font-medium flex items-center gap-1 whitespace-nowrap">
                         <Frame size={10} />
                         Frame {Math.round(Math.abs(frameDrawBox.currentX - frameDrawBox.startX))} × {Math.round(Math.abs(frameDrawBox.currentY - frameDrawBox.startY))}
@@ -95,8 +95,7 @@ export function CanvasAreaViewportOverlays({
             <div
                 ref={selectionBoxOverlayRef}
                 data-testid="canvas-selection-box"
-                className="pointer-events-none absolute z-[120] border border-blue-500 bg-blue-500/10"
-                style={{ display: 'none' }}
+                className="pointer-events-none absolute z-[120] hidden border border-blue-500 bg-blue-500/10"
             />
 
             {singleSelectionResizeOverlay && (

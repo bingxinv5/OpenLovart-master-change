@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { WorkbenchImage } from './WorkbenchImage';
 import type { CanvasElement } from './canvas-types';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
 export type ImagePreviewMetrics = {
     width: number;
@@ -10,6 +11,10 @@ export type ImagePreviewMetrics = {
     left: number;
     top: number;
 };
+
+function toOverlayPx(value: number | undefined) {
+    return `${Number.isFinite(value) ? value : 0}px`;
+}
 
 export function resolveActiveImagePreviewElement(
     elements: CanvasElement[],
@@ -116,18 +121,22 @@ export function VideoPlaybackOverlay({
                 const screenY = element.y * scale + pan.y;
                 const screenWidth = (element.width || 400) * scale;
                 const screenHeight = (element.height || 300) * scale;
+                const overlayClassName = buildFloatingPanelPositionClassName('canvas-video-overlay-position', element.id);
+                const overlayCss = `
+.${overlayClassName} {
+    left: ${toOverlayPx(screenX)};
+    top: ${toOverlayPx(screenY)};
+    width: ${toOverlayPx(screenWidth)};
+    height: ${toOverlayPx(screenHeight)};
+}
+`;
                 return (
                     <div
                         key={`video-overlay-${element.id}`}
-                        className="absolute z-[100] rounded-lg overflow-hidden shadow-2xl"
-                        style={{
-                            left: screenX,
-                            top: screenY,
-                            width: screenWidth,
-                            height: screenHeight,
-                        }}
+                        className={`${overlayClassName} absolute z-[100] rounded-lg overflow-hidden shadow-2xl`}
                         onMouseDown={(event) => event.stopPropagation()}
                     >
+                        <style>{overlayCss}</style>
                         <video
                             key={element.content}
                             src={element.content}
@@ -162,17 +171,21 @@ export function ImagePreviewPanel({
     if (!element?.content || !metrics) {
         return null;
     }
+    const previewClassName = buildFloatingPanelPositionClassName('active-image-preview-position', element.id);
+    const previewCss = `
+.${previewClassName} {
+    left: ${toOverlayPx(metrics.left)};
+    top: ${toOverlayPx(metrics.top)};
+    width: ${toOverlayPx(metrics.width)};
+    height: ${toOverlayPx(metrics.height)};
+}
+`;
 
     return (
         <div
-            className="pointer-events-none absolute z-[105] overflow-hidden rounded-2xl border border-white/70 bg-white/94 p-2 shadow-[0_18px_48px_rgba(15,23,42,0.24)] backdrop-blur"
-            style={{
-                left: metrics.left,
-                top: metrics.top,
-                width: metrics.width,
-                height: metrics.height,
-            }}
+            className={`${previewClassName} pointer-events-none absolute z-[105] overflow-hidden rounded-2xl border border-white/70 bg-white/94 p-2 shadow-[0_18px_48px_rgba(15,23,42,0.24)] backdrop-blur`}
         >
+            <style>{previewCss}</style>
             <WorkbenchImage
                 content={element.content}
                 displayPixels={Math.max(metrics.width, metrics.height) * 2}

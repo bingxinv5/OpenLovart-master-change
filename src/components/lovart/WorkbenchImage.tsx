@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { cachedDataUrlToBlobUrl } from '@/lib/blob-utils';
 import { inspectImageStoredLodLevels, isImageRef, getImageBlobUrlWithLODResolution, reprioritizeImageLodCache } from '@/lib/editor-kernel';
 import {
@@ -12,6 +12,7 @@ import {
     getPriorityFinalRequestPixels,
     shouldRequestFinalLod,
 } from '@/lib/lod-request-utils';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -51,28 +52,92 @@ async function resolveImageLayerWithRetry(content: string, displayPixels: number
     return null;
 }
 
-const WORKBENCH_SURFACE_STYLE: React.CSSProperties = {
-    backgroundColor: '#f8fafc',
-    backgroundImage: [
-        'linear-gradient(45deg, rgba(148,163,184,0.12) 25%, transparent 25%)',
-        'linear-gradient(-45deg, rgba(148,163,184,0.12) 25%, transparent 25%)',
-        'linear-gradient(45deg, transparent 75%, rgba(148,163,184,0.12) 75%)',
-        'linear-gradient(-45deg, transparent 75%, rgba(148,163,184,0.12) 75%)',
-    ].join(', '),
-    backgroundSize: '16px 16px',
-    backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px',
-};
+const WORKBENCH_SURFACE_CSS = `
+.workbench-image-surface-checker {
+    background-color: #f8fafc;
+    background-image: linear-gradient(45deg, rgba(148,163,184,0.12) 25%, transparent 25%), linear-gradient(-45deg, rgba(148,163,184,0.12) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(148,163,184,0.12) 75%), linear-gradient(-45deg, transparent 75%, rgba(148,163,184,0.12) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+}
 
-const LIGHT_SURFACE_STYLE: React.CSSProperties = {
-    background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-};
+.workbench-image-surface-light {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
 
-const DARK_SURFACE_STYLE: React.CSSProperties = {
-    background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
-};
+.workbench-image-surface-dark {
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+}
+`;
+
+const UNITLESS_CSS_PROPERTIES = new Set([
+    'animationIterationCount',
+    'aspectRatio',
+    'borderImageOutset',
+    'borderImageSlice',
+    'borderImageWidth',
+    'boxFlex',
+    'boxFlexGroup',
+    'boxOrdinalGroup',
+    'columnCount',
+    'columns',
+    'flex',
+    'flexGrow',
+    'flexPositive',
+    'flexShrink',
+    'flexNegative',
+    'flexOrder',
+    'gridArea',
+    'gridRow',
+    'gridRowEnd',
+    'gridRowSpan',
+    'gridRowStart',
+    'gridColumn',
+    'gridColumnEnd',
+    'gridColumnSpan',
+    'gridColumnStart',
+    'fontWeight',
+    'lineClamp',
+    'lineHeight',
+    'opacity',
+    'order',
+    'orphans',
+    'tabSize',
+    'widows',
+    'zIndex',
+    'zoom',
+]);
 
 function joinClasses(...values: Array<string | undefined | false | null>) {
     return values.filter(Boolean).join(' ');
+}
+
+function toCssPropertyName(property: string) {
+    if (property.startsWith('--')) return property;
+    return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function toCssPropertyValue(property: string, value: unknown) {
+    if (value === null || value === undefined || typeof value === 'boolean') return null;
+    if (typeof value === 'number') {
+        if (value === 0 || property.startsWith('--') || UNITLESS_CSS_PROPERTIES.has(property)) {
+            return String(value);
+        }
+        return `${value}px`;
+    }
+
+    return String(value).replace(/[;{}]/g, '').trim();
+}
+
+function buildCssPropertiesRule(className: string, properties: React.CSSProperties) {
+    const declarations = Object.entries(properties)
+        .map(([property, value]) => {
+            const cssValue = toCssPropertyValue(property, value);
+            return cssValue ? `    ${toCssPropertyName(property)}: ${cssValue};` : null;
+        })
+        .filter(Boolean)
+        .join('\n');
+
+    return declarations ? `\n.${className} {\n${declarations}\n}\n` : '';
 }
 
 function clearTimer(timerRef: React.MutableRefObject<number | null>) {
@@ -136,6 +201,7 @@ export function WorkbenchImage({
     style: externalStyle,
     ...imgProps
 }: WorkbenchImageProps) {
+    const instanceId = useId();
     const containerRef = useRef<HTMLDivElement>(null);
     const primaryImageRef = useRef<HTMLImageElement>(null);
     const pendingImageRef = useRef<HTMLImageElement>(null);
@@ -212,7 +278,11 @@ export function WorkbenchImage({
         ? storedLevelSummaryState.summary
         : null;
 
-    const imageRenderStyle = useMemo<React.CSSProperties>(() => {
+    const imageRenderClassName = useMemo(
+        () => buildFloatingPanelPositionClassName('workbench-image-render-style', debugId || instanceId),
+        [debugId, instanceId],
+    );
+    const imageRenderCss = useMemo(() => {
         const renderHints: React.CSSProperties = canvasScale > 1
             ? {
                 willChange: 'transform, opacity',
@@ -223,11 +293,11 @@ export function WorkbenchImage({
                 willChange: 'opacity',
             };
 
-        return {
+        return buildCssPropertiesRule(imageRenderClassName, {
             ...renderHints,
             ...externalStyle,
-        };
-    }, [canvasScale, externalStyle]);
+        });
+    }, [canvasScale, externalStyle, imageRenderClassName]);
 
     const formatLayerPixels = useCallback((value: number | null | undefined) => {
         if (value === ORIGINAL_IMAGE_REQUEST_PIXELS) {
@@ -627,13 +697,13 @@ export function WorkbenchImage({
         return () => clearTimer(promotionTimerRef);
     }, [pendingLayer, prioritizeDetail]);
 
-    const surfaceStyle = !showSurface
+    const surfaceClassName = !showSurface
         ? undefined
         : surfaceMode === 'light'
-            ? LIGHT_SURFACE_STYLE
+            ? 'workbench-image-surface-light'
             : surfaceMode === 'dark'
-                ? DARK_SURFACE_STYLE
-                : WORKBENCH_SURFACE_STYLE;
+                ? 'workbench-image-surface-dark'
+                : 'workbench-image-surface-checker';
 
     const isLoading = loadState === 'loading';
     const hasError = loadState === 'error';
@@ -643,8 +713,7 @@ export function WorkbenchImage({
     return (
         <div
             ref={containerRef}
-            className={joinClasses('relative overflow-hidden', containerClassName)}
-            style={surfaceStyle}
+            className={joinClasses('relative overflow-hidden', surfaceClassName, containerClassName)}
             data-image-debug-id={debugId}
             data-image-content-kind={classifyRawContent(content)}
             data-image-active-layer={formatLayerPixels(activeLayer?.requestPixels)}
@@ -665,6 +734,7 @@ export function WorkbenchImage({
             data-image-active-natural-size={activeNaturalSize ?? undefined}
             data-image-pending-natural-size={pendingNaturalSize ?? undefined}
         >
+            <style>{`${WORKBENCH_SURFACE_CSS}${imageRenderCss}`}</style>
             {visiblePrimarySrc && !hasError && (
                 // eslint-disable-next-line @next/next/no-img-element -- workbench preview needs to support blob/data URLs and direct object URL lifecycle control.
                 <img
@@ -677,9 +747,9 @@ export function WorkbenchImage({
                         canvasScale > 1 ? 'workbench-image-hires' : undefined,
                         fit === 'cover' ? 'object-cover' : 'object-contain object-center',
                         surfaceMode === 'dark' ? 'drop-shadow-[0_2px_10px_rgba(15,23,42,0.35)]' : undefined,
+                        imageRenderClassName,
                         imageClassName,
                     )}
-                    style={imageRenderStyle}
                     onLoad={(e) => {
                         const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
                         setActiveNaturalSizeState((current) => current.src === visiblePrimarySrc && current.summary === nextNaturalSize
@@ -713,9 +783,9 @@ export function WorkbenchImage({
                         canvasScale > 1 ? 'workbench-image-hires' : undefined,
                         fit === 'cover' ? 'object-cover' : 'object-contain',
                         surfaceMode === 'dark' ? 'drop-shadow-[0_2px_10px_rgba(15,23,42,0.35)]' : undefined,
+                        imageRenderClassName,
                         imageClassName,
                     )}
-                    style={imageRenderStyle}
                     onLoad={(e) => {
                         const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
                         setPendingNaturalSizeState((current) => current.src === visiblePendingSrc && current.summary === nextNaturalSize
