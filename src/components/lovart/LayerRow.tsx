@@ -9,51 +9,23 @@ import {
     ChevronsUp,
     Eye,
     EyeOff,
-    Frame,
     GripVertical,
-    Image as ImageIcon,
     Lock,
     Pencil,
-    Shapes,
-    Sparkles,
-    Square,
     Trash2,
-    Type,
     Unlock,
-    Video,
 } from 'lucide-react';
 import type { StoryboardMetaTemplateEntry, StoryboardMetaTemplateValue } from '@/lib/storyboard-meta-presets';
 import { validateStoryboardDuration, validateStoryboardShotCode } from '@/lib/storyboard-utils';
 import type { CanvasElement } from './canvas-types';
 import { getLayerDropPlacement, type LayerDropIndicator, type LayerParentDropTarget } from './layers-dnd-model';
 import { getLayerLabel, type FlattenedLayerRow } from './layers-tree-model';
-import { getStoryboardSummaryParts, isElementLocked, type StoryboardDraftKey, type StoryboardDraftValue } from './layers-panel-utils';
+import { isElementLocked, type StoryboardDraftKey, type StoryboardDraftValue } from './layers-panel-utils';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
+import { LayerRowSelectionContent } from './LayerRowSelectionContent';
 
 function toLayerRowPx(value: number | undefined) {
     return `${Number.isFinite(value) ? value : 0}px`;
-}
-
-function LayerTypeIcon({ element, size }: { element: CanvasElement; size: number }) {
-    switch (element.type) {
-        case 'image':
-            return <ImageIcon size={size} />;
-        case 'text':
-            return <Type size={size} />;
-        case 'shape':
-            return <Shapes size={size} />;
-        case 'path':
-            return <Pencil size={size} />;
-        case 'video':
-            return <Video size={size} />;
-        case 'image-generator':
-        case 'video-generator':
-            return <Sparkles size={size} />;
-        case 'frame':
-            return <Frame size={size} />;
-        default:
-            return <Square size={size} />;
-    }
 }
 
 function StoryboardMetaEditor({
@@ -167,8 +139,7 @@ export function LayerRow({
     const storyboardDurationError = validateStoryboardDuration(storyboardDraft.storyboardDuration);
     const hasStoryboardValidationError = !!(storyboardShotCodeError || storyboardDurationError);
     const showStoryboardEditor = selected && element.type === 'image';
-    const storyboardSummaryParts = getStoryboardSummaryParts(element);
-    const storyboardNote = element.storyboardNote?.trim();
+    const isEditingName = editingNameId === element.id;
     const rowPositionClassName = buildFloatingPanelPositionClassName('layer-row-position', element.id);
     const dropBeforeIndentClassName = buildFloatingPanelPositionClassName('layer-drop-before-indent', element.id);
     const rowIndentClassName = buildFloatingPanelPositionClassName('layer-row-indent', element.id);
@@ -201,75 +172,21 @@ export function LayerRow({
     margin-left: ${toLayerRowPx(depth * 12 + 30)};
 }
 `;
-    const renderLayerSelectionContent = () => (
-        <>
-            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${selected ? 'bg-violet-100 text-blue-700 ring-violet-200' : 'bg-slate-100 text-slate-500 ring-slate-200'}`}>
-                <LayerTypeIcon element={element} size={14} />
-            </div>
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1">
-                    {editingNameId === element.id ? (
-                        <input
-                            data-testid={`layer-name-input-${element.id}`}
-                            title="重命名图层"
-                            value={editingNameValue}
-                            autoFocus
-                            onChange={(event) => onSetEditingNameValue(event.target.value)}
-                            onBlur={onCommitRename}
-                            onClick={(event) => event.stopPropagation()}
-                            onKeyDown={(event) => {
-                                event.stopPropagation();
-                                if (event.key === 'Enter') onCommitRename();
-                                if (event.key === 'Escape') {
-                                    onCancelRename();
-                                }
-                            }}
-                            className="h-6 min-w-0 max-w-[160px] rounded border border-blue-200 bg-white px-1.5 text-[12px] font-medium text-slate-800 outline-none ring-2 ring-blue-100"
-                        />
-                    ) : (
-                        <span
-                            className="truncate text-[12px] font-medium text-slate-800"
-                            title="双击重命名"
-                            onDoubleClick={(event) => {
-                                event.stopPropagation();
-                                onStartRename(element);
-                            }}
-                        >
-                            {getLayerLabel(element)}
-                        </span>
-                    )}
-                    {element.groupFrame && (
-                        <span className="rounded bg-violet-100 px-1 py-px text-[9px] font-semibold text-blue-700">组</span>
-                    )}
-                    {element.type === 'frame' && !element.groupFrame && (
-                        <span className="rounded bg-sky-100 px-1 py-px text-[9px] font-semibold text-sky-700">板</span>
-                    )}
-                    {hidden && <span className="rounded bg-slate-100 px-1 py-px text-[9px] text-slate-500">隐</span>}
-                    {locked && <span className="rounded bg-amber-50 px-1 py-px text-[9px] text-amber-600">锁</span>}
-                    {hasChildren && <span className="text-[9px] text-slate-400">{children.length}</span>}
-                </div>
-                {element.type === 'image' && (storyboardSummaryParts.length > 0 || storyboardNote) && (
-                    <div className="mt-px flex flex-wrap items-center gap-0.5">
-                        {storyboardSummaryParts.map((part, index) => (
-                            <span
-                                key={`${element.id}-storyboard-${index}-${part}`}
-                                className="rounded border border-amber-200/70 bg-amber-50/80 px-1 py-px text-[8px] font-medium text-amber-700"
-                            >
-                                {part}
-                            </span>
-                        ))}
-                        {storyboardNote && (
-                            <span
-                                className="max-w-[120px] truncate rounded border border-slate-200/70 bg-slate-50/80 px-1 py-px text-[8px] text-slate-500"
-                                title={storyboardNote}
-                            >
-                                {storyboardNote}
-                            </span>
-                        )}
-                    </div>
-                )}
-            </div>
-        </>
+    const selectionContent = (
+        <LayerRowSelectionContent
+            element={element}
+            selected={selected}
+            hidden={hidden}
+            locked={locked}
+            hasChildren={hasChildren}
+            childrenCount={children.length}
+            isEditingName={isEditingName}
+            editingNameValue={editingNameValue}
+            onStartRename={onStartRename}
+            onSetEditingNameValue={onSetEditingNameValue}
+            onCancelRename={onCancelRename}
+            onCommitRename={onCommitRename}
+        />
     );
 
     return (
@@ -303,7 +220,7 @@ export function LayerRow({
             >
                 <div
                     data-testid={`layer-drag-${element.id}`}
-                    draggable={editingNameId !== element.id}
+                    draggable={!isEditingName}
                     onDragStart={(event) => onDragStart(event, element.id)}
                     onDragEnd={onDragEnd}
                     className="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
@@ -320,12 +237,12 @@ export function LayerRow({
                     {hasChildren ? (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : <span className="h-1.5 w-1.5" />}
                 </button>
 
-                {editingNameId === element.id ? (
+                {isEditingName ? (
                     <div
                         data-testid={`layer-select-${element.id}`}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-0.5 text-left"
                     >
-                        {renderLayerSelectionContent()}
+                        {selectionContent}
                     </div>
                 ) : (
                     <button
@@ -335,7 +252,7 @@ export function LayerRow({
                         onDoubleClick={() => onLocate(element.id)}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-0.5 text-left"
                     >
-                        {renderLayerSelectionContent()}
+                        {selectionContent}
                     </button>
                 )}
 
