@@ -53,23 +53,6 @@ async function resolveImageLayerWithRetry(content: string, displayPixels: number
     return null;
 }
 
-const WORKBENCH_SURFACE_CSS = `
-.workbench-image-surface-checker {
-    background-color: #f8fafc;
-    background-image: linear-gradient(45deg, rgba(148,163,184,0.12) 25%, transparent 25%), linear-gradient(-45deg, rgba(148,163,184,0.12) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(148,163,184,0.12) 75%), linear-gradient(-45deg, transparent 75%, rgba(148,163,184,0.12) 75%);
-    background-size: 16px 16px;
-    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-}
-
-.workbench-image-surface-light {
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-}
-
-.workbench-image-surface-dark {
-    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-}
-`;
-
 function joinClasses(...values: Array<string | undefined | false | null>) {
     return values.filter(Boolean).join(' ');
 }
@@ -668,7 +651,7 @@ export function WorkbenchImage({
             data-image-active-natural-size={activeNaturalSize ?? undefined}
             data-image-pending-natural-size={pendingNaturalSize ?? undefined}
         >
-            <style>{`${WORKBENCH_SURFACE_CSS}${imageRenderCss}`}</style>
+            <style>{imageRenderCss}</style>
             {visiblePrimarySrc && !hasError && (
                 // eslint-disable-next-line @next/next/no-img-element -- workbench preview needs to support blob/data URLs and direct object URL lifecycle control.
                 <img
@@ -743,28 +726,25 @@ export function WorkbenchImage({
             )}
 
             {isLoading && !visiblePrimarySrc ? (
-                <div className="flex h-full w-full items-center justify-center bg-white/55 backdrop-blur-[1px]">
+                <div className="workbench-image-state-panel flex h-full w-full items-center justify-center">
                     <div className="flex flex-col items-center gap-1.5">
-                        <div className="h-7 w-7 animate-pulse rounded-full bg-slate-300" />
-                        <span className="text-[10px] text-slate-400">加载中</span>
+                        <div className="workbench-image-state-dot h-7 w-7 animate-pulse rounded-full" />
+                        <span className="text-[10px]">加载中</span>
                     </div>
                 </div>
             ) : isLoading && !visiblePendingSrc ? (
-                <div className="pointer-events-none absolute right-2 top-2 z-20 rounded-full bg-white/82 px-2 py-1 text-[10px] text-slate-500 shadow-sm ring-1 ring-slate-200/80 backdrop-blur">
+                <div className="workbench-image-state-pill pointer-events-none absolute right-2 top-2 z-20 rounded-full px-2 py-1 text-[10px]">
                     加载中
                 </div>
             ) : hasError || !visiblePrimarySrc ? (
-                <div className="flex h-full w-full items-center justify-center bg-white/40 backdrop-blur-[1px]">
+                <div className="workbench-image-state-panel flex h-full w-full items-center justify-center">
                     <div className="flex flex-col items-center gap-1.5 text-center">
-                        <div className="h-7 w-7 rounded-full bg-slate-200" />
-                        <span className="text-[10px] text-slate-500">图片不可用</span>
+                        <div className="workbench-image-state-dot h-7 w-7 rounded-full" />
+                        <span className="text-[10px]">图片不可用</span>
                     </div>
                 </div>
             ) : null}
-            <div className={joinClasses(
-                'pointer-events-none absolute inset-0 ring-1 ring-inset',
-                surfaceMode === 'dark' ? 'ring-white/10' : 'ring-slate-900/6',
-            )} />
+            <div className="workbench-image-outline pointer-events-none absolute inset-0" />
         </div>
     );
 }
