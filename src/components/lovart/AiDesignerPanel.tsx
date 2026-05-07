@@ -926,7 +926,7 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
     };
 
     return (
-        <div className="flex flex-col h-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+        <div className="canvas-theme-panel-elevated flex h-full flex-col overflow-hidden rounded-2xl">
             <AiDesignerHeader
                 {...{ showHistory, copiedId, panelMode, isExpanded, onPanelModeChange, onExpandToggle, onClose }}
                 messageCount={messages.length}

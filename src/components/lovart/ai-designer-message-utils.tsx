@@ -68,7 +68,7 @@ export function renderMarkdown(text: string): React.ReactNode {
             if (match[2] || match[3]) {
                 parts.push(<strong key={match.index} className="font-semibold">{match[2] || match[3]}</strong>);
             } else if (match[4]) {
-                parts.push(<code key={match.index} className="px-1.5 py-0.5 bg-gray-100 text-gray-800 rounded text-xs font-mono">{match[4]}</code>);
+                parts.push(<code key={match.index} className="canvas-ai-code-inline px-1.5 py-0.5 rounded text-xs font-mono">{match[4]}</code>);
             } else if (match[6]) {
                 parts.push(
                     <a key={match.index} href={match[7]} className="text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer">
@@ -89,7 +89,7 @@ export function renderMarkdown(text: string): React.ReactNode {
     const flushList = () => {
         if (listBuffer.length === 0) return;
         elements.push(
-            <ul key={`list-${elements.length}`} className="list-disc list-inside space-y-1 my-2 text-sm text-gray-700">
+            <ul key={`list-${elements.length}`} className="list-disc list-inside space-y-1 my-2 text-sm text-[var(--canvas-text-secondary)]">
                 {listBuffer.map((item, index) => (
                     <li key={index}>{renderInline(item)}</li>
                 ))}
@@ -108,7 +108,7 @@ export function renderMarkdown(text: string): React.ReactNode {
                 codeContent = '';
             } else {
                 elements.push(
-                    <pre key={`code-${index}`} className="bg-gray-900 text-gray-100 rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono">
+                    <pre key={`code-${index}`} className="canvas-ai-code-block rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono">
                         <code>{codeContent}</code>
                     </pre>
                 );
@@ -123,16 +123,16 @@ export function renderMarkdown(text: string): React.ReactNode {
             continue;
         }
 
-        if (line.startsWith('### ')) { flushList(); elements.push(<h3 key={`h3-${index}`} className="text-sm font-bold text-gray-900 mt-3 mb-1">{renderInline(line.slice(4))}</h3>); continue; }
-        if (line.startsWith('## ')) { flushList(); elements.push(<h2 key={`h2-${index}`} className="text-base font-bold text-gray-900 mt-3 mb-1">{renderInline(line.slice(3))}</h2>); continue; }
-        if (line.startsWith('# ')) { flushList(); elements.push(<h1 key={`h1-${index}`} className="text-lg font-bold text-gray-900 mt-3 mb-1">{renderInline(line.slice(2))}</h1>); continue; }
+        if (line.startsWith('### ')) { flushList(); elements.push(<h3 key={`h3-${index}`} className="text-sm font-bold text-[var(--canvas-text-primary)] mt-3 mb-1">{renderInline(line.slice(4))}</h3>); continue; }
+        if (line.startsWith('## ')) { flushList(); elements.push(<h2 key={`h2-${index}`} className="text-base font-bold text-[var(--canvas-text-primary)] mt-3 mb-1">{renderInline(line.slice(3))}</h2>); continue; }
+        if (line.startsWith('# ')) { flushList(); elements.push(<h1 key={`h1-${index}`} className="text-lg font-bold text-[var(--canvas-text-primary)] mt-3 mb-1">{renderInline(line.slice(2))}</h1>); continue; }
         if (/^[\-*]\s/.test(line.trim())) { listBuffer.push(line.trim().slice(2)); continue; }
         if (/^\d+\.\s/.test(line.trim())) { listBuffer.push(line.trim().replace(/^\d+\.\s/, '')); continue; }
-        if (/^---+$/.test(line.trim())) { flushList(); elements.push(<hr key={`hr-${index}`} className="border-gray-200 my-3" />); continue; }
+        if (/^---+$/.test(line.trim())) { flushList(); elements.push(<hr key={`hr-${index}`} className="border-[var(--canvas-border)] my-3" />); continue; }
         if (!line.trim()) { flushList(); continue; }
 
         flushList();
-        elements.push(<p key={`p-${index}`} className="text-sm text-gray-700 leading-relaxed my-1">{renderInline(line)}</p>);
+        elements.push(<p key={`p-${index}`} className="text-sm text-[var(--canvas-text-secondary)] leading-relaxed my-1">{renderInline(line)}</p>);
     }
 
     flushList();

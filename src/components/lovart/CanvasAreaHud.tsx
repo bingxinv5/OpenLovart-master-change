@@ -220,12 +220,12 @@ export function CanvasAreaHud({
                 <div className="absolute top-4 right-4 z-[200]" onMouseDown={(event) => event.stopPropagation()}>
                     <button
                         onClick={() => onToggleHidden?.(hiddenElementIds)}
-                        className="flex items-center gap-2 rounded-xl border border-blue-200 bg-white/95 px-3 py-2 text-sm font-medium text-blue-600 shadow-lg backdrop-blur hover:bg-blue-50 transition-colors"
+                        className="canvas-theme-panel flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-[var(--canvas-text-primary)] shadow-lg backdrop-blur transition-colors hover:bg-[var(--canvas-hover)]"
                         title="恢复所有隐藏元素"
                     >
                         <Eye size={16} />
                         显示隐藏元素
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">{hiddenElementIds.length}</span>
+                        <span className="canvas-queue-badge canvas-queue-badge-submitting rounded-full px-2 py-0.5 text-xs">{hiddenElementIds.length}</span>
                     </button>
                 </div>
             )}

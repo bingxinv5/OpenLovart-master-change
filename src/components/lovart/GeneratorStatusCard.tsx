@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
 type GeneratorKind = 'image' | 'video';
 type GeneratorStatusTone = 'idle' | 'submitting' | 'queued' | 'running' | 'finishing' | 'error';
@@ -33,14 +34,14 @@ const ACCENT_STYLES: Record<GeneratorKind, {
     spinner: string;
 }> = {
     image: {
-        panel: 'border-blue-100 bg-gradient-to-br from-blue-50 via-white to-blue-50/70',
-        badge: 'bg-blue-100 text-blue-700',
+        panel: 'canvas-generator-status-card is-image',
+        badge: 'canvas-generator-badge text-blue-700',
         bar: 'bg-blue-500',
         spinner: 'text-blue-600',
     },
     video: {
-        panel: 'border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100/80',
-        badge: 'bg-slate-200 text-slate-700',
+        panel: 'canvas-generator-status-card is-video',
+        badge: 'canvas-generator-badge text-slate-700',
         bar: 'bg-slate-900',
         spinner: 'text-slate-700',
     },
@@ -149,6 +150,9 @@ export function GeneratorStatusCard({ kind, state }: GeneratorStatusCardProps) {
     }
 
     const accent = ACCENT_STYLES[kind];
+    const progressWidth = Math.max(state.progress, 5);
+    const progressClassName = buildFloatingPanelPositionClassName('generator-status-progress', `${kind}-${state.tone}-${Math.round(progressWidth)}`);
+    const progressCss = `.${progressClassName} { width: ${progressWidth}%; }`;
 
     return (
         <div className={`mx-4 mb-3 rounded-xl border px-3 py-2.5 shadow-sm ${accent.panel}`}>
@@ -175,10 +179,10 @@ export function GeneratorStatusCard({ kind, state }: GeneratorStatusCardProps) {
             </div>
 
             {state.showProgress && (
-                <div className="h-1.5 overflow-hidden rounded-full bg-white/80 ring-1 ring-black/5">
+                <div className="canvas-progress-track h-1.5 overflow-hidden rounded-full">
+                    <style>{progressCss}</style>
                     <div
-                        className={`h-full rounded-full transition-all duration-300 ${accent.bar}`}
-                        style={{ width: `${Math.max(state.progress, 5)}%` }}
+                        className={`${progressClassName} h-full rounded-full transition-all duration-300 ${accent.bar}`}
                     />
                 </div>
             )}

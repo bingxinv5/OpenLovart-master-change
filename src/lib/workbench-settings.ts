@@ -12,6 +12,7 @@ import type { OpenAiGptImageQuality } from './image-generation-models';
 export interface WorkbenchSettings {
   autoSaveGenerated: boolean;
   warnOnHighStorage: boolean;
+  canvasTheme: 'light' | 'dark';
   defaultImageFit: 'contain' | 'cover';
   defaultImageSurface: 'checker' | 'light' | 'dark';
   imageDefaults: ImageGenerationDefaults;
@@ -53,6 +54,7 @@ const DIRECTORY_HANDLE_KEY = 'autosave-directory-handle';
 export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
   autoSaveGenerated: false,
   warnOnHighStorage: true,
+  canvasTheme: 'light',
   defaultImageFit: 'contain',
   defaultImageSurface: 'checker',
   imageDefaults: {
@@ -202,6 +204,10 @@ export function normalizeWorkbenchSettings(value: unknown): WorkbenchSettings {
       typeof parsed.warnOnHighStorage === 'boolean'
         ? parsed.warnOnHighStorage
         : DEFAULT_WORKBENCH_SETTINGS.warnOnHighStorage,
+    canvasTheme:
+      parsed.canvasTheme === 'light' || parsed.canvasTheme === 'dark'
+        ? parsed.canvasTheme
+        : DEFAULT_WORKBENCH_SETTINGS.canvasTheme,
     defaultImageFit:
       parsed.defaultImageFit === 'cover' || parsed.defaultImageFit === 'contain'
         ? parsed.defaultImageFit

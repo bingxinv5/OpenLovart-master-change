@@ -3,6 +3,29 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_WORKBENCH_SETTINGS, normalizeWorkbenchSettings } from './workbench-settings';
 
 describe('workbench-settings', () => {
+  it('defaults the canvas theme to light', () => {
+    const normalized = normalizeWorkbenchSettings({});
+
+    expect(DEFAULT_WORKBENCH_SETTINGS.canvasTheme).toBe('light');
+    expect(normalized.canvasTheme).toBe('light');
+  });
+
+  it('preserves supported canvas themes', () => {
+    const normalized = normalizeWorkbenchSettings({
+      canvasTheme: 'dark',
+    });
+
+    expect(normalized.canvasTheme).toBe('dark');
+  });
+
+  it('falls back to light for invalid canvas themes', () => {
+    const normalized = normalizeWorkbenchSettings({
+      canvasTheme: 'system',
+    });
+
+    expect(normalized.canvasTheme).toBe('light');
+  });
+
   it('uses 2K as the default size for standard image models', () => {
     const normalized = normalizeWorkbenchSettings({
       imageDefaults: {

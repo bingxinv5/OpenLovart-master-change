@@ -27,14 +27,14 @@ export function PanelShell({
     return (
         <div
             data-testid={testId}
-            className={`pointer-events-auto flex h-full w-[280px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg ${className ?? ''}`}
+            className={`canvas-theme-panel pointer-events-auto flex h-full w-[280px] flex-col overflow-hidden rounded-xl ${className ?? ''}`}
         >
-            <div className="flex h-9 shrink-0 items-center justify-between gap-1 border-b border-slate-100 px-3">
+            <div className="canvas-panel-header flex h-9 shrink-0 items-center justify-between gap-1 px-3">
                 <div className="flex items-center gap-1.5 min-w-0">
-                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-800 text-white">
+                    <div className="canvas-panel-icon flex h-5 w-5 shrink-0 items-center justify-center rounded-md">
                         {icon}
                     </div>
-                    <span className="truncate text-[13px] font-semibold text-slate-900">{title}</span>
+                    <span className="canvas-panel-title truncate text-[13px] font-semibold">{title}</span>
                     {badge}
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
@@ -44,7 +44,7 @@ export function PanelShell({
                             type="button"
                             onClick={onClose}
                             aria-label={`关闭${title}`}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                            className="canvas-panel-close flex h-6 w-6 items-center justify-center rounded-md transition-colors"
                         >
                             <X size={14} />
                         </button>
@@ -58,7 +58,7 @@ export function PanelShell({
 
 export function PanelBadge({ children }: { children: React.ReactNode }) {
     return (
-        <span className="rounded bg-slate-100 px-1 py-px text-[10px] font-semibold tabular-nums text-slate-500">
+        <span className="canvas-panel-badge rounded px-1 py-px text-[10px] font-semibold tabular-nums">
             {children}
         </span>
     );

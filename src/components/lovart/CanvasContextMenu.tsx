@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Frame, Image as ImageIcon, MapPin, Minus, MousePointer2, Send, Sparkles, Square, Trash2, Type, Video } from 'lucide-react';
 import { ExportMenu } from './ExportMenu';
 import type { CanvasElement, CanvasElementExportFormat } from './canvas-types';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
 export type CanvasContextMenuState = {
     x: number;
@@ -155,14 +156,16 @@ export function CanvasContextMenu({
     renderAlignmentMenuSection,
 }: CanvasContextMenuProps) {
     const menuPosition = adjustedPosition ?? contextMenu;
+    const menuPositionClassName = buildFloatingPanelPositionClassName('canvas-context-menu-position', `${Math.round(menuPosition.x)}-${Math.round(menuPosition.y)}`);
+    const menuPositionCss = `.${menuPositionClassName} { left: ${menuPosition.x}px; top: ${menuPosition.y}px; }`;
 
     return (
         <div
             ref={menuRef}
-            className="fixed z-[200] bg-white rounded-xl shadow-2xl border border-gray-100 py-1.5 min-w-[180px] max-h-[calc(100vh-16px)] overflow-y-auto animate-in fade-in zoom-in-95 duration-150"
-            style={{ left: menuPosition.x, top: menuPosition.y }}
+            className={`${menuPositionClassName} canvas-popover fixed z-[200] rounded-xl py-1.5 min-w-[180px] max-h-[calc(100vh-16px)] overflow-y-auto animate-in fade-in zoom-in-95 duration-150`}
             onMouseDown={(event) => event.stopPropagation()}
         >
+            <style>{menuPositionCss}</style>
             {contextTargetElement ? (
                 <>
                     <button onClick={onContextCopySelection} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left">

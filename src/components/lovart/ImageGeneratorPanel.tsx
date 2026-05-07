@@ -997,7 +997,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         <>
         <style>{panelPositionCss}</style>
         <div
-            className={`${panelPositionClassName} absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]`}
+            className={`${panelPositionClassName} canvas-theme-panel-elevated absolute z-[130] w-[620px] rounded-[20px]`}
             data-testid="image-generator-panel"
             ref={panelRef}
             onKeyDown={(e) => {
@@ -1062,7 +1062,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
             {isGrokImageModel && (
                 <div className="px-3 pb-2">
-                    <div className="rounded-xl border border-amber-200/70 bg-amber-50/90 px-3 py-2 text-[11px] leading-relaxed text-amber-700">
+                    <div className="canvas-warning-surface rounded-xl px-3 py-2 text-[11px] leading-relaxed">
                         {grokUsesReferenceAspectRatio
                             ? 'Grok 携带参考图时会按参考图原始比例生成；当前请求只发送官方字段 aspect_ratio + resolution。'
                             : 'Grok 当前只发送官方字段 aspect_ratio + resolution；resolution 仅支持 1K/2K，最终仍以上游实际返回为准。'}

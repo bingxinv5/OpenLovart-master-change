@@ -66,7 +66,7 @@ function hasCustomWorkbenchSettings(settings: WorkbenchSettings) {
 
 function SettingsSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
     return (
-        <section className="rounded-xl border border-gray-100 bg-white p-5">
+        <section className="canvas-settings-section rounded-xl p-5">
             <div className="mb-4">
                 <h3 className="text-[13px] font-semibold text-gray-900">{title}</h3>
                 <p className="mt-0.5 text-[11px] leading-4 text-gray-400">{description}</p>
@@ -89,11 +89,11 @@ function LabeledField({ label, hint, children }: { label: string; hint?: string;
 }
 
 function selectClassName() {
-    return 'w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 text-[13px] text-gray-800 outline-none transition focus:border-gray-300 focus:bg-white focus:ring-2 focus:ring-gray-900/5';
+    return 'canvas-settings-input w-full rounded-lg px-3 py-2 text-[13px] outline-none transition';
 }
 
 function inputClassName() {
-    return 'w-full rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 text-[13px] text-gray-800 outline-none transition focus:border-gray-300 focus:bg-white focus:ring-2 focus:ring-gray-900/5';
+    return 'canvas-settings-input w-full rounded-lg px-3 py-2 text-[13px] outline-none transition';
 }
 
 function getErrorMessage(error: unknown) {
@@ -389,8 +389,8 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
     };
 
     const shellClassName = mode === 'page'
-        ? 'mx-auto w-full max-w-6xl px-6 py-8'
-        : 'w-[880px] max-w-[94vw] rounded-2xl border border-gray-200 bg-[#f5f5f7] shadow-2xl';
+        ? 'canvas-settings-shell mx-auto w-full max-w-6xl px-6 py-8'
+        : 'canvas-settings-shell w-[880px] max-w-[94vw] rounded-2xl border border-gray-200 shadow-2xl';
     const storageUsagePercent = storageEstimate
         ? Math.min(Math.max(storageEstimate.usageRatio * 100, 0), 100)
         : 0;
@@ -472,6 +472,13 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
 
                             <SettingsSection title="显示偏好" description="图片展示方式与背景设置。">
                                 <div className="grid gap-3 md:grid-cols-2">
+                                    <LabeledField label="界面主题">
+                                        <select title="画布界面主题" data-testid="settings-canvas-theme" className={selectClassName()} value={settings.canvasTheme} onChange={(event) => setSettings((prev) => ({ ...prev, canvasTheme: event.target.value as WorkbenchSettings['canvasTheme'] }))}>
+                                            <option value="light">浅色</option>
+                                            <option value="dark">深色</option>
+                                        </select>
+                                    </LabeledField>
+
                                     <LabeledField label="默认图片适配方式">
                                         <select title="默认图片适配方式" data-testid="settings-default-image-fit" className={selectClassName()} value={settings.defaultImageFit} onChange={(event) => setSettings((prev) => ({ ...prev, defaultImageFit: event.target.value as WorkbenchSettings['defaultImageFit'] }))}>
                                             <option value="contain">完整显示</option>

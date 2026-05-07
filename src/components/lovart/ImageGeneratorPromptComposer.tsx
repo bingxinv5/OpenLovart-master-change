@@ -60,7 +60,7 @@ export function ImageGeneratorPromptComposer({
     return (
         <div className="p-3 pb-2">
             <div className="relative">
-                <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm">
+                <div className="canvas-settings-input rounded-2xl shadow-sm">
                     <div className="relative px-3 py-2.5">
                         <textarea
                             ref={promptInputRef}
@@ -81,7 +81,7 @@ export function ImageGeneratorPromptComposer({
                             onCompositionStart={onPromptCompositionStart}
                             onCompositionEnd={onPromptCompositionEnd}
                             onBlur={onPromptBlur}
-                            className="w-full resize-none overflow-hidden bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400/60"
+                            className="w-full resize-none overflow-hidden bg-transparent text-sm leading-6 text-[var(--canvas-text-primary)] outline-none placeholder:text-[var(--canvas-text-tertiary)]"
                             disabled={isGenerating}
                         />
                     </div>

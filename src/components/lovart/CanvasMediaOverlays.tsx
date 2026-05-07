@@ -183,7 +183,7 @@ export function ImagePreviewPanel({
 
     return (
         <div
-            className={`${previewClassName} pointer-events-none absolute z-[105] overflow-hidden rounded-2xl border border-white/70 bg-white/94 p-2 shadow-[0_18px_48px_rgba(15,23,42,0.24)] backdrop-blur`}
+            className={`${previewClassName} canvas-theme-panel pointer-events-none absolute z-[105] overflow-hidden rounded-2xl p-2`}
         >
             <style>{previewCss}</style>
             <WorkbenchImage

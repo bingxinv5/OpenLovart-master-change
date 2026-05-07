@@ -11,6 +11,7 @@ interface CanvasMinimapProps {
     onPanChange: (pan: { x: number; y: number }) => void;
     onScaleChange?: (scale: number) => void;
     rightOffset?: number;
+    canvasTheme?: 'light' | 'dark';
 }
 
 /* ─── Layout ─── */
@@ -18,37 +19,71 @@ const WORLD_PADDING = 250;
 const MINIMAP_W = 218;
 const MINIMAP_H = 148;
 
-/*
- * Palette – derived from the app's existing design tokens:
- *   bg-white, border-gray-100/200, text-gray-400‒900
- *   accent: violet-500/600 (LayersPanel selection)
- *   action: blue-500/600 (buttons, links)
- */
-const C = {
-    // Canvas background (matches the workbench bg: #f8f8fa)
-    canvasBg:       '#f2f2f5',
-    // Grid dots
-    gridDot:        'rgba(0,0,0,0.045)',
-    // Elements
-    elImage:        '#818cf8', // indigo-400 — matches violet family
-    elVideo:        '#a78bfa', // violet-400
-    elText:         '#fbbf24', // amber-400
-    elShape:        '#34d399', // emerald-400
-    elPath:         '#f472b6', // pink-400
-    elFrame:        'rgba(139,92,246,0.08)',  // very faint violet
-    elFrameStroke:  'rgba(139,92,246,0.25)',
-    elMark:         '#f87171', // red-400
-    elGenerator:    '#c084fc', // purple-400
-    elSelected:     '#7c3aed', // violet-600 — consistent with LayersPanel
-    elDefault:      'rgba(0,0,0,0.10)',
-    // Viewport
-    vpStroke:       'rgba(124,58,237,0.55)', // violet-600
-    vpFill:         'rgba(124,58,237,0.04)',
-    vpGlow:         'rgba(124,58,237,0.12)',
-    dimOverlay:     'rgba(255,255,255,0.50)',
-    // Crosshair
-    crosshair:      'rgba(124,58,237,0.25)',
-    crossDot:       '#7c3aed',
+type MinimapPalette = {
+    canvasBg: string;
+    gridDot: string;
+    elImage: string;
+    elVideo: string;
+    elText: string;
+    elShape: string;
+    elPath: string;
+    elFrame: string;
+    elFrameStroke: string;
+    elMark: string;
+    elGenerator: string;
+    elSelected: string;
+    elDefault: string;
+    vpStroke: string;
+    vpFill: string;
+    vpGlow: string;
+    dimOverlay: string;
+    crosshair: string;
+    crossDot: string;
+};
+
+const MINIMAP_PALETTES: Record<'light' | 'dark', MinimapPalette> = {
+    light: {
+        canvasBg: '#f2f2f5',
+        gridDot: 'rgba(0,0,0,0.045)',
+        elImage: '#818cf8',
+        elVideo: '#a78bfa',
+        elText: '#fbbf24',
+        elShape: '#34d399',
+        elPath: '#f472b6',
+        elFrame: 'rgba(139,92,246,0.08)',
+        elFrameStroke: 'rgba(139,92,246,0.25)',
+        elMark: '#f87171',
+        elGenerator: '#c084fc',
+        elSelected: '#7c3aed',
+        elDefault: 'rgba(0,0,0,0.10)',
+        vpStroke: 'rgba(124,58,237,0.55)',
+        vpFill: 'rgba(124,58,237,0.04)',
+        vpGlow: 'rgba(124,58,237,0.12)',
+        dimOverlay: 'rgba(255,255,255,0.50)',
+        crosshair: 'rgba(124,58,237,0.25)',
+        crossDot: '#7c3aed',
+    },
+    dark: {
+        canvasBg: '#050607',
+        gridDot: 'rgba(122,139,153,0.18)',
+        elImage: '#818cf8',
+        elVideo: '#a78bfa',
+        elText: '#fbbf24',
+        elShape: '#34d399',
+        elPath: '#f472b6',
+        elFrame: 'rgba(148,163,184,0.08)',
+        elFrameStroke: 'rgba(148,163,184,0.24)',
+        elMark: '#f87171',
+        elGenerator: '#c084fc',
+        elSelected: '#a78bfa',
+        elDefault: 'rgba(148,163,184,0.16)',
+        vpStroke: 'rgba(167,139,250,0.7)',
+        vpFill: 'rgba(167,139,250,0.08)',
+        vpGlow: 'rgba(167,139,250,0.18)',
+        dimOverlay: 'rgba(0,0,0,0.34)',
+        crosshair: 'rgba(148,163,184,0.28)',
+        crossDot: '#a78bfa',
+    },
 };
 
 /**
@@ -64,6 +99,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
     onPanChange,
     onScaleChange,
     rightOffset,
+    canvasTheme = 'light',
 }: CanvasMinimapProps) {
     const [collapsed, setCollapsed] = useState(false);
     const [hovered, setHovered] = useState(false);
@@ -73,6 +109,11 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
     const isDraggingRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const rafRef = useRef(0);
+    const palette = MINIMAP_PALETTES[canvasTheme];
+    const minimapPositionCss = useMemo(
+        () => `.canvas-minimap-position { right: ${(rightOffset ?? 0) + 4}px; }`,
+        [rightOffset],
+    );
 
     /* ── World bounds ── */
     const worldBounds = useMemo(() => {
@@ -112,19 +153,19 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
 
     /* ── Element color resolver ── */
     const elColor = useCallback((el: CanvasElement, sel: boolean): string => {
-        if (sel) return C.elSelected;
+        if (sel) return palette.elSelected;
         switch (el.type) {
-            case 'image': return C.elImage;
-            case 'video': return C.elVideo;
-            case 'text': return C.elText;
-            case 'shape': return C.elShape;
-            case 'path': return C.elPath;
-            case 'frame': return C.elFrame;
-            case 'mark': return C.elMark;
-            case 'image-generator': case 'video-generator': return C.elGenerator;
-            default: return C.elDefault;
+            case 'image': return palette.elImage;
+            case 'video': return palette.elVideo;
+            case 'text': return palette.elText;
+            case 'shape': return palette.elShape;
+            case 'path': return palette.elPath;
+            case 'frame': return palette.elFrame;
+            case 'mark': return palette.elMark;
+            case 'image-generator': case 'video-generator': return palette.elGenerator;
+            default: return palette.elDefault;
         }
-    }, []);
+    }, [palette]);
 
     /* ── Canvas rendering ── */
     useEffect(() => {
@@ -143,13 +184,13 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
             ctx.clearRect(0, 0, MINIMAP_W, MINIMAP_H);
 
             /* Background */
-            ctx.fillStyle = C.canvasBg;
+            ctx.fillStyle = palette.canvasBg;
             ctx.beginPath();
             ctx.roundRect(0, 0, MINIMAP_W, MINIMAP_H, 4);
             ctx.fill();
 
             /* Dot grid */
-            ctx.fillStyle = C.gridDot;
+            ctx.fillStyle = palette.gridDot;
             const step = 20 * mapScale;
             if (step > 3) {
                 for (let gx = step; gx < MINIMAP_W; gx += step) {
@@ -172,8 +213,8 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                 const mw = Math.max(3, (el.width || 100) * mapScale);
                 const mh = Math.max(3, (el.height || 100) * mapScale);
                 const sel = selectedSet.has(el.id);
-                ctx.fillStyle = sel ? 'rgba(124,58,237,0.12)' : C.elFrame;
-                ctx.strokeStyle = sel ? C.elSelected : C.elFrameStroke;
+                ctx.fillStyle = sel ? palette.vpFill : palette.elFrame;
+                ctx.strokeStyle = sel ? palette.elSelected : palette.elFrameStroke;
                 ctx.lineWidth = sel ? 1 : 0.6;
                 ctx.beginPath();
                 ctx.roundRect(mx, my, mw, mh, 2);
@@ -191,7 +232,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
 
                 ctx.save();
                 if (sel) {
-                    ctx.shadowColor = C.elSelected;
+                    ctx.shadowColor = palette.elSelected;
                     ctx.shadowBlur = 5;
                 }
                 ctx.fillStyle = color;
@@ -225,7 +266,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
 
             // Dim area outside viewport
             ctx.save();
-            ctx.fillStyle = C.dimOverlay;
+            ctx.fillStyle = palette.dimOverlay;
             ctx.beginPath();
             ctx.roundRect(0, 0, MINIMAP_W, MINIMAP_H, 4);
             ctx.moveTo(vx, vy);
@@ -238,9 +279,9 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
 
             // Viewport glow + stroke
             ctx.save();
-            ctx.shadowColor = C.vpGlow;
+            ctx.shadowColor = palette.vpGlow;
             ctx.shadowBlur = 6;
-            ctx.strokeStyle = C.vpStroke;
+            ctx.strokeStyle = palette.vpStroke;
             ctx.lineWidth = 1.3;
             ctx.beginPath();
             ctx.roundRect(vx, vy, vw, vh, 2);
@@ -248,13 +289,13 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
             ctx.restore();
 
             // Viewport fill
-            ctx.fillStyle = C.vpFill;
+            ctx.fillStyle = palette.vpFill;
             ctx.beginPath();
             ctx.roundRect(vx, vy, vw, vh, 2);
             ctx.fill();
 
             // Corner handles
-            ctx.fillStyle = '#7c3aed';
+            ctx.fillStyle = palette.crossDot;
             for (const [cx, cy] of [[vx, vy], [vx + vw, vy], [vx, vy + vh], [vx + vw, vy + vh]]) {
                 ctx.beginPath();
                 ctx.arc(cx, cy, 2, 0, Math.PI * 2);
@@ -264,7 +305,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
             /* ── Hover crosshair ── */
             if (hoverPos && hovered && !isDragging) {
                 ctx.save();
-                ctx.strokeStyle = C.crosshair;
+                ctx.strokeStyle = palette.crosshair;
                 ctx.lineWidth = 0.8;
                 ctx.setLineDash([3, 3]);
                 ctx.beginPath();
@@ -277,7 +318,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                 ctx.stroke();
                 ctx.restore();
 
-                ctx.fillStyle = C.crossDot;
+                ctx.fillStyle = palette.crossDot;
                 ctx.beginPath();
                 ctx.arc(hoverPos.x, hoverPos.y, 2.2, 0, Math.PI * 2);
                 ctx.fill();
@@ -285,7 +326,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
         });
 
         return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-    }, [elements, pan, scale, viewportSize, selectedSet, collapsed, toMX, toMY, mapScale, elColor, hoverPos, hovered, isDragging]);
+    }, [elements, pan, scale, viewportSize, selectedSet, collapsed, toMX, toMY, mapScale, elColor, hoverPos, hovered, isDragging, palette]);
 
     /* ── Navigation ── */
     const navigateTo = useCallback((clientX: number, clientY: number) => {
@@ -355,12 +396,12 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
     /* ═══ Collapsed ═══ */
     if (collapsed) {
         return (
-            <div className="absolute bottom-4 z-[25] transition-all duration-300" style={{ right: `${(rightOffset ?? 0) + 4}px` }} ref={containerRef}>
+            <>
+            <style>{minimapPositionCss}</style>
+            <div className="canvas-minimap-position absolute bottom-4 z-[25] transition-all duration-300" ref={containerRef}>
                 <button
                     onClick={() => setCollapsed(false)}
-                    className="group flex items-center gap-1 px-2 py-[5px]
-                               bg-white hover:bg-white
-                               border border-gray-100 hover:border-gray-200
+                    className="canvas-minimap-button group flex items-center gap-1 px-2 py-[5px]
                                rounded-2xl
                                shadow-xl
                                transition-all duration-200"
@@ -375,61 +416,57 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                     )}
                 </button>
             </div>
+            </>
         );
     }
 
     /* ═══ Expanded ═══ */
     return (
+        <>
+        <style>{minimapPositionCss}</style>
         <div
             ref={containerRef}
-            className="absolute bottom-4 z-[25] select-none group/map flex flex-col items-end transition-all duration-300"
-            style={{ right: `${(rightOffset ?? 0) + 4}px` }}
+            className="canvas-minimap-position absolute bottom-4 z-[25] select-none group/map flex flex-col items-end transition-all duration-300"
             onMouseDown={e => e.stopPropagation()}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => { setHovered(false); setHoverPos(null); }}
         >
             {/* ── Map canvas ── */}
             <div
-                className="rounded-2xl overflow-hidden
-                           bg-white
-                           border border-gray-100
-                           shadow-xl
+                className="canvas-minimap-frame rounded-2xl overflow-hidden
                            transition-shadow duration-200
                            group-hover/map:shadow-2xl
-                           relative"
-                style={{ width: MINIMAP_W }}
+                           relative canvas-minimap-size"
             >
                 <canvas
                     ref={canvasRef}
                     width={MINIMAP_W}
                     height={MINIMAP_H}
-                    style={{ width: MINIMAP_W, height: MINIMAP_H, display: 'block',
-                             cursor: isDragging ? 'grabbing' : 'crosshair' }}
+                    className={`canvas-minimap-canvas ${isDragging ? 'cursor-grabbing' : 'cursor-crosshair'}`}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleCanvasMouseMove}
                     onMouseUp={handleMouseUp}
                 />
                 {/* Subtle inset shadow */}
-                <div className="pointer-events-none absolute inset-0 rounded-2xl" style={{ boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)' }} />
+                <div className="canvas-minimap-inset pointer-events-none absolute inset-0 rounded-2xl" />
             </div>
 
             {/* ── Control strip below canvas (slides up on hover) ── */}
             <div
                 className="overflow-hidden transition-all duration-200 ease-out
-                           max-h-0 opacity-0 group-hover/map:max-h-8 group-hover/map:opacity-100"
-                style={{ width: MINIMAP_W }}
+                           max-h-0 opacity-0 group-hover/map:max-h-8 group-hover/map:opacity-100 canvas-minimap-size"
             >
                 <div className="flex items-center justify-between mt-[3px] px-[2px]">
                     {/* Left: legend dots */}
                     <div className="flex items-center gap-[6px]">
                         {([
-                            ['#818cf8', '图'],
-                            ['#a78bfa', '视'],
-                            ['#fbbf24', '文'],
-                            ['#34d399', '形'],
+                            ['canvas-minimap-legend-image', '图'],
+                            ['canvas-minimap-legend-video', '视'],
+                            ['canvas-minimap-legend-text', '文'],
+                            ['canvas-minimap-legend-shape', '形'],
                         ] as const).map(([color, label]) => (
                             <div key={label} className="flex items-center gap-[2px]">
-                                <div className="w-[4px] h-[4px] rounded-[1px]" style={{ backgroundColor: color }} />
+                                <div className={`w-[4px] h-[4px] rounded-[1px] ${color}`} />
                                 <span className="text-[8px] text-gray-400">{label}</span>
                             </div>
                         ))}
@@ -442,7 +479,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                         </span>
                         <button
                             onClick={(e) => { e.stopPropagation(); fitAll(); }}
-                            className="p-[2px] rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                            className="canvas-minimap-action p-[2px] rounded text-gray-400 hover:text-gray-600 transition-colors"
                             title="适配全部"
                         >
                             <Focus size={10} strokeWidth={1.8} />
@@ -451,14 +488,14 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                             <>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); onScaleChange(Math.max(0.1, scale - 0.1)); }}
-                                    className="p-[2px] rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                                    className="canvas-minimap-action p-[2px] rounded text-gray-400 hover:text-gray-600 transition-colors"
                                     title="缩小"
                                 >
                                     <Minus size={10} strokeWidth={1.8} />
                                 </button>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); onScaleChange(Math.min(5, scale + 0.1)); }}
-                                    className="p-[2px] rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                                    className="canvas-minimap-action p-[2px] rounded text-gray-400 hover:text-gray-600 transition-colors"
                                     title="放大"
                                 >
                                     <Plus size={10} strokeWidth={1.8} />
@@ -467,7 +504,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                         )}
                         <button
                             onClick={(e) => { e.stopPropagation(); setCollapsed(true); }}
-                            className="p-[2px] rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                            className="canvas-minimap-action p-[2px] rounded text-gray-400 hover:text-gray-600 transition-colors"
                             title="收起"
                         >
                             <ChevronDown size={10} strokeWidth={2} />
@@ -476,5 +513,6 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                 </div>
             </div>
         </div>
+        </>
     );
 });

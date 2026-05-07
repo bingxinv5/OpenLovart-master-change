@@ -924,7 +924,7 @@ export function StoryboardPlannerPanel({
     <>
     <style>{panelPositionCss}</style>
     <div
-      className={`${panelPositionClassName} absolute z-[120] flex w-[min(560px,calc(100vw-40px))] max-h-[min(92vh,960px)] flex-col overflow-hidden rounded-xl border border-slate-200/60 bg-white shadow-xl`}
+      className={`${panelPositionClassName} canvas-theme-panel-elevated absolute z-[120] flex w-[min(560px,calc(100vw-40px))] max-h-[min(92vh,960px)] flex-col overflow-hidden rounded-xl`}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" aria-label="上传分镜参考图" onChange={handleFileChange} />
@@ -941,10 +941,10 @@ export function StoryboardPlannerPanel({
           </div>
         </div>
         <div className="flex items-center gap-0.5">
-          <button type="button" onClick={handleReset} className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="重置所有数据">
+          <button type="button" onClick={handleReset} className="canvas-panel-close flex h-6 w-6 items-center justify-center rounded transition-colors" title="重置所有数据">
             <RotateCcw size={12} />
           </button>
-          <button type="button" onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="关闭">
+          <button type="button" onClick={onClose} className="canvas-panel-close flex h-6 w-6 items-center justify-center rounded transition-colors" title="关闭">
             <X size={13} />
           </button>
         </div>
@@ -969,12 +969,12 @@ export function StoryboardPlannerPanel({
         <section>
           <SectionLabel step={2}>分镜方式与格数</SectionLabel>
           {/* 分段式模式切换 */}
-          <div className="flex overflow-hidden rounded-md border border-slate-200 bg-slate-100 p-0.5">
-            <button type="button" onClick={() => setMode('shot')} className={`flex flex-1 items-center justify-center gap-1.5 rounded py-1.5 text-[12px] font-semibold transition-all ${mode === 'shot' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          <div className="canvas-segmented-control flex overflow-hidden rounded-md p-0.5">
+            <button type="button" onClick={() => setMode('shot')} className={`canvas-segmented-option flex flex-1 items-center justify-center gap-1.5 rounded py-1.5 text-[12px] font-semibold transition-all ${mode === 'shot' ? 'is-active' : ''}`}>
               <Camera size={13} />
               分镜模式
             </button>
-            <button type="button" onClick={() => setMode('story')} className={`flex flex-1 items-center justify-center gap-1.5 rounded py-1.5 text-[12px] font-semibold transition-all ${mode === 'story' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <button type="button" onClick={() => setMode('story')} className={`canvas-segmented-option flex flex-1 items-center justify-center gap-1.5 rounded py-1.5 text-[12px] font-semibold transition-all ${mode === 'story' ? 'is-active' : ''}`}>
               <Film size={13} />
               故事模式
             </button>
@@ -986,7 +986,7 @@ export function StoryboardPlannerPanel({
               onChange={(event) => setShotCount(Number(event.target.value))}
               title="选择分镜格数"
               aria-label="选择分镜格数"
-              className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-1.5 pr-8 text-[12px] font-semibold text-slate-700 outline-none transition-all hover:border-slate-300 focus:border-sky-300 focus:ring-1 focus:ring-sky-100 cursor-pointer"
+              className="canvas-settings-input w-full appearance-none rounded-md px-3 py-1.5 pr-8 text-[12px] font-semibold outline-none transition-all cursor-pointer"
             >
               {SHOT_COUNT_OPTIONS.map((option) => (
                 <option key={option} value={option}>
@@ -1005,27 +1005,27 @@ export function StoryboardPlannerPanel({
             value={sceneDescription}
             onChange={(event) => setSceneDescription(event.target.value)}
             placeholder="描述画面场景、风格或构图要求，例如：现代都市夜景、古风庭院月色..."
-            className="h-14 w-full resize-none rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-[12px] leading-5 text-slate-700 outline-none placeholder:text-slate-400 focus:border-sky-300 focus:ring-1 focus:ring-sky-100 transition-all"
+            className="canvas-settings-input h-14 w-full resize-none rounded-md px-3 py-2 text-[12px] leading-5 outline-none placeholder:text-[var(--canvas-text-tertiary)] transition-all"
           />
           {mode === 'story' && (
             <textarea
               value={storyContext}
               onChange={(event) => setStoryContext(event.target.value)}
               placeholder="故事设定，例如：两个青梅竹马重逢的故事，女主角是画家，男主角是归国音乐家..."
-              className="mt-1.5 h-14 w-full resize-none rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2 text-[12px] leading-5 text-slate-700 outline-none placeholder:text-slate-400 focus:border-sky-300 focus:ring-1 focus:ring-sky-100 transition-all"
+              className="canvas-settings-input mt-1.5 h-14 w-full resize-none rounded-md px-3 py-2 text-[12px] leading-5 outline-none placeholder:text-[var(--canvas-text-tertiary)] transition-all"
             />
           )}
         </section>
 
         {/* 错误提示 */}
         {errorMsg && (
-          <div className="flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
+          <div className="canvas-danger-soft flex items-start gap-2 rounded-md px-3 py-2 text-[12px]">
             <X size={12} className="mt-0.5 shrink-0 text-rose-400" />
             <span>{errorMsg}</span>
           </div>
         )}
         {generationState.error && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
+          <div className="canvas-warning-surface flex items-start gap-2 rounded-md px-3 py-2 text-[12px]">
             <Loader2 size={12} className="mt-0.5 shrink-0 text-amber-400" />
             <span>{generationState.error}</span>
           </div>

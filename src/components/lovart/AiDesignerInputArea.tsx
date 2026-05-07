@@ -143,7 +143,7 @@ export function AiDesignerInputArea({
 
   return (
     <div className="p-4 pt-2">
-      <div className="relative border border-gray-200 rounded-2xl bg-white shadow-sm focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
+      <div className="canvas-ai-input-shell relative rounded-2xl transition-all">
         {attachments.length > 0 && (
           <div className="flex items-center gap-2 px-4 pt-3 pb-1">
             {attachments.map((attachment) => (
@@ -167,7 +167,7 @@ export function AiDesignerInputArea({
                 >
                   <XCircle size={12} />
                 </button>
-                <p className="text-[9px] text-gray-400 mt-0.5 truncate w-14 text-center">{attachment.name}</p>
+                <p className="text-[9px] text-[var(--canvas-text-tertiary)] mt-0.5 truncate w-14 text-center">{attachment.name}</p>
               </div>
             ))}
             {attachments.length < 4 && (
@@ -175,7 +175,7 @@ export function AiDesignerInputArea({
                 onClick={() => fileInputRef.current?.click()}
                 title="继续添加图片"
                 aria-label="继续添加图片"
-                className="w-14 h-14 rounded-lg border-2 border-dashed border-gray-200 flex items-center justify-center text-gray-300 hover:border-gray-400 hover:text-gray-500 transition-colors"
+                className="canvas-reference-add-button w-14 h-14 rounded-lg border-2 flex items-center justify-center transition-colors"
               >
                 <ImageIcon size={18} />
               </button>
@@ -191,7 +191,7 @@ export function AiDesignerInputArea({
             syncSelectionFromInput(event.target);
           }}
           placeholder={webSearchEnabled ? '输入关键词，AI 将联网搜索后回答...' : '请输入你的设计需求'}
-          className="w-full min-h-[60px] max-h-[120px] p-4 pb-2 resize-none outline-none text-gray-700 placeholder-gray-300 bg-transparent rounded-t-2xl text-sm"
+          className="w-full min-h-[60px] max-h-[120px] p-4 pb-2 resize-none outline-none text-[var(--canvas-text-primary)] placeholder:text-[var(--canvas-text-tertiary)] bg-transparent rounded-t-2xl text-sm"
           onKeyDown={onKeyDown}
           onKeyUp={(event) => syncSelectionFromInput(event.currentTarget)}
           onSelect={(event) => syncSelectionFromInput(event.currentTarget)}
@@ -211,11 +211,11 @@ export function AiDesignerInputArea({
           onChange={onFileSelect}
         />
 
-        <div className="flex items-center justify-between px-3 py-2 border-t border-gray-50">
+        <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--canvas-border)]">
           <div className="flex items-center gap-1">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className={`p-2 rounded-full transition-colors ${attachments.length > 0 ? 'text-blue-500 bg-blue-50' : 'text-gray-400 hover:bg-gray-100'}`}
+              className={`canvas-control-button p-2 rounded-full transition-colors ${attachments.length > 0 ? 'bg-[var(--accent-primary-soft)] text-blue-500' : ''}`}
               title="上传图片（最多4张）"
             >
               <Paperclip size={16} />
@@ -224,22 +224,22 @@ export function AiDesignerInputArea({
             <div ref={canvasImagesMenuRef} className="relative">
               <button
                 onClick={onToggleCanvasImagesMenu}
-                className={`p-2 rounded-full transition-colors ${showCanvasImagesMenu ? 'text-purple-500 bg-purple-50' : canvasImages && canvasImages.length > 0 ? 'text-gray-400 hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'}`}
+                className={`canvas-control-button p-2 rounded-full transition-colors ${showCanvasImagesMenu ? 'bg-[var(--accent-primary-soft)] text-purple-500' : canvasImages && canvasImages.length > 0 ? '' : 'cursor-not-allowed opacity-45'}`}
                 title={canvasImages && canvasImages.length > 0 ? '引用画布中的图片' : '画布上还没有图片'}
                 disabled={!canvasImages || canvasImages.length === 0}
               >
                 <ImageIcon size={16} />
               </button>
               {showCanvasImagesMenu && canvasImages && canvasImages.length > 0 && (
-                <div className="absolute bottom-full mb-2 left-0 w-72 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-80 overflow-y-auto">
+                <div className="canvas-popover absolute bottom-full mb-2 left-0 w-72 rounded-xl z-50 max-h-80 overflow-y-auto">
                   <div className="p-2">
-                    <p className="text-xs text-gray-400 px-2 py-1 font-medium">🖼 画布图片</p>
+                    <p className="text-xs text-[var(--canvas-text-tertiary)] px-2 py-1 font-medium">🖼 画布图片</p>
                     <div className="grid grid-cols-3 gap-2 p-1">
                       {canvasImages.map((image, index) => (
                         <button
                           key={image.id}
                           onClick={() => onAddCanvasImageAttachment(image, index)}
-                          className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${attachments.some((attachment) => attachment.id === `canvas-${image.id}`) ? 'border-purple-500 ring-2 ring-purple-200' : 'border-gray-200 hover:border-purple-300'}`}
+                          className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${attachments.some((attachment) => attachment.id === `canvas-${image.id}`) ? 'border-purple-500 ring-2 ring-purple-300/30' : 'border-[var(--canvas-border)] hover:border-purple-300'}`}
                           title={`添加画布图片 ${index + 1} 到对话`}
                         >
                           <WorkbenchImage
@@ -258,13 +258,13 @@ export function AiDesignerInputArea({
                         </button>
                       ))}
                     </div>
-                    <p className="text-[10px] text-gray-300 px-2 pt-1 mt-1 border-t border-gray-100">
+                    <p className="text-[10px] text-[var(--canvas-text-tertiary)] px-2 pt-1 mt-1 border-t border-[var(--canvas-border)]">
                       点击图片将其添加为附件（最多 4 张）
                     </p>
                     {onPickFromCanvas && (
                       <button
                         onClick={onPickFromCanvas}
-                        className="w-full text-left px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors font-medium mt-1 flex items-center gap-2"
+                        className="canvas-menu-item w-full text-left px-3 py-2 text-sm text-purple-600 rounded-lg transition-colors font-medium mt-1 flex items-center gap-2"
                       >
                         <Maximize2 size={12} />
                         从画布中选择
@@ -279,27 +279,27 @@ export function AiDesignerInputArea({
               <button
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={onToggleMentionMenu}
-                className={`p-2 rounded-full transition-colors ${showMentionMenu ? 'text-blue-500 bg-blue-50' : 'text-gray-400 hover:bg-gray-100'}`}
+                className={`canvas-control-button p-2 rounded-full transition-colors ${showMentionMenu ? 'bg-[var(--accent-primary-soft)] text-blue-500' : ''}`}
                 title="@ 提及工具"
               >
                 <AtSign size={16} />
               </button>
               {showMentionMenu && (
-                <div className="absolute bottom-full mb-2 left-0 w-60 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-80 overflow-y-auto">
+                <div className="canvas-popover absolute bottom-full mb-2 left-0 w-60 rounded-xl z-50 max-h-80 overflow-y-auto">
                   <div className="p-2">
-                    <p className="text-xs text-gray-400 px-2 py-1 font-medium">{mentionMenuTitle}</p>
+                    <p className="text-xs text-[var(--canvas-text-tertiary)] px-2 py-1 font-medium">{mentionMenuTitle}</p>
                     {mentionSuggestions.length > 0 ? mentionSuggestions.map((item) => (
                       <button
                         key={item.id}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => onMentionSelect(item.insert)}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg transition-colors"
+                        className="canvas-menu-item w-full text-left px-3 py-2 rounded-lg transition-colors"
                       >
-                        <span className="text-sm text-gray-800">{item.label}</span>
-                        <p className="text-[11px] text-gray-400 mt-0.5">{item.description}</p>
+                        <span className="text-sm text-[var(--canvas-text-primary)]">{item.label}</span>
+                        <p className="text-[11px] text-[var(--canvas-text-tertiary)] mt-0.5">{item.description}</p>
                       </button>
                     )) : (
-                      <div className="px-3 py-4 text-[12px] text-gray-400">
+                      <div className="px-3 py-4 text-[12px] text-[var(--canvas-text-tertiary)]">
                         {mentionMenuEmptyText}
                       </div>
                     )}
@@ -310,24 +310,24 @@ export function AiDesignerInputArea({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-gray-50 rounded-full p-0.5 border border-gray-100 relative">
+            <div className="flex items-center bg-[var(--canvas-surface-muted)] rounded-full p-0.5 border border-[var(--canvas-border)] relative">
               <div ref={quickMenuRef} className="relative">
                 <button
                   onClick={onToggleQuickMenu}
-                  className={`p-1.5 rounded-full transition-all ${showQuickMenu ? 'text-orange-500 bg-orange-50' : 'text-gray-400 hover:text-gray-600 hover:bg-white'}`}
+                  className={`canvas-control-button p-1.5 rounded-full transition-all ${showQuickMenu ? 'bg-[var(--canvas-warning-surface)] text-orange-500' : ''}`}
                   title="快捷指令"
                 >
                   <Zap size={14} />
                 </button>
                 {showQuickMenu && (
-                  <div className="absolute bottom-full mb-2 right-0 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+                  <div className="canvas-popover absolute bottom-full mb-2 right-0 w-56 rounded-xl z-50">
                     <div className="p-2">
-                      <p className="text-xs text-gray-400 px-2 py-1 font-medium">⚡ 快捷指令</p>
+                      <p className="text-xs text-[var(--canvas-text-tertiary)] px-2 py-1 font-medium">⚡ 快捷指令</p>
                       {quickCommands.map((command, index) => (
                         <button
                           key={index}
                           onClick={() => onQuickCommand(command.prompt)}
-                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                          className="canvas-menu-item w-full text-left px-3 py-2 text-sm rounded-lg transition-colors"
                         >
                           {command.label}
                         </button>
@@ -339,7 +339,7 @@ export function AiDesignerInputArea({
 
               <button
                 onClick={onToggleWebSearch}
-                className={`p-1.5 rounded-full transition-all ${webSearchEnabled ? 'text-green-600 bg-green-50 ring-1 ring-green-200' : 'text-gray-400 hover:text-gray-600 hover:bg-white'}`}
+                className={`canvas-control-button p-1.5 rounded-full transition-all ${webSearchEnabled ? 'bg-[var(--canvas-success-surface)] text-green-600 ring-1 ring-[var(--canvas-success-border)]' : ''}`}
                 title={webSearchEnabled ? '已开启联网搜索' : '开启联网搜索'}
               >
                 <Globe size={14} />
@@ -348,22 +348,22 @@ export function AiDesignerInputArea({
               <div className="relative">
                 <button
                   onClick={onToggleMarksMenu}
-                  className={`p-1.5 rounded-full transition-all ${showMarksMenu ? 'text-red-500 bg-red-50' : marks && marks.length > 0 ? 'text-red-400 hover:text-red-600 hover:bg-white' : 'text-gray-300 cursor-not-allowed'}`}
+                  className={`canvas-control-button p-1.5 rounded-full transition-all ${showMarksMenu ? 'bg-[var(--canvas-danger-surface)] text-red-500' : marks && marks.length > 0 ? 'text-red-400' : 'cursor-not-allowed opacity-45'}`}
                   title={marks && marks.length > 0 ? '引用画布标记' : '画布上还没有标记'}
                   disabled={!marks || marks.length === 0}
                 >
                   <MapPin size={14} />
                 </button>
                 {showMarksMenu && marks && marks.length > 0 && (
-                  <div className="absolute bottom-full mb-2 right-0 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-60 overflow-y-auto">
+                  <div className="canvas-popover absolute bottom-full mb-2 right-0 w-56 rounded-xl z-50 max-h-60 overflow-y-auto">
                     <div className="p-2">
-                      <p className="text-xs text-gray-400 px-2 py-1 font-medium">📍 画布标记</p>
+                      <p className="text-xs text-[var(--canvas-text-tertiary)] px-2 py-1 font-medium">📍 画布标记</p>
                       {marks.map((mark) => (
                         <div key={mark.id} className="flex items-center gap-1 group">
                           <button
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onReferenceMark(mark)}
-                            className="flex-1 text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-2"
+                            className="canvas-menu-item flex-1 text-left px-3 py-2 text-sm rounded-lg transition-colors flex items-center gap-2"
                           >
                             <span className="w-5 h-5 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-xs font-bold flex-shrink-0">{mark.markNumber}</span>
                             {mark.targetImageContent ? (
@@ -376,24 +376,24 @@ export function AiDesignerInputArea({
                               event.stopPropagation();
                               onDeleteMark?.(mark.id);
                             }}
-                            className="p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                            className="canvas-inline-action is-danger p-1 rounded-md opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
                             title="删除此标记"
                           >
                             <Trash2 size={12} />
                           </button>
                         </div>
                       ))}
-                      <div className="h-px bg-gray-100 my-1" />
+                      <div className="canvas-menu-separator h-px my-1" />
                       <button
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={onReferenceAllMarks}
-                        className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-medium"
+                        className="canvas-menu-item w-full text-left px-3 py-2 text-sm text-blue-600 rounded-lg transition-colors font-medium"
                       >
                         引用所有标记
                       </button>
                       <button
                         onClick={onClearAllMarks}
-                        className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors font-medium"
+                        className="canvas-menu-item w-full text-left px-3 py-2 text-sm text-red-500 rounded-lg transition-colors font-medium"
                       >
                         清除所有标记
                       </button>
@@ -416,8 +416,8 @@ export function AiDesignerInputArea({
                 onClick={onSend}
                 disabled={(!inputValue.trim() && attachments.length === 0) || isGenerating}
                 className={`p-2 rounded-full transition-all ${(inputValue.trim() || attachments.length > 0) && !isGenerating
-                  ? 'bg-black text-white hover:bg-gray-800 shadow-md'
-                  : 'bg-gray-200 text-white cursor-not-allowed'
+                  ? 'bg-[var(--canvas-active-surface)] text-[var(--canvas-active-text)] hover:opacity-90 shadow-md'
+                  : 'bg-[var(--canvas-hover)] text-[var(--canvas-text-tertiary)] cursor-not-allowed'
                 }`}
                 title="发送"
               >
@@ -428,11 +428,11 @@ export function AiDesignerInputArea({
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-1.5 mt-2 text-[10px] text-gray-300">
+      <div className="canvas-ai-bottom-meta flex items-center justify-center gap-1.5 mt-2 text-[10px]">
         <div ref={modelMenuRef} className="relative">
           <button
             onClick={onToggleModelMenu}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-full hover:bg-gray-100 transition-colors group"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full hover:bg-[var(--canvas-hover)] transition-colors group"
           >
             <Sparkles size={10} className={aiModels.find((model) => model.id === selectedModel)?.color || ''} />
             <span className={`font-medium ${aiModels.find((model) => model.id === selectedModel)?.color || 'text-gray-400'}`}>
@@ -441,15 +441,15 @@ export function AiDesignerInputArea({
             <ChevronDown size={10} className={`transition-transform ${showModelMenu ? 'rotate-180' : ''}`} />
           </button>
           {showModelMenu && (
-            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+            <div className="canvas-popover absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 rounded-xl z-50">
               <div className="p-1.5">
-                <p className="text-[10px] text-gray-400 px-2 py-1 font-medium">切换模型</p>
+                <p className="text-[10px] text-[var(--canvas-text-tertiary)] px-2 py-1 font-medium">切换模型</p>
                 {aiModels.map((model) => (
                   <button
                     key={model.id}
                     onClick={() => onSelectModel(model.id)}
                     className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between ${
-                      selectedModel === model.id ? 'bg-gray-50 font-medium' : 'hover:bg-gray-50'
+                      selectedModel === model.id ? 'canvas-menu-item is-active font-medium' : 'canvas-menu-item'
                     }`}
                   >
                     <div>

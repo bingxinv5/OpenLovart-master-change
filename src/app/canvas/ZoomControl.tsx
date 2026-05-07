@@ -40,37 +40,37 @@ export function ZoomControl({ scale, onZoomIn, onZoomOut, onZoomTo, onFitToScree
     return (
         <div ref={ref} className="absolute bottom-4 left-4 z-50">
             {open && (
-                <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-xl border border-gray-100 p-1.5 min-w-[200px] animate-in slide-in-from-bottom-2 duration-150">
+                <div className="canvas-popover absolute bottom-full left-0 mb-2 min-w-[200px] rounded-xl p-1.5 animate-in slide-in-from-bottom-2 duration-150">
                     {presets.map((item, index) => (
                         'type' in item && item.type === 'divider' ? (
-                            <div key={index} className="h-px bg-gray-100 my-1" />
+                            <div key={index} className="my-1 h-px bg-[var(--divider)]" />
                         ) : (
                             <button
                                 key={index}
                                 onClick={item.action}
-                                className="flex items-center justify-between w-full px-3 py-1.5 rounded-lg hover:bg-gray-50 text-sm text-gray-700 transition-colors"
+                                className="canvas-control-button flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-sm transition-colors"
                             >
                                 <span>{item.label}</span>
                                 {'shortcut' in item && item.shortcut && (
-                                    <span className="text-xs text-gray-400 ml-4">{item.shortcut}</span>
+                                    <span className="ml-4 text-xs text-[var(--canvas-text-tertiary)]">{item.shortcut}</span>
                                 )}
                             </button>
                         )
                     ))}
                 </div>
             )}
-            <div className="flex items-center bg-white rounded-lg shadow-sm border border-gray-100 p-1">
-                <button onClick={onZoomOut} className="p-1.5 hover:bg-gray-50 rounded text-gray-500" title="缩小 (Ctrl+-)">
+            <div className="canvas-control-bar flex items-center rounded-lg p-1">
+                <button onClick={onZoomOut} className="canvas-control-button rounded p-1.5" title="缩小 (Ctrl+-)">
                     <Minus size={16} />
                 </button>
                 <button
                     onClick={() => setOpen((prev) => !prev)}
-                    className="px-2 text-xs font-medium text-gray-600 min-w-[3rem] text-center hover:bg-gray-50 rounded py-1"
+                    className="canvas-control-button min-w-[3rem] rounded px-2 py-1 text-center text-xs font-medium"
                     title="缩放选项"
                 >
                     {Math.round(scale * 100)}%
                 </button>
-                <button onClick={onZoomIn} className="p-1.5 hover:bg-gray-50 rounded text-gray-500" title="放大 (Ctrl++)">
+                <button onClick={onZoomIn} className="canvas-control-button rounded p-1.5" title="放大 (Ctrl++)">
                     <Plus size={16} />
                 </button>
             </div>

@@ -675,6 +675,17 @@ function LovartCanvasContent() {
         });
     }, []);
 
+    useEffect(() => {
+        const root = document.documentElement;
+        root.dataset.canvasTheme = workbenchSettings.canvasTheme;
+        root.style.colorScheme = workbenchSettings.canvasTheme;
+
+        return () => {
+            delete root.dataset.canvasTheme;
+            root.style.removeProperty('color-scheme');
+        };
+    }, [workbenchSettings.canvasTheme]);
+
     const refreshStorageEstimate = useCallback(async () => {
         const estimate = await getStorageEstimateInfo();
         setStorageEstimate(estimate);
@@ -1964,17 +1975,18 @@ function LovartCanvasContent() {
             resolvedImageSrcMap: runtimeImageRenderSrcs,
             onRenderMetricsChange: benchmarkMode ? handleRenderMetricsChange : undefined,
             minimapRightOffset: rightWorkbenchOffset,
+            canvasTheme: workbenchSettings.canvasTheme,
         },
     };
 
     // 显示加载状态
     if (isLoading) {
         return (
-            <div className="h-screen w-full bg-[#f8f8fa] flex items-center justify-center">
+            <div className="canvas-loading-shell flex h-screen w-full items-center justify-center">
                 <div className="text-center">
-                    <div className="w-16 h-16 border-4 border-slate-200 border-t-slate-700 rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-slate-600 font-medium">加载画布中...</p>
-                    <p className="text-slate-400 text-sm mt-2">正在从云端获取数据</p>
+                    <div className="canvas-loading-spinner mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4"></div>
+                    <p className="canvas-loading-title font-medium">加载画布中...</p>
+                    <p className="canvas-loading-caption mt-2 text-sm">正在从云端获取数据</p>
                 </div>
             </div>
         );
@@ -1982,7 +1994,7 @@ function LovartCanvasContent() {
 
     return (
         <div
-            className="h-screen w-full bg-[#f8f8fa] relative overflow-hidden"
+            className="canvas-page-shell relative h-screen w-full overflow-hidden"
             data-testid="canvas-page"
             data-project-id={currentProjectId || ''}
         >

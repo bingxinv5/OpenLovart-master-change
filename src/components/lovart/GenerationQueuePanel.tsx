@@ -31,31 +31,31 @@ function getToneStyles(tone: GenerationQueueItem['tone']) {
     switch (tone) {
         case 'submitting':
             return {
-                badge: 'bg-sky-100 text-sky-700',
+                badge: 'canvas-queue-badge canvas-queue-badge-submitting',
                 progress: 'bg-sky-500',
                 dot: 'bg-sky-500',
             };
         case 'queued':
             return {
-                badge: 'bg-amber-100 text-amber-700',
+                badge: 'canvas-queue-badge canvas-queue-badge-queued',
                 progress: 'bg-amber-500',
                 dot: 'bg-amber-500',
             };
         case 'running':
             return {
-                badge: 'bg-violet-100 text-violet-700',
+                badge: 'canvas-queue-badge canvas-queue-badge-running',
                 progress: 'bg-violet-500',
                 dot: 'bg-violet-500',
             };
         case 'finishing':
             return {
-                badge: 'bg-emerald-100 text-emerald-700',
+                badge: 'canvas-queue-badge canvas-queue-badge-finishing',
                 progress: 'bg-emerald-500',
                 dot: 'bg-emerald-500',
             };
         case 'failed':
             return {
-                badge: 'bg-rose-100 text-rose-700',
+                badge: 'canvas-queue-badge canvas-queue-badge-failed',
                 progress: 'bg-rose-500',
                 dot: 'bg-rose-500',
             };
@@ -78,12 +78,12 @@ export function GenerationQueuePanel({
     const failedCount = actionableItems.filter((item) => item.tone === 'failed').length;
 
     return (
-        <div className="absolute top-20 left-4 z-50 w-[300px] rounded-2xl border border-slate-200/80 bg-white/98 shadow-xl backdrop-blur-md pointer-events-auto">
+        <div className="canvas-theme-panel absolute top-20 left-4 z-50 w-[300px] rounded-2xl pointer-events-auto">
             {/* Header */}
             <button
                 type="button"
                 onClick={onToggleCollapsed}
-                className="flex w-full items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:bg-slate-50/60 rounded-t-2xl"
+                className="flex w-full items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:bg-[var(--canvas-hover)] rounded-t-2xl"
             >
                 <div className="relative flex h-6 w-6 items-center justify-center">
                     {runningCount > 0 && (
@@ -106,7 +106,7 @@ export function GenerationQueuePanel({
 
             {/* Item list */}
             {!collapsed && (
-                <div className="border-t border-slate-100 max-h-[320px] overflow-y-auto panel-scroll">
+                <div className="border-t border-[var(--canvas-border)] max-h-[320px] overflow-y-auto panel-scroll">
                     {items.map((item, idx) => {
                         const toneStyles = getToneStyles(item.tone);
                         const isGroupRow = item.entityType === 'group';
@@ -117,11 +117,11 @@ export function GenerationQueuePanel({
                         return (
                             <div
                                 key={item.id}
-                                className={`relative px-3.5 py-2.5 transition-colors hover:bg-slate-50/70 ${!isLast ? 'border-b border-slate-100/80' : ''} ${isGroupRow ? 'bg-sky-50/40' : ''}`}
+                                className={`canvas-queue-item relative px-3.5 py-2.5 transition-colors ${!isLast ? 'border-b border-[var(--canvas-border)]' : ''} ${isGroupRow ? 'is-group' : ''}`}
                             >
                                 {/* Progress bar (thin stripe at top of each item) */}
                                 {item.progress > 0 && item.tone !== 'failed' && (
-                                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-slate-100">
+                                    <div className="canvas-queue-progress-track absolute top-0 left-0 right-0 h-[2px]">
                                         <style>{`.${progressClassName} { width: ${progressPercent}%; }`}</style>
                                         <div
                                             className={`${progressClassName} h-full transition-all duration-500 ${toneStyles.progress}`}

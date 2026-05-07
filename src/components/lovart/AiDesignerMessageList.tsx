@@ -52,8 +52,8 @@ export function AiDesignerMessageList({
       {messages.length === 0 ? (
         <>
           <div className="mb-8 mt-2">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Hi，我是你的AI设计师</h1>
-            <p className="text-xl text-gray-400 font-light">让我们开始今天的创作吧！</p>
+            <h1 className="text-3xl font-bold text-[var(--canvas-text-primary)] mb-2">Hi，我是你的AI设计师</h1>
+            <p className="text-xl text-[var(--canvas-text-tertiary)] font-light">让我们开始今天的创作吧！</p>
           </div>
 
           <div className="space-y-4 mb-6">
@@ -61,11 +61,11 @@ export function AiDesignerMessageList({
               <div
                 key={`${suggestionIndex}-${index}`}
                 onClick={() => onSuggestionClick(item.description)}
-                className="group relative flex items-center justify-between p-4 rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all cursor-pointer bg-gradient-to-r from-white to-gray-50"
+                className="canvas-ai-suggestion-card group relative flex items-center justify-between p-4 rounded-xl transition-all cursor-pointer"
               >
                 <div className="flex-1 pr-4">
-                  <h3 className="font-bold text-gray-900 mb-1">{item.title}</h3>
-                  <p className="text-sm text-gray-400 line-clamp-1">{item.description}</p>
+                  <h3 className="font-bold text-[var(--canvas-text-primary)] mb-1">{item.title}</h3>
+                  <p className="text-sm text-[var(--canvas-text-tertiary)] line-clamp-1">{item.description}</p>
                 </div>
                 <div className={`w-16 h-20 rounded-lg shadow-sm ${item.imageColor} transform group-hover:scale-105 transition-transform rotate-3`} />
                 <div className={`absolute right-8 w-16 h-20 rounded-lg shadow-sm ${item.imageColor} opacity-50 transform rotate-12 -z-10`} />
@@ -75,7 +75,7 @@ export function AiDesignerMessageList({
 
           <button
             onClick={onShuffleSuggestions}
-            className="flex items-center gap-2 text-gray-400 hover:text-gray-600 transition-colors text-sm mb-4"
+            className="flex items-center gap-2 text-[var(--canvas-text-tertiary)] hover:text-[var(--canvas-text-secondary)] transition-colors text-sm mb-4"
           >
             <RefreshCw size={14} />
             <span>换一批</span>
@@ -87,7 +87,7 @@ export function AiDesignerMessageList({
             <div key={message.id}>
               {message.role === 'user' ? (
                 <div className="flex justify-end">
-                  <div className="max-w-[85%] bg-gray-100 text-gray-900 px-4 py-3 rounded-2xl rounded-tr-sm">
+                  <div className="canvas-ai-user-message max-w-[85%] px-4 py-3 rounded-2xl rounded-tr-sm">
                     {message.attachments && message.attachments.length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-2">
                         {message.attachments.map((attachment) => (
@@ -104,12 +104,12 @@ export function AiDesignerMessageList({
                       </div>
                     )}
                     <p className="text-sm whitespace-pre-wrap">{renderUserMessage(message.content)}</p>
-                    <p className="text-[10px] text-gray-400 mt-1 text-right">{formatTime(message.timestamp)}</p>
+                    <p className="text-[10px] opacity-65 mt-1 text-right">{formatTime(message.timestamp)}</p>
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-col">
-                  <div className="max-w-[95%] bg-white border border-gray-100 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm">
+                  <div className="canvas-ai-assistant-message max-w-[95%] px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm">
                     {message.toolType && (
                       <div className="mb-2">
                         <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${
@@ -130,14 +130,14 @@ export function AiDesignerMessageList({
                     {message.content ? (
                       <div className="prose-sm">{renderMarkdown(message.content)}</div>
                     ) : (
-                      <div className="flex items-center gap-2 text-gray-400 py-1">
+                      <div className="flex items-center gap-2 text-[var(--canvas-text-tertiary)] py-1">
                         <Loader2 size={14} className="animate-spin" />
                         <span className="text-sm">思考中...</span>
                       </div>
                     )}
                     {(message.taskStatus === 'processing' || message.taskStatus === 'pending') && (
                       <div className="mt-3">
-                        <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="canvas-progress-track w-full rounded-full h-1.5 overflow-hidden">
                           <style>{getMessageProgressCss(message)}</style>
                           <div
                             className={`${message.taskStatus === 'processing' ? getMessageProgressClassName(message.id) : ''} h-1.5 rounded-full transition-all duration-500 ease-out ${
@@ -147,7 +147,7 @@ export function AiDesignerMessageList({
                             }`}
                           />
                         </div>
-                        <p className="text-[10px] text-gray-400 mt-1">
+                        <p className="text-[10px] text-[var(--canvas-text-tertiary)] mt-1">
                           {message.taskStatus === 'pending' ? '任务排队中...' : `${message.taskProgress || 0}%`}
                         </p>
                       </div>
@@ -168,7 +168,7 @@ export function AiDesignerMessageList({
                             download
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors px-2 py-1 hover:bg-blue-50 rounded-lg"
+                            className="canvas-control-button inline-flex items-center gap-1 text-xs text-blue-500 transition-colors px-2 py-1 rounded-lg"
                           >
                             <Download size={12} />
                             下载图片
@@ -181,7 +181,7 @@ export function AiDesignerMessageList({
                         <video
                           src={message.generatedVideo}
                           controls
-                          className="rounded-xl max-w-full max-h-[400px] border border-gray-100 shadow-sm"
+                          className="rounded-xl max-w-full max-h-[400px] border border-[var(--canvas-border)] shadow-sm"
                         />
                         <div className="flex items-center gap-2 mt-2">
                           <a
@@ -189,7 +189,7 @@ export function AiDesignerMessageList({
                             download
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors px-2 py-1 hover:bg-blue-50 rounded-lg"
+                            className="canvas-control-button inline-flex items-center gap-1 text-xs text-blue-500 transition-colors px-2 py-1 rounded-lg"
                           >
                             <Download size={12} />
                             下载视频
@@ -205,12 +205,12 @@ export function AiDesignerMessageList({
                     <div className="flex items-center gap-1 mt-1 ml-1">
                       <button
                         onClick={() => onCopy(message.content, message.id)}
-                        className="p-1 text-gray-300 hover:text-gray-500 transition-colors rounded"
+                        className="p-1 text-[var(--canvas-text-tertiary)] hover:text-[var(--canvas-text-secondary)] transition-colors rounded"
                         title="复制"
                       >
                         {copiedId === message.id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </button>
-                      <span className="text-[10px] text-gray-300">{formatTime(message.timestamp)}</span>
+                      <span className="text-[10px] text-[var(--canvas-text-tertiary)]">{formatTime(message.timestamp)}</span>
                     </div>
                   )}
                 </div>

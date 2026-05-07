@@ -37,13 +37,13 @@ export function FrameElementRenderer({
         <div className="w-full h-full relative overflow-visible">
             <style>{frameColorCss}</style>
             <div className="absolute -top-6 left-0 flex items-center gap-1.5 select-none whitespace-nowrap">
-                <Frame size={12} className="text-blue-500" />
+                <Frame size={12} className="canvas-frame-meta-label" />
                 {isEditingFrameName ? (
                     <input
                         autoFocus
                         type="text"
                         title="编辑画板名称"
-                        className="text-xs font-medium text-blue-500 bg-white border border-blue-300 rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-blue-400 min-w-[60px]"
+                        className="canvas-frame-name-input text-xs font-medium rounded px-1 py-0.5 outline-none min-w-[60px]"
                         value={el.frameName || 'Frame'}
                         onChange={(event) => h.onElementChange(el.id, { frameName: event.target.value })}
                         onBlur={() => h.setEditingFrameName(null)}
@@ -52,29 +52,29 @@ export function FrameElementRenderer({
                     />
                 ) : (
                     <span
-                        className="text-xs font-medium text-blue-500 cursor-text hover:text-blue-700"
+                        className="canvas-frame-meta-label text-xs font-medium cursor-text hover:opacity-80"
                         onDoubleClick={(event) => { event.stopPropagation(); h.setEditingFrameName(el.id); }}
                     >
                         {el.frameName || 'Frame'}
                     </span>
                 )}
                 {frameChildCount > 0 && (
-                    <span className="text-[9px] bg-blue-100 text-blue-500 px-1.5 py-0.5 rounded-full font-medium">
+                    <span className="canvas-frame-chip canvas-frame-chip-blue text-[9px] px-1.5 py-0.5 rounded-full font-medium">
                         {frameChildCount}
                     </span>
                 )}
                 {el.groupFrame && (
-                    <span className="text-[9px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-medium">
+                    <span className="canvas-frame-chip canvas-frame-chip-violet text-[9px] px-1.5 py-0.5 rounded-full font-medium">
                         编组
                     </span>
                 )}
                 {el.frameAutoLayout && (
-                    <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">
+                    <span className="canvas-frame-chip canvas-frame-chip-emerald text-[9px] px-1.5 py-0.5 rounded-full font-medium">
                         {FRAME_LAYOUT_MODE_LABELS[el.frameAutoLayoutMode || 'flow']}
                     </span>
                 )}
                 {el.frameAutoLayout && (
-                    <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full font-medium">
+                    <span className="canvas-frame-chip text-[9px] px-1.5 py-0.5 rounded-full font-medium">
                         {FRAME_LAYOUT_ALIGN_LABELS[el.frameAutoLayoutAlign || 'center']} · {Math.round(el.frameAutoLayoutGap ?? 14)}
                     </span>
                 )}
@@ -85,7 +85,7 @@ export function FrameElementRenderer({
                 data-testid={`frame-body-${el.id}`}
                 className={`${frameColorClassName} w-full h-full border rounded-sm transition-colors ${el.frameClip ? 'overflow-hidden' : 'overflow-visible'} ${
                     isDropTarget
-                        ? 'border-blue-500 border-2 shadow-lg shadow-blue-100'
+                        ? 'border-blue-500 border-2 shadow-lg shadow-blue-100 dark:shadow-none'
                         : el.groupFrame
                             ? 'border-violet-400 border-2 bg-violet-50/30'
                             : 'border-gray-300'
@@ -93,14 +93,14 @@ export function FrameElementRenderer({
             />
 
             {isDropTarget && (
-                <div className="absolute inset-0 bg-blue-50/30 border-2 border-dashed border-blue-400 rounded-sm pointer-events-none flex items-center justify-center">
+                <div className="absolute inset-0 bg-blue-500/10 border-2 border-dashed border-blue-400 rounded-sm pointer-events-none flex items-center justify-center">
                     <div className="bg-blue-500 text-white text-xs px-3 py-1.5 rounded-full shadow-lg font-medium">
                         放入画板
                     </div>
                 </div>
             )}
 
-            <div className="absolute -top-6 right-0 text-[10px] text-blue-400 select-none pointer-events-none">
+            <div className="canvas-frame-meta-label absolute -top-6 right-0 text-[10px] select-none pointer-events-none opacity-80">
                 {Math.round(el.width || 0)} × {Math.round(el.height || 0)}
             </div>
 
@@ -138,15 +138,15 @@ function FrameToolbar({
             data-testid={`frame-toolbar-${el.id}`}
         >
             <style>{frameColorCss}</style>
-            <div className="flex items-center bg-white rounded-xl shadow-xl border border-gray-200 px-3 py-2 gap-2">
+            <div className="canvas-inline-toolbar flex items-center rounded-xl px-3 py-2 gap-2">
                 <FramePresetButton el={el} showFramePresetMenu={showFramePresetMenu} handlersRef={handlersRef} />
-                <div className="w-px h-7 bg-gray-200" />
+                <div className="canvas-toolbar-separator w-px h-7" />
                 <DragNumberInput label="W" value={el.width || 0} onChange={(value) => { h.onElementChange(el.id, { width: value, framePreset: 'Custom' }); if (el.frameAutoLayout) h.scheduleAutoLayout(el.id); }} />
                 <DragNumberInput label="H" value={el.height || 0} onChange={(value) => { h.onElementChange(el.id, { height: value, framePreset: 'Custom' }); if (el.frameAutoLayout) h.scheduleAutoLayout(el.id); }} />
-                <div className="w-px h-7 bg-gray-200" />
+                <div className="canvas-toolbar-separator w-px h-7" />
                 <div className="relative">
                     <div
-                        className={`${frameColorClassName} w-8 h-8 rounded-lg border border-gray-200 cursor-pointer relative overflow-hidden hover:ring-2 hover:ring-blue-200 transition-all`}
+                        className={`${frameColorClassName} w-8 h-8 rounded-lg border border-[var(--canvas-border)] cursor-pointer relative overflow-hidden hover:ring-2 hover:ring-[var(--canvas-focus-ring)] transition-all`}
                         title="背景颜色"
                     >
                         <StableColorInput
@@ -160,16 +160,16 @@ function FrameToolbar({
                     </div>
                 </div>
                 <button
-                    className={`p-2 rounded-lg transition-colors flex items-center gap-0.5 ${el.frameClip ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:bg-gray-50'}`}
+                    className={`canvas-inline-action p-2 rounded-lg transition-colors flex items-center gap-0.5 ${el.frameClip ? 'is-active' : ''}`}
                     onClick={() => h.onElementChange(el.id, { frameClip: !el.frameClip })}
                     title={el.frameClip ? '裁剪已开启' : '裁剪已关闭'}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
                 </button>
                 <FrameAutoLayoutControls el={el} handlersRef={handlersRef} />
-                <div className="w-px h-7 bg-gray-200" />
+                <div className="canvas-toolbar-separator w-px h-7" />
                 <button
-                    className="p-2 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                    className="canvas-inline-action p-2 rounded-lg transition-colors"
                     onClick={() => {
                         const childIds = h.getElements().filter((child) => child.parentFrameId === el.id).map((child) => child.id);
                         if (childIds.length > 0) h.onSelect(childIds);
@@ -180,7 +180,7 @@ function FrameToolbar({
                 </button>
                 <div className="relative">
                     <button
-                        className={`p-2 rounded-lg transition-colors ${showFrameExportMenu ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'}`}
+                        className={`canvas-inline-action p-2 rounded-lg transition-colors ${showFrameExportMenu ? 'is-active' : ''}`}
                         onClick={() => { h.setShowFrameExportMenu(showFrameExportMenu ? null : el.id); h.setShowFramePresetMenu(null); }}
                         title="导出"
                     >
@@ -192,7 +192,7 @@ function FrameToolbar({
                     )}
                 </div>
                 <button
-                    className={`p-2 rounded-lg transition-colors ${el.frameLocked ? 'text-amber-500 bg-amber-50' : 'text-gray-500 hover:bg-gray-50'}`}
+                    className={`canvas-inline-action p-2 rounded-lg transition-colors ${el.frameLocked ? 'is-warning' : ''}`}
                     onClick={() => h.onElementChange(el.id, { frameLocked: !el.frameLocked })}
                     title={el.frameLocked ? '解锁画板' : '锁定画板'}
                 >
@@ -203,7 +203,7 @@ function FrameToolbar({
                     )}
                 </button>
                 <button
-                    className="p-2 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                    className="canvas-inline-action is-danger p-2 rounded-lg transition-colors"
                     onClick={() => {
                         h.getElements().filter((child) => child.parentFrameId === el.id).forEach((child) => {
                             h.onElementChange(child.id, { parentFrameId: undefined });

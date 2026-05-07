@@ -52,7 +52,7 @@ export const CanvasArea = React.memo(function CanvasArea({
     const { onDownloadElement, onSendSelectionToChat } = exportDomain;
     const { canvasSelectMode, onCanvasSelectPick, onCancelCanvasSelect } = canvasSelectModeDomain;
     const { onStoryboardSaved, storyboardAutoAdvanceEnabled = false } = storyboard;
-    const { onDragStart, onDragEnd, onConnectFlow, onCanvasMouseMove, spatialIndex, minimapRightOffset, resolvedImageSrcMap, onRenderMetricsChange } = misc;
+    const { onDragStart, onDragEnd, onConnectFlow, onCanvasMouseMove, spatialIndex, minimapRightOffset, canvasTheme, resolvedImageSrcMap, onRenderMetricsChange } = misc;
     const MIN_SCALE = 0.05;
     const MAX_SCALE = 8;
     const MULTI_LAYOUT_GAP = 24;
@@ -921,7 +921,7 @@ export const CanvasArea = React.memo(function CanvasArea({
             data-viewport-margin={viewportRenderPlan.viewportMargin}
             data-partition-count={viewportRenderPlan.partitionCount}
             data-partition-tile-size={viewportRenderPlan.partitionTileSize}
-            className={`w-full h-full bg-[#F9FAFB] relative overflow-hidden ${canvasSelectMode ? 'cursor-crosshair' : activeTool === 'hand' ? 'cursor-grab active:cursor-grabbing' : activeTool === 'draw' ? 'cursor-crosshair' : activeTool === 'mark' ? 'cursor-crosshair' : activeTool === 'frame' ? 'cursor-crosshair' : ''}`}
+            className={`canvas-area-surface w-full h-full relative overflow-hidden ${canvasSelectMode ? 'cursor-crosshair' : activeTool === 'hand' ? 'cursor-grab active:cursor-grabbing' : activeTool === 'draw' ? 'cursor-crosshair' : activeTool === 'mark' ? 'cursor-crosshair' : activeTool === 'frame' ? 'cursor-crosshair' : ''}`}
             onMouseMove={handleMouseMove}
             onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}
             onDragStart={(e) => {
@@ -1078,6 +1078,7 @@ export const CanvasArea = React.memo(function CanvasArea({
                 onPanChange={onPanChange}
                 onScaleChange={onScaleChange}
                 rightOffset={minimapRightOffset}
+                canvasTheme={canvasTheme}
             />
 
             {/* Hidden file inputs for context menu uploads */}

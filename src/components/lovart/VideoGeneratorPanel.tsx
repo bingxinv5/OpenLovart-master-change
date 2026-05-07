@@ -995,7 +995,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         <>
         <style>{panelPositionCss}</style>
         <div
-            className={`${panelPositionClassName} absolute z-[130] bg-white/96 backdrop-blur-xl rounded-[20px] shadow-xl border border-slate-200/60 w-[620px]`}
+            className={`${panelPositionClassName} canvas-theme-panel-elevated absolute z-[130] w-[620px] rounded-[20px]`}
             data-testid="video-generator-panel"
             ref={panelRef}
             onKeyDown={(e) => {
@@ -1080,13 +1080,13 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             />
 
             {/* Footer Controls — single row */}
-            <div className="relative z-10 rounded-b-[20px] border-t border-slate-100 bg-slate-50/60 px-3 py-2">
+            <div className="canvas-panel-footer relative z-10 rounded-b-[20px] px-3 py-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                     {/* Model Selector */}
                     <div className="relative" data-popover-menu>
                         <button
                             onClick={() => { const next = !showModelMenu; closeAllMenus(); setShowModelMenu(next); }}
-                            className="flex items-center gap-1.5 px-2 py-1 hover:bg-white rounded-lg transition-colors text-xs font-medium text-slate-700 whitespace-nowrap"
+                            className="canvas-control-button flex items-center gap-1.5 px-2 py-1 rounded-lg transition-colors text-xs font-medium whitespace-nowrap"
                         >
                             <div className="w-3.5 h-3.5 rounded-full bg-black flex items-center justify-center flex-shrink-0">
                                 <Video size={8} className="text-white" />
@@ -1095,9 +1095,9 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                             <ChevronDown size={11} className="text-slate-400" />
                         </button>
                         {showModelMenu && (
-                            <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-[14px] shadow-lg border border-slate-200/60 py-1 z-30 min-w-[200px]">
+                            <div className="canvas-popover absolute bottom-full mb-1 left-0 rounded-[14px] py-1 z-30 min-w-[200px]">
                                 {VIDEO_MODEL_OPTIONS.map((m) => (
-                                    <div key={m} onClick={() => { setModel(m); setShowModelMenu(false); }} className={`px-3 py-2 cursor-pointer hover:bg-slate-50 rounded-lg mx-1 transition-colors ${model === m ? 'bg-slate-50' : ''}`}>
+                                    <div key={m} onClick={() => { setModel(m); setShowModelMenu(false); }} className={`canvas-menu-item px-3 py-2 cursor-pointer rounded-lg mx-1 transition-colors ${model === m ? 'is-active' : ''}`}>
                                             <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{VIDEO_MODEL_LABELS[m]}</div>
                                             <div className="text-[10px] text-slate-400 mt-0.5">{VIDEO_MODEL_DESC[m]}</div>
                                     </div>

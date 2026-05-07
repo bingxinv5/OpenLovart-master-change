@@ -170,6 +170,7 @@ export interface MiscDomainPort {
     spatialIndex?: SpatialIndex;
     resolvedImageSrcMap?: Record<string, string>;
     minimapRightOffset?: number;
+    canvasTheme?: 'light' | 'dark';
     onRenderMetricsChange?: (metrics: CanvasRenderMetrics) => void;
 }
 

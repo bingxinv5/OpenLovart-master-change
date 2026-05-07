@@ -114,7 +114,7 @@ export function CanvasAreaContentLayer({
             className="canvas-content-layer-transform w-full h-full origin-top-left"
         >
             <style>{contentLayerCss}</style>
-            <div className="pointer-events-none absolute inset-0 h-[10000px] w-[10000px] bg-[radial-gradient(#000_1px,transparent_1px)] bg-[length:20px_20px] opacity-[0.03]" />
+            <div className="canvas-grid-layer pointer-events-none absolute inset-0 h-[10000px] w-[10000px]" />
 
             <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
                 {connectorElements.map((connector) => {
