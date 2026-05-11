@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clientPointToCanvas, computeFitViewport } from './canvas-viewport-utils';
+import { clampCanvasScale, clientPointToCanvas, computeFitViewport, formatCanvasZoomPercent, offsetCanvasScale, zoomCanvasScaleByFactor } from './canvas-viewport-utils';
 
 describe('canvas-viewport-utils', () => {
     it('maps client coordinates through container offset, pan, and scale', () => {
@@ -47,5 +47,20 @@ describe('canvas-viewport-utils', () => {
 
         expect(result.scale).toBe(3);
         expect(result.pan).toEqual({ x: 160, y: 120 });
+    });
+
+    it('uses shared canvas scale bounds for direct and relative zoom changes', () => {
+        expect(clampCanvasScale(0)).toBe(0.05);
+        expect(clampCanvasScale(10)).toBe(8);
+        expect(clampCanvasScale(Number.NaN)).toBe(1);
+        expect(zoomCanvasScaleByFactor(7.5, 1.15)).toBe(8);
+        expect(offsetCanvasScale(0.08, -0.1)).toBe(0.05);
+    });
+
+    it('adds one decimal near LOD-sensitive zoom percentages', () => {
+        expect(formatCanvasZoomPercent(0.246)).toBe('24.6%');
+        expect(formatCanvasZoomPercent(0.254)).toBe('25.4%');
+        expect(formatCanvasZoomPercent(0.4)).toBe('40.0%');
+        expect(formatCanvasZoomPercent(1)).toBe('100%');
     });
 });

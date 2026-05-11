@@ -1,3 +1,5 @@
+import { clampCanvasScale } from '@/components/lovart/canvas-viewport-utils';
+
 /**
  * viewport-persistence.ts — 画布视口状态的 localStorage 持久化
  *
@@ -53,7 +55,7 @@ export function saveViewportState(
   pan: { x: number; y: number },
 ): void {
   const all = readAll();
-  all[projectId] = { scale, panX: pan.x, panY: pan.y };
+  all[projectId] = { scale: clampCanvasScale(scale), panX: pan.x, panY: pan.y };
   writeAll(all);
 }
 
@@ -80,7 +82,7 @@ export function loadViewportState(projectId: string): ViewportState | null {
     return null;
   }
 
-  return state;
+  return { ...state, scale: clampCanvasScale(state.scale) };
 }
 
 /**

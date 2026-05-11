@@ -1,4 +1,11 @@
 import type { SpatialIndex } from '@/lib/editor-kernel';
+import {
+    boundsIntersect,
+    getCanvasConnectorBounds,
+    getCanvasElementBounds,
+    getCanvasElementCenter,
+    type CanvasBounds,
+} from '@/lib/canvas-element-bounds';
 import type { CanvasElement } from './canvas-types';
 import { isCanvasElementOfType } from './canvas-types';
 
@@ -31,7 +38,15 @@ function clampValue(value: number, min: number, max: number) {
 }
 
 function isAlwaysRenderedElement(element: CanvasElement, selectedSet: Set<string>) {
-    return selectedSet.has(element.id) || isCanvasElementOfType(element, 'frame') || isCanvasElementOfType(element, 'connector');
+    return selectedSet.has(element.id) || isCanvasElementOfType(element, 'frame');
+}
+
+function getRenderPlanElementBounds(element: CanvasElement, elementById: Map<string, CanvasElement>) {
+    if (isCanvasElementOfType(element, 'connector')) {
+        return getCanvasConnectorBounds(element, elementById) || getCanvasElementBounds(element);
+    }
+
+    return getCanvasElementBounds(element);
 }
 
 export function buildCanvasRenderPlan({
@@ -72,8 +87,10 @@ export function buildCanvasRenderPlan({
     const vpTop = (-pan.y / scale) - dynamicViewportMargin;
     const vpRight = (viewportSize.width - pan.x) / scale + dynamicViewportMargin;
     const vpBottom = (viewportSize.height - pan.y) / scale + dynamicViewportMargin;
+    const viewportBounds: CanvasBounds = { minX: vpLeft, minY: vpTop, maxX: vpRight, maxY: vpBottom };
 
     const selectedSet = new Set(selectedIds);
+    const elementById = new Map(elements.map((element) => [element.id, element]));
     let candidateIds: Set<string>;
 
     if (spatialIndex && spatialIndex.size > 0) {
@@ -82,6 +99,11 @@ export function buildCanvasRenderPlan({
         for (const el of elements) {
             if (el.hidden) continue;
             if (isAlwaysRenderedElement(el, selectedSet)) {
+                candidateIds.add(el.id);
+                continue;
+            }
+
+            if (isCanvasElementOfType(el, 'connector') && boundsIntersect(getRenderPlanElementBounds(el, elementById), viewportBounds)) {
                 candidateIds.add(el.id);
             }
         }
@@ -93,9 +115,7 @@ export function buildCanvasRenderPlan({
                 candidateIds.add(el.id);
                 continue;
             }
-            const elRight = el.x + (el.width || 0);
-            const elBottom = el.y + (el.height || 0);
-            if (elRight >= vpLeft && el.x <= vpRight && elBottom >= vpTop && el.y <= vpBottom) {
+            if (boundsIntersect(getRenderPlanElementBounds(el, elementById), viewportBounds)) {
                 candidateIds.add(el.id);
             }
         }
@@ -125,8 +145,7 @@ export function buildCanvasRenderPlan({
         if (remaining > 0 && sortable.length > remaining) {
             const partitions = new Map<string, CanvasElement[]>();
             for (const el of sortable) {
-                const centerX = el.x + (el.width || 0) / 2;
-                const centerY = el.y + (el.height || 0) / 2;
+                const { x: centerX, y: centerY } = getCanvasElementCenter(el);
                 const tileX = Math.floor(centerX / partitionTileSize);
                 const tileY = Math.floor(centerY / partitionTileSize);
                 const key = `${tileX}:${tileY}`;
@@ -139,8 +158,10 @@ export function buildCanvasRenderPlan({
             const orderedPartitions = Array.from(partitions.entries())
                 .map(([key, bucket]) => {
                     bucket.sort((a, b) => {
-                        const dA = Math.abs(a.x + (a.width || 0) / 2 - vpCenterX) + Math.abs(a.y + (a.height || 0) / 2 - vpCenterY);
-                        const dB = Math.abs(b.x + (b.width || 0) / 2 - vpCenterX) + Math.abs(b.y + (b.height || 0) / 2 - vpCenterY);
+                        const centerA = getCanvasElementCenter(a);
+                        const centerB = getCanvasElementCenter(b);
+                        const dA = Math.abs(centerA.x - vpCenterX) + Math.abs(centerA.y - vpCenterY);
+                        const dB = Math.abs(centerB.x - vpCenterX) + Math.abs(centerB.y - vpCenterY);
                         return dA - dB;
                     });
                     const [tileX, tileY] = key.split(':').map(Number);

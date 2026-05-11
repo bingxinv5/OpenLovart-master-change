@@ -2,6 +2,14 @@ import { useCallback, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { CanvasRenderMetrics } from '@/components/lovart/canvas-area-domains';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import {
+    CANVAS_DEFAULT_SCALE,
+    CANVAS_FIT_ALL_MAX_SCALE,
+    CANVAS_ZOOM_IN_FACTOR,
+    CANVAS_ZOOM_OUT_FACTOR,
+    clampCanvasScale,
+    zoomCanvasScaleByFactor,
+} from '@/components/lovart/canvas-viewport-utils';
 import { areCanvasRenderMetricsEqual } from './canvas-compare-utils';
 
 export interface UseCanvasWorkbenchLayoutParams {
@@ -50,12 +58,12 @@ export function useCanvasWorkbenchLayout({
         : sideChatWidth;
     const benchmarkPanelRightOffset = rightWorkbenchOffset + 16;
 
-    const handleZoomIn = useCallback(() => setScale((prev) => Math.min(prev * 1.15, 8)), [setScale]);
-    const handleZoomOut = useCallback(() => setScale((prev) => Math.max(prev * 0.85, 0.05)), [setScale]);
-    const handleZoomTo = useCallback((value: number) => setScale(Math.min(8, Math.max(0.05, value))), [setScale]);
+    const handleZoomIn = useCallback(() => setScale((prev) => zoomCanvasScaleByFactor(prev, CANVAS_ZOOM_IN_FACTOR)), [setScale]);
+    const handleZoomOut = useCallback(() => setScale((prev) => zoomCanvasScaleByFactor(prev, CANVAS_ZOOM_OUT_FACTOR)), [setScale]);
+    const handleZoomTo = useCallback((value: number) => setScale(clampCanvasScale(value)), [setScale]);
     const handleFitToScreen = useCallback(() => {
         if (elements.length === 0) {
-            setScale(1);
+            setScale(CANVAS_DEFAULT_SCALE);
             setPan({ x: 0, y: 0 });
             return;
         }
@@ -69,9 +77,13 @@ export function useCanvasWorkbenchLayout({
         const maxY = Math.max(...ye);
         const canvasWidth = maxX - minX;
         const canvasHeight = maxY - minY;
-        const viewportWidth = window.innerWidth - 120;
-        const viewportHeight = window.innerHeight - 120;
-        const nextScale = Math.min(viewportWidth / canvasWidth, viewportHeight / canvasHeight, 2);
+        const viewportWidth = Math.max(1, window.innerWidth - 120);
+        const viewportHeight = Math.max(1, window.innerHeight - 120);
+        const nextScale = clampCanvasScale(Math.min(
+            viewportWidth / Math.max(canvasWidth, 1),
+            viewportHeight / Math.max(canvasHeight, 1),
+            CANVAS_FIT_ALL_MAX_SCALE,
+        ));
         setScale(nextScale);
         setPan({
             x: (viewportWidth - canvasWidth * nextScale) / 2 - minX * nextScale + 60,

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { MousePointerClick, Frame } from 'lucide-react';
+import { getCanvasElementRenderSize } from '@/lib/canvas-element-bounds';
 import type { CanvasElement } from './canvas-types';
 import { WorkbenchImage } from './WorkbenchImage';
 import { buildStoryboardMetaChips, getStoryboardBadgeMeta, getStoryboardStatus } from './canvas-element-display-utils';
@@ -114,6 +115,7 @@ function ImageElementRenderer({
         if (!el.generatingTaskId) return null;
         return <ImageGeneratingElementRenderer el={el} />;
     }
+    const renderSize = getCanvasElementRenderSize(el);
 
     return (
         <>
@@ -121,7 +123,7 @@ function ImageElementRenderer({
                 content={el.content}
                 debugId={el.id}
                 resolvedSrc={resolvedImageSrc}
-                displayPixels={Math.max(el.width || 400, el.height || 400) * scale}
+                displayPixels={Math.max(renderSize.width, renderSize.height) * scale}
                 canvasScale={scale}
                 prioritizeDetail={shouldPrioritizeImageDetail}
                 deferFinalUpgrade={deferImageDetailUpgrade}
@@ -191,19 +193,20 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
         const storyboardStatus = getStoryboardStatus(el);
         const storyboardChips = buildStoryboardMetaChips(el);
         const storyboardBadgeMeta = getStoryboardBadgeMeta(el);
+        const renderSize = getCanvasElementRenderSize(el);
         const canPrioritizeSelectedImageDetail = isSelected && selectedImageCount > 0 && selectedImageCount <= 10;
         const shouldPrioritizeImageDetail = el.type === 'image' && (isHovered || canPrioritizeSelectedImageDetail);
         const shouldShowStoryboardBadge = el.type === 'image'
             && isSelected
             && !isNotPickable
-            && (storyboardStatus.hasAny || ((el.width || 0) * scale >= 108 && (el.height || 0) * scale >= 84));
+            && (storyboardStatus.hasAny || (renderSize.width * scale >= 108 && renderSize.height * scale >= 84));
         const elementPositionClassName = buildFloatingPanelPositionClassName('canvas-element-position', el.id);
         const elementPositionCss = `
 .${elementPositionClassName} {
     left: ${toCanvasElementPx(el.x)};
     top: ${toCanvasElementPx(el.y)};
-    width: ${toCanvasElementPx(el.width)};
-    height: ${toCanvasElementPx(el.height)};
+    width: ${toCanvasElementPx(renderSize.width)};
+    height: ${toCanvasElementPx(renderSize.height)};
     z-index: ${Number.isFinite(zIndex) ? zIndex : 'auto'};
     transform: ${dragPreviewOffset ? `translate(${toCanvasElementPx(dragPreviewOffset.dx)}, ${toCanvasElementPx(dragPreviewOffset.dy)})` : 'none'};
     pointer-events: ${activeTool === 'draw' || isNotPickable ? 'none' : 'auto'};
@@ -241,10 +244,10 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                         e.stopPropagation();
                         if (isSelected) {
                             // Frame already selected → drag to move it
-                            h.handleMouseDown(e, el.id, el.x, el.y, el.width!, el.height!);
+                            h.handleMouseDown(e, el.id, el.x, el.y, renderSize.width, renderSize.height);
                         } else {
                             // Frame not selected → start selection box inside it
-                            h.handleMouseDown(e, null, el.x, el.y, el.width!, el.height!, { fallbackSelectionId: el.id });
+                            h.handleMouseDown(e, null, el.x, el.y, renderSize.width, renderSize.height, { fallbackSelectionId: el.id });
                         }
                         return;
                     }
@@ -252,7 +255,7 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     if (activeTool === 'mark') {
                         e.stopPropagation();
                     }
-                    h.handleMouseDown(e, el.id, el.x, el.y, el.width!, el.height!);
+                    h.handleMouseDown(e, el.id, el.x, el.y, renderSize.width, renderSize.height);
                 }}
                 onDoubleClick={() => {
                     if (isPickable || isNotPickable) return;
@@ -260,7 +263,7 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     if (el.type === 'text') h.setEditingTextId(el.id);
                     if (el.type === 'video') h.setActiveVideoId(el.id);
                     if (el.type === 'mark') h.setEditingMarkId(el.id);
-                    if (el.type === 'image') h.fitToElement(el);
+                    if (el.type === 'image') h.fitToElement({ ...el, width: renderSize.width, height: renderSize.height });
                 }}
             >
                 <style>{elementPositionCss}</style>

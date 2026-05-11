@@ -38,7 +38,7 @@
     "@types/rbush": "^4.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "baseline-browser-mapping": "^2.10.7",
+    "baseline-browser-mapping": "^2.10.29",
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
     "playwright": "^1.58.2",

@@ -46,7 +46,7 @@ describe('buildCanvasRenderPlan', () => {
         expect(result.partitionCount).toBe(1);
     });
 
-    it('uses spatial index hits and still keeps selected elements, frames, and connectors visible', () => {
+    it('uses spatial index hits and still keeps selected elements and frames visible', () => {
         const searchCalls: unknown[] = [];
         const spatialIndex = {
             size: 1,
@@ -63,7 +63,6 @@ describe('buildCanvasRenderPlan', () => {
                 makeElement('indexed', { x: 100, y: 100 }),
                 makeElement('selected', { x: 8000, y: 8000 }),
                 makeElement('frame', { type: 'frame', x: 9000, y: 9000 }),
-                makeElement('connector', { type: 'connector', x: 10000, y: 10000 }),
                 makeElement('outside', { x: 11000, y: 11000 }),
             ],
         });
@@ -73,8 +72,39 @@ describe('buildCanvasRenderPlan', () => {
             'indexed',
             'selected',
             'frame',
-            'connector',
         ]);
+    });
+
+    it('culls connectors by endpoint bounds while keeping selected connectors visible', () => {
+        const result = buildDefaultPlan({
+            selectedIds: ['selected-connector'],
+            elements: [
+                makeElement('left-endpoint', { x: -1000, y: 100 }),
+                makeElement('right-endpoint', { x: 1800, y: 100 }),
+                makeElement('visible-connector', {
+                    type: 'connector',
+                    x: 9000,
+                    y: 9000,
+                    connectorFrom: 'left-endpoint',
+                    connectorTo: 'right-endpoint',
+                }),
+                makeElement('far-a', { x: 4000, y: 4000 }),
+                makeElement('far-b', { x: 4600, y: 4600 }),
+                makeElement('culled-connector', {
+                    type: 'connector',
+                    x: 9200,
+                    y: 9200,
+                    connectorFrom: 'far-a',
+                    connectorTo: 'far-b',
+                }),
+                makeElement('selected-connector', { type: 'connector', x: 9400, y: 9400 }),
+            ],
+        });
+
+        const visibleIds = result.visibleElements.map(element => element.id);
+        expect(visibleIds).toContain('visible-connector');
+        expect(visibleIds).toContain('selected-connector');
+        expect(visibleIds).not.toContain('culled-connector');
     });
 
     it('falls back to linear viewport culling when no spatial index is available', () => {
@@ -89,7 +119,18 @@ describe('buildCanvasRenderPlan', () => {
         expect(result.culledCount).toBe(1);
     });
 
-    it('virtualizes dense canvases while keeping selected, frame, and connector elements rendered', () => {
+    it('uses image fallback dimensions when culling legacy images without size', () => {
+        const result = buildDefaultPlan({
+            elements: [
+                makeElement('legacy-image-edge', { x: -500, y: 100, width: undefined, height: undefined }),
+                makeElement('far-legacy-image', { x: -900, y: 100, width: undefined, height: undefined }),
+            ],
+        });
+
+        expect(result.visibleElements.map(element => element.id)).toEqual(['legacy-image-edge']);
+    });
+
+    it('virtualizes dense canvases while keeping selected and frame elements rendered', () => {
         const denseElements = Array.from({ length: 260 }, (_, index) => (
             makeElement(`image-${index}`, { x: index * 4, y: index * 3 })
         ));
@@ -101,7 +142,7 @@ describe('buildCanvasRenderPlan', () => {
 
         const result = buildDefaultPlan({
             elements: [...denseElements, ...specialElements],
-            selectedIds: ['selected'],
+            selectedIds: ['selected', 'connector'],
         });
         const visibleIds = new Set(result.visibleElements.map(element => element.id));
 

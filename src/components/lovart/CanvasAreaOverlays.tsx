@@ -25,6 +25,7 @@ interface CanvasAreaViewportOverlaysProps {
     onCloseVideo: () => void;
     activeImagePreviewElement: CanvasElement | null;
     activeImagePreviewMetrics: ImagePreviewMetrics | null;
+    activeImagePreviewResolvedSrc?: string;
 }
 
 export function CanvasAreaWorldOverlays({
@@ -89,6 +90,7 @@ export function CanvasAreaViewportOverlays({
     onCloseVideo,
     activeImagePreviewElement,
     activeImagePreviewMetrics,
+    activeImagePreviewResolvedSrc,
 }: CanvasAreaViewportOverlaysProps) {
     return (
         <>
@@ -116,6 +118,7 @@ export function CanvasAreaViewportOverlays({
             <ImagePreviewPanel
                 element={activeImagePreviewElement}
                 metrics={activeImagePreviewMetrics}
+                resolvedImageSrc={activeImagePreviewResolvedSrc}
             />
         </>
     );

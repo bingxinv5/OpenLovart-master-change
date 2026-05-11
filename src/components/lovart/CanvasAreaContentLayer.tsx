@@ -1,4 +1,5 @@
 import React from 'react';
+import { getCanvasElementCenter } from '@/lib/canvas-element-bounds';
 import type { AlignGuide } from './canvas-alignment';
 import type { CanvasElement } from './canvas-types';
 import { CanvasElementRenderer, type ElementHandlers } from './CanvasElementRenderer';
@@ -123,18 +124,16 @@ export function CanvasAreaContentLayer({
 
                     if (!fromEl || !toEl) return null;
 
-                    const fromX = fromEl.x + (fromEl.width || 0) / 2;
-                    const fromY = fromEl.y + (fromEl.height || 0) / 2;
-                    const toX = toEl.x + (toEl.width || 0) / 2;
-                    const toY = toEl.y + (toEl.height || 0) / 2;
+                    const fromCenter = getCanvasElementCenter(fromEl);
+                    const toCenter = getCanvasElementCenter(toEl);
 
                     return (
                         <g key={connector.id}>
                             <line
-                                x1={fromX}
-                                y1={fromY}
-                                x2={toX}
-                                y2={toY}
+                                x1={fromCenter.x}
+                                y1={fromCenter.y}
+                                x2={toCenter.x}
+                                y2={toCenter.y}
                                 stroke={connector.color || '#6B7280'}
                                 strokeWidth={connector.strokeWidth || 2}
                                 strokeDasharray={connector.connectorStyle === 'dashed' ? '8 4' : '0'}

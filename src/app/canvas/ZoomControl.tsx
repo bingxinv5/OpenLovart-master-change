@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
+import { formatCanvasZoomPercent } from '@/components/lovart/canvas-viewport-utils';
 
 export interface ZoomControlProps {
     scale: number;
@@ -65,10 +66,10 @@ export function ZoomControl({ scale, onZoomIn, onZoomOut, onZoomTo, onFitToScree
                 </button>
                 <button
                     onClick={() => setOpen((prev) => !prev)}
-                    className="canvas-control-button min-w-[3rem] rounded px-2 py-1 text-center text-xs font-medium"
+                    className="canvas-control-button min-w-[3.5rem] rounded px-2 py-1 text-center text-xs font-medium"
                     title="缩放选项"
                 >
-                    {Math.round(scale * 100)}%
+                    {formatCanvasZoomPercent(scale)}
                 </button>
                 <button onClick={onZoomIn} className="canvas-control-button rounded p-1.5" title="放大 (Ctrl++)">
                     <Plus size={16} />

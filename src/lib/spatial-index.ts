@@ -12,6 +12,7 @@
  */
 
 import RBush from 'rbush';
+import { getCanvasElementBounds } from './canvas-element-bounds';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -36,17 +37,11 @@ export class SpatialIndex implements ISpatialIndex {
   private items = new Map<string, SpatialItem>();
 
   /** Build index from a full set of elements */
-  load(elements: Array<{ id: string; x: number; y: number; width?: number; height?: number }>): void {
+  load(elements: Array<{ id: string; type?: string; x: number; y: number; width?: number; height?: number }>): void {
     this.tree.clear();
     this.items.clear();
     const items: SpatialItem[] = elements.map(el => {
-      const item: SpatialItem = {
-        id: el.id,
-        minX: el.x,
-        minY: el.y,
-        maxX: el.x + (el.width || 0),
-        maxY: el.y + (el.height || 0),
-      };
+      const item: SpatialItem = { id: el.id, ...getCanvasElementBounds(el) };
       this.items.set(el.id, item);
       return item;
     });
@@ -54,16 +49,10 @@ export class SpatialIndex implements ISpatialIndex {
   }
 
   /** Insert a single element */
-  insert(el: { id: string; x: number; y: number; width?: number; height?: number }): void {
+  insert(el: { id: string; type?: string; x: number; y: number; width?: number; height?: number }): void {
     // Remove existing if any
     this.remove(el.id);
-    const item: SpatialItem = {
-      id: el.id,
-      minX: el.x,
-      minY: el.y,
-      maxX: el.x + (el.width || 0),
-      maxY: el.y + (el.height || 0),
-    };
+    const item: SpatialItem = { id: el.id, ...getCanvasElementBounds(el) };
     this.items.set(el.id, item);
     this.tree.insert(item);
   }
@@ -78,24 +67,18 @@ export class SpatialIndex implements ISpatialIndex {
   }
 
   /** Update an element's position/size (remove + re-insert) */
-  update(el: { id: string; x: number; y: number; width?: number; height?: number }): void {
+  update(el: { id: string; type?: string; x: number; y: number; width?: number; height?: number }): void {
     this.insert(el); // insert already handles remove
   }
 
   /** Batch update multiple elements (more efficient than N individual updates for small batches) */
-  batchUpdate(elements: Array<{ id: string; x: number; y: number; width?: number; height?: number }>): void {
+  batchUpdate(elements: Array<{ id: string; type?: string; x: number; y: number; width?: number; height?: number }>): void {
     for (const el of elements) {
       this.remove(el.id);
     }
     const items: SpatialItem[] = [];
     for (const el of elements) {
-      const item: SpatialItem = {
-        id: el.id,
-        minX: el.x,
-        minY: el.y,
-        maxX: el.x + (el.width || 0),
-        maxY: el.y + (el.height || 0),
-      };
+      const item: SpatialItem = { id: el.id, ...getCanvasElementBounds(el) };
       this.items.set(el.id, item);
       items.push(item);
     }

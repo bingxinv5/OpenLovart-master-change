@@ -1,4 +1,5 @@
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { boundsIntersect, getCanvasElementBounds, type CanvasBounds } from '@/lib/canvas-element-bounds';
 import type { ActiveChunkSummary, ChunkResidencyState } from './canvas-runtime-types';
 import type { CanvasChunkManifestEntry } from './project-storage';
 
@@ -52,6 +53,7 @@ export function buildActiveChunkSummary({
     const vpTop = (-pan.y / scale) - activationMargin;
     const vpRight = (viewportSize.width - pan.x) / scale + activationMargin;
     const vpBottom = (viewportSize.height - pan.y) / scale + activationMargin;
+    const viewportBounds: CanvasBounds = { minX: vpLeft, minY: vpTop, maxX: vpRight, maxY: vpBottom };
 
     for (const chunk of chunkManifest) {
         if (!chunk.topFrameId) {
@@ -63,12 +65,11 @@ export function buildActiveChunkSummary({
             continue;
         }
 
-        const frameRight = frame.x + (frame.width || 0);
-        const frameBottom = frame.y + (frame.height || 0);
-        const intersectsViewport = frameRight >= vpLeft
-            && frame.x <= vpRight
-            && frameBottom >= vpTop
-            && frame.y <= vpBottom;
+        const intersectsViewport = boundsIntersect(getCanvasElementBounds(frame), viewportBounds)
+            || chunk.elementIds.some((elementId) => {
+                const element = elementById.get(elementId);
+                return !!element && boundsIntersect(getCanvasElementBounds(element), viewportBounds);
+            });
 
         if (intersectsViewport) {
             activeChunkIds.add(chunk.id);

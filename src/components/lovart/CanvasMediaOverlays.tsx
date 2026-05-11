@@ -164,9 +164,11 @@ export function VideoPlaybackOverlay({
 export function ImagePreviewPanel({
     element,
     metrics,
+    resolvedImageSrc,
 }: {
     element: CanvasElement | null;
     metrics: ImagePreviewMetrics | null;
+    resolvedImageSrc?: string;
 }) {
     if (!element?.content || !metrics) {
         return null;
@@ -188,6 +190,8 @@ export function ImagePreviewPanel({
             <style>{previewCss}</style>
             <WorkbenchImage
                 content={element.content}
+                debugId={`preview-${element.id}`}
+                resolvedSrc={resolvedImageSrc}
                 displayPixels={Math.max(metrics.width, metrics.height) * 2}
                 canvasScale={1}
                 prioritizeDetail

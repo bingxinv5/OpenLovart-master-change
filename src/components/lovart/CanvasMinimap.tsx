@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minus, Plus, Focus, ChevronDown, ChevronUp, Scan } from 'lucide-react';
 import type { CanvasElement } from './canvas-types';
+import {
+    CANVAS_FIT_ALL_MAX_SCALE,
+    CANVAS_ZOOM_BUTTON_STEP,
+    clampCanvasScale,
+    formatCanvasZoomPercent,
+    offsetCanvasScale,
+} from './canvas-viewport-utils';
 
 interface CanvasMinimapProps {
     elements: CanvasElement[];
@@ -385,8 +392,10 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
             mnX = Math.min(mnX, el.x); mnY = Math.min(mnY, el.y);
             mxX = Math.max(mxX, el.x + (el.width || 100)); mxY = Math.max(mxY, el.y + (el.height || 100));
         }
-        const cw = mxX - mnX, ch = mxY - mnY, pad = 80;
-        const s = Math.min((viewportSize.width - pad * 2) / cw, (viewportSize.height - pad * 2) / ch, 2);
+        const cw = Math.max(1, mxX - mnX), ch = Math.max(1, mxY - mnY), pad = 80;
+        const safeViewportWidth = Math.max(1, viewportSize.width - pad * 2);
+        const safeViewportHeight = Math.max(1, viewportSize.height - pad * 2);
+        const s = clampCanvasScale(Math.min(safeViewportWidth / cw, safeViewportHeight / ch, CANVAS_FIT_ALL_MAX_SCALE));
         onScaleChange?.(s);
         onPanChange({ x: viewportSize.width / 2 - (mnX + cw / 2) * s, y: viewportSize.height / 2 - (mnY + ch / 2) * s });
     }, [elements, viewportSize, onPanChange, onScaleChange]);
@@ -475,7 +484,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                     {/* Right: actions */}
                     <div className="flex items-center gap-0">
                         <span className="text-[9px] tabular-nums text-gray-400 mr-[2px]">
-                            {Math.round(scale * 100)}%
+                            {formatCanvasZoomPercent(scale)}
                         </span>
                         <button
                             onClick={(e) => { e.stopPropagation(); fitAll(); }}
@@ -487,14 +496,14 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
                         {onScaleChange && (
                             <>
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); onScaleChange(Math.max(0.1, scale - 0.1)); }}
+                                    onClick={(e) => { e.stopPropagation(); onScaleChange(offsetCanvasScale(scale, -CANVAS_ZOOM_BUTTON_STEP)); }}
                                     className="canvas-minimap-action p-[2px] rounded text-gray-400 hover:text-gray-600 transition-colors"
                                     title="缩小"
                                 >
                                     <Minus size={10} strokeWidth={1.8} />
                                 </button>
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); onScaleChange(Math.min(5, scale + 0.1)); }}
+                                    onClick={(e) => { e.stopPropagation(); onScaleChange(offsetCanvasScale(scale, CANVAS_ZOOM_BUTTON_STEP)); }}
                                     className="canvas-minimap-action p-[2px] rounded text-gray-400 hover:text-gray-600 transition-colors"
                                     title="放大"
                                 >

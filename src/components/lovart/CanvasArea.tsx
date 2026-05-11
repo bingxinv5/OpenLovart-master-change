@@ -9,7 +9,7 @@ import type { AlignmentDirection, DistributionAxis, LayoutSelectionMode } from '
 import { buildCanvasElementIndex } from './canvas-element-index';
 import { buildCanvasRenderPlan } from './canvas-render-plan';
 import { getTopElementAtCanvasPoint } from './canvas-hit-test';
-import { computeFitViewport } from './canvas-viewport-utils';
+import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale, computeFitViewport } from './canvas-viewport-utils';
 import { useCanvasAlignGuides } from './CanvasAlignGuides';
 import { canUseScreenSpaceResizeOverlayForElement } from './ScreenSpaceResizeOverlay';
 import { CanvasContextMenu, useCanvasContextMenu } from './CanvasContextMenu';
@@ -53,8 +53,6 @@ export const CanvasArea = React.memo(function CanvasArea({
     const { canvasSelectMode, onCanvasSelectPick, onCancelCanvasSelect } = canvasSelectModeDomain;
     const { onStoryboardSaved, storyboardAutoAdvanceEnabled = false } = storyboard;
     const { onDragStart, onDragEnd, onConnectFlow, onCanvasMouseMove, spatialIndex, minimapRightOffset, canvasTheme, resolvedImageSrcMap, onRenderMetricsChange } = misc;
-    const MIN_SCALE = 0.05;
-    const MAX_SCALE = 8;
     const MULTI_LAYOUT_GAP = 24;
     const ALIGN_GUIDE_FLASH_MS = 800;
     const selectionBoxOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -312,14 +310,14 @@ export const CanvasArea = React.memo(function CanvasArea({
         const nextViewport = computeFitViewport({
             bounds,
             viewportSize: { width: viewportWidth, height: viewportHeight },
-            minScale: MIN_SCALE,
-            maxScale: MAX_SCALE,
+            minScale: CANVAS_MIN_SCALE,
+            maxScale: CANVAS_MAX_SCALE,
             maxFitScale: maxScale,
             padding: 80,
         });
         onScaleChange(nextViewport.scale);
         commitPanChange(nextViewport.pan);
-    }, [MAX_SCALE, MIN_SCALE, commitPanChange, onScaleChange, viewportSize.height, viewportSize.width]);
+    }, [commitPanChange, onScaleChange, viewportSize.height, viewportSize.width]);
 
     const fitToElement = useCallback((el: CanvasElement) => {
         fitViewportToBounds({
@@ -395,7 +393,7 @@ export const CanvasArea = React.memo(function CanvasArea({
             // Determine zoom factor
             const normalizedDelta = Math.sign(e.deltaY) * Math.min(120, Math.abs(e.deltaY));
             const zoomFactor = Math.exp(-normalizedDelta * 0.0025);
-            const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * zoomFactor));
+            const newScale = clampCanvasScale(scale * zoomFactor);
             // Adjust pan so cursor stays on same canvas point
             const newPanX = mouseX - canvasX * newScale;
             const newPanY = mouseY - canvasY * newScale;
@@ -408,7 +406,7 @@ export const CanvasArea = React.memo(function CanvasArea({
                 y: pan.y - e.deltaY,
             });
         }
-    }, [MAX_SCALE, MIN_SCALE, scale, pan, onScaleChange, commitPanChange, cancelInertia]);
+    }, [scale, pan, onScaleChange, commitPanChange, cancelInertia]);
 
     // Attach non-passive wheel listener so preventDefault works
     useEffect(() => {
@@ -785,6 +783,11 @@ export const CanvasArea = React.memo(function CanvasArea({
         visibleElementsRef.current = visibleElements;
     }, [visibleElements]);
 
+    const visibleConnectorElements = useMemo(() => {
+        const visibleElementIds = new Set(visibleElements.map((element) => element.id));
+        return connectorElements.filter((connector) => visibleElementIds.has(connector.id));
+    }, [connectorElements, visibleElements]);
+
     /** Pre-sorted render list: frames first, then non-frame/non-connector */
     const renderElements = useMemo(() => {
         const frames: CanvasElement[] = [];
@@ -998,7 +1001,7 @@ export const CanvasArea = React.memo(function CanvasArea({
 
             <CanvasAreaContentLayer
                 {...{
-                    containerRef, elementsContainerRef, pan, scale, connectorElements, elementMap,
+                    containerRef, elementsContainerRef, pan, scale, connectorElements: visibleConnectorElements, elementMap,
                     renderElements, elements, selectedIds, activeTool, canvasSelectMode, dragPreviewState,
                     dropTargetFrameId, editingTextId, editingFrameName, editingMarkId, quickEditMarkId,
                     quickEditPrompt, showFramePresetMenu, showFrameExportMenu, canGenerateFromImage,
@@ -1020,6 +1023,7 @@ export const CanvasArea = React.memo(function CanvasArea({
                 onCloseVideo={() => setActiveVideoId(null)}
                 activeImagePreviewElement={activeImagePreviewElement}
                 activeImagePreviewMetrics={activeImagePreviewMetrics}
+                activeImagePreviewResolvedSrc={activeImagePreviewElement ? resolvedImageSrcMap?.[activeImagePreviewElement.id] : undefined}
             />
 
             {/* Right-click Context Menu */}

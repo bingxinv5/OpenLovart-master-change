@@ -129,4 +129,10 @@ describe('SpatialIndex', () => {
     const result = index.search({ minX: 40, minY: 40, maxX: 60, maxY: 60 });
     expect(result).toContain('p');
   });
+
+  it('indexes legacy images without width/height using image fallback bounds', () => {
+    index.insert({ id: 'image', type: 'image', x: -500, y: 50 });
+    const result = index.search({ minX: -240, minY: 0, maxX: 100, maxY: 200 });
+    expect(result).toContain('image');
+  });
 });

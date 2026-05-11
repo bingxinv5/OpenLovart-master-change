@@ -35,13 +35,13 @@ describe('canvas chunk runtime helpers', () => {
         const elements = [
             makeElement('root-element'),
             makeElement('near-frame', { type: 'frame', x: 100, y: 100, width: 200, height: 200 }),
-            makeElement('near-child', { parentFrameId: 'near-frame' }),
+            makeElement('near-child', { x: 120, y: 120, parentFrameId: 'near-frame' }),
             makeElement('far-frame', { type: 'frame', x: 8000, y: 8000, width: 200, height: 200 }),
-            makeElement('far-child', { parentFrameId: 'far-frame' }),
+            makeElement('far-child', { x: 8020, y: 8020, parentFrameId: 'far-frame' }),
             makeElement('selected-frame', { type: 'frame', x: 12000, y: 12000, width: 200, height: 200 }),
-            makeElement('selected-child', { parentFrameId: 'selected-frame' }),
+            makeElement('selected-child', { x: 12020, y: 12020, parentFrameId: 'selected-frame' }),
             makeElement('pinned-frame', { type: 'frame', x: 16000, y: 16000, width: 200, height: 200 }),
-            makeElement('pinned-child', { parentFrameId: 'pinned-frame' }),
+            makeElement('pinned-child', { x: 16020, y: 16020, parentFrameId: 'pinned-frame' }),
         ];
         const chunkManifest = [
             makeChunk('root', { elementIds: ['root-element'] }),
@@ -122,6 +122,40 @@ describe('canvas chunk runtime helpers', () => {
         expect(buildCanvasRuntimeElements(elements, 3, ['b'], ['a'], elementChunkIdById).map((element) => element.id)).toEqual(['b-element']);
         expect(buildCanvasRuntimeElements(elements, 3, [], ['a'], elementChunkIdById).map((element) => element.id)).toEqual(['a-element']);
         expect(buildCanvasRuntimeElements(elements, 0, ['b'], ['a'], elementChunkIdById)).toBe(elements);
+    });
+
+    it('activates a frame chunk when a child protrudes into the viewport', () => {
+        const elements = [
+            makeElement('far-frame', { type: 'frame', x: 8000, y: 8000, width: 200, height: 200 }),
+            makeElement('protruding-child', { x: 100, y: 100, width: 160, height: 120, parentFrameId: 'far-frame' }),
+        ];
+        const chunkManifest = [
+            makeChunk('far', { topFrameId: 'far-frame', elementIds: ['far-frame', 'protruding-child'], elementCount: 2 }),
+        ];
+        const elementById = new Map(elements.map((element) => [element.id, element]));
+        const elementChunkIdById = new Map<string, string>([
+            ['far-frame', 'far'],
+            ['protruding-child', 'far'],
+        ]);
+
+        const result = buildActiveChunkSummary({
+            elements,
+            chunkManifest,
+            hasRootChunk: false,
+            elementById,
+            elementChunkIdById,
+            selectedIds: [],
+            highlightedLayerIds: [],
+            highlightedResultId: null,
+            pinnedChunkIds: [],
+            validChunkIdSet: new Set(['far']),
+            pan: { x: 0, y: 0 },
+            scale: 1,
+            viewportSize: { width: 1200, height: 800 },
+        });
+
+        expect(result.activeChunkIds).toEqual(['far']);
+        expect(result.activeElements.map((element) => element.id)).toEqual(['far-frame', 'protruding-child']);
     });
 
     it('sorts chunk panel entries by pinned, active, then element count', () => {
