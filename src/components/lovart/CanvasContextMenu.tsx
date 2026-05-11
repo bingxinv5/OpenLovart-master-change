@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Frame, Image as ImageIcon, MapPin, Minus, MousePointer2, Send, Sparkles, Square, Trash2, Type, Video } from 'lucide-react';
+import { Download, Eye, Frame, Image as ImageIcon, MapPin, Minus, MousePointer2, Send, Sparkles, Square, Trash2, Type, Video } from 'lucide-react';
 import { ExportMenu } from './ExportMenu';
 import type { CanvasElement, CanvasElementExportFormat } from './canvas-types';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
@@ -82,12 +82,14 @@ export interface CanvasContextMenuProps {
     contextAllHidden: boolean;
     contextAllLocked: boolean;
     contextCanSendToChat: boolean;
+    contextCanPreview: boolean;
     contextCanGroup: boolean;
     contextCanUngroup: boolean;
     contextCanMerge: boolean;
     onContextCopySelection: () => void;
     onContextCutSelection: () => void;
     onContextPaste: () => void;
+    onContextPreview: () => void;
     onContextDuplicate: () => void;
     onContextSendToChat: () => void;
     onContextBringForward: () => void;
@@ -124,12 +126,14 @@ export function CanvasContextMenu({
     contextAllHidden,
     contextAllLocked,
     contextCanSendToChat,
+    contextCanPreview,
     contextCanGroup,
     contextCanUngroup,
     contextCanMerge,
     onContextCopySelection,
     onContextCutSelection,
     onContextPaste,
+    onContextPreview,
     onContextDuplicate,
     onContextSendToChat,
     onContextBringForward,
@@ -168,6 +172,12 @@ export function CanvasContextMenu({
             <style>{menuPositionCss}</style>
             {contextTargetElement ? (
                 <>
+                    {contextCanPreview && (
+                        <button onClick={onContextPreview} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left">
+                            <Eye size={14} className="text-gray-400" />
+                            预览
+                        </button>
+                    )}
                     <button onClick={onContextCopySelection} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left">
                         <span className="w-4 text-center text-gray-400">⎘</span>
                         复制

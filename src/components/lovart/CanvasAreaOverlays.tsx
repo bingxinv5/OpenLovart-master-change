@@ -5,7 +5,7 @@ import type { CanvasElement } from './canvas-types';
 import { renderPathPoints } from './canvas-ui-utils';
 import { CanvasAlignGuides } from './CanvasAlignGuides';
 import { ScreenSpaceResizeOverlay, type ScreenSpaceResizeOverlayState } from './ScreenSpaceResizeOverlay';
-import { ImagePreviewPanel, type ImagePreviewMetrics, VideoPlaybackOverlay } from './CanvasMediaOverlays';
+import { ImagePreviewPanel, MediaLightboxPreviewOverlay, type ImagePreviewMetrics, type MediaPreviewItem, VideoPlaybackOverlay } from './CanvasMediaOverlays';
 
 interface CanvasAreaWorldOverlaysProps {
     currentPath: { points: { x: number; y: number }[] } | null;
@@ -26,6 +26,10 @@ interface CanvasAreaViewportOverlaysProps {
     activeImagePreviewElement: CanvasElement | null;
     activeImagePreviewMetrics: ImagePreviewMetrics | null;
     activeImagePreviewResolvedSrc?: string;
+    activeMediaPreviewItems: MediaPreviewItem[];
+    activeMediaPreviewIndex: number;
+    onActiveMediaPreviewIndexChange: (index: number) => void;
+    onCloseMediaPreview: () => void;
 }
 
 export function CanvasAreaWorldOverlays({
@@ -91,6 +95,10 @@ export function CanvasAreaViewportOverlays({
     activeImagePreviewElement,
     activeImagePreviewMetrics,
     activeImagePreviewResolvedSrc,
+    activeMediaPreviewItems,
+    activeMediaPreviewIndex,
+    onActiveMediaPreviewIndexChange,
+    onCloseMediaPreview,
 }: CanvasAreaViewportOverlaysProps) {
     return (
         <>
@@ -119,6 +127,13 @@ export function CanvasAreaViewportOverlays({
                 element={activeImagePreviewElement}
                 metrics={activeImagePreviewMetrics}
                 resolvedImageSrc={activeImagePreviewResolvedSrc}
+            />
+
+            <MediaLightboxPreviewOverlay
+                items={activeMediaPreviewItems}
+                activeIndex={activeMediaPreviewIndex}
+                onActiveIndexChange={onActiveMediaPreviewIndexChange}
+                onClose={onCloseMediaPreview}
             />
         </>
     );

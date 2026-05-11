@@ -87,6 +87,7 @@ export interface WorkbenchImageProps extends Omit<React.ImgHTMLAttributes<HTMLIm
     displayPixels?: number;
     canvasScale?: number;
     prioritizeDetail?: boolean;
+    forceOriginal?: boolean;
     deferFinalUpgrade?: boolean;
     detailRequestKey?: string | number;
     containerClassName?: string;
@@ -104,6 +105,7 @@ export function WorkbenchImage({
     displayPixels,
     canvasScale = 1,
     prioritizeDetail = false,
+    forceOriginal = false,
     deferFinalUpgrade = false,
     detailRequestKey,
     containerClassName,
@@ -169,7 +171,9 @@ export function WorkbenchImage({
     const finalRequestPixels = prioritizeDetail
         ? getPriorityFinalRequestPixels(finalDisplayPixels, stableCanvasScale)
         : getFinalRequestPixels(finalDisplayPixels, stableCanvasScale);
-    const preferredResolvedSrc = resolvedSrc?.trim() || null;
+    const usesImageStoreLod = !!content && isImageRef(content);
+    const rawPreferredResolvedSrc = resolvedSrc?.trim() || null;
+    const preferredResolvedSrc = forceOriginal && usesImageStoreLod ? null : rawPreferredResolvedSrc;
     const shouldUpgradeToFinal = shouldRequestFinalLod({
         isNearViewport,
         isScaleSettled: Math.abs(canvasScale - stableCanvasScale) < 0.001,
@@ -179,11 +183,10 @@ export function WorkbenchImage({
         prioritizeDetail,
         deferFinalUpgrade,
     });
-    const usesImageStoreLod = !!content && isImageRef(content);
     // Remote/data URLs don't participate in the image-store LOD pipeline.
     // Re-running the load effect on hover would revoke the currently displayed blob URL and cause flicker.
     const loadRequestPixels = usesImageStoreLod
-        ? (preferredResolvedSrc ? ORIGINAL_IMAGE_REQUEST_PIXELS : previewRequestPixels)
+        ? (forceOriginal || preferredResolvedSrc ? ORIGINAL_IMAGE_REQUEST_PIXELS : previewRequestPixels)
         : 0;
     const activeNaturalSize = activeNaturalSizeState.src === (activeLayer?.src ?? null)
         ? activeNaturalSizeState.summary
@@ -353,13 +356,14 @@ export function WorkbenchImage({
             isNearViewport,
             shouldUpgradeToFinal,
             prioritizeDetail,
+            forceOriginal,
             deferFinalUpgrade,
             detailRequestKey,
             containerSize: containerSizeSummary,
             storedLevels: storedLevelSummary,
             loadState,
         });
-    }, [activeLayer, activeNaturalSize, classifyRawContent, containerSizeSummary, content, debugId, deferFinalUpgrade, describeLayerSource, detailRequestKey, finalRequestPixels, formatLayerPixels, isNearViewport, loadState, pendingLayer, pendingNaturalSize, preferredResolvedSrc, previewRequestPixels, prioritizeDetail, shouldUpgradeToFinal, storedLevelSummary]);
+    }, [activeLayer, activeNaturalSize, classifyRawContent, containerSizeSummary, content, debugId, deferFinalUpgrade, describeLayerSource, detailRequestKey, finalRequestPixels, forceOriginal, formatLayerPixels, isNearViewport, loadState, pendingLayer, pendingNaturalSize, preferredResolvedSrc, previewRequestPixels, prioritizeDetail, shouldUpgradeToFinal, storedLevelSummary]);
 
     const commitResolvedLayer = useCallback((nextLayer: ImageLayer) => {
         const shouldKeepCurrentLayer = !!currentSrcRef.current
@@ -643,6 +647,7 @@ export function WorkbenchImage({
             data-image-near-viewport={isNearViewport ? '1' : '0'}
             data-image-should-upgrade={shouldUpgradeToFinal ? '1' : '0'}
             data-image-priority-detail={prioritizeDetail ? '1' : '0'}
+            data-image-force-original={forceOriginal ? '1' : '0'}
             data-image-defer-final-upgrade={deferFinalUpgrade ? '1' : '0'}
             data-image-detail-request-key={detailRequestKey === undefined ? undefined : String(detailRequestKey)}
             data-image-store-levels={storedLevelSummary ?? undefined}

@@ -13,7 +13,7 @@ import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale, computeFitViewpor
 import { useCanvasAlignGuides } from './CanvasAlignGuides';
 import { canUseScreenSpaceResizeOverlayForElement } from './ScreenSpaceResizeOverlay';
 import { CanvasContextMenu, useCanvasContextMenu } from './CanvasContextMenu';
-import { useImageHoverPreview } from './CanvasMediaOverlays';
+import { resolveMediaPreviewElements, useImageHoverPreview } from './CanvasMediaOverlays';
 import { useCanvasPointerInteraction } from './use-canvas-pointer-interaction';
 import type { CanvasAreaDomains, CanvasRenderMetrics } from './canvas-area-domains';
 import { useCanvasTestEventBridge } from './use-canvas-test-event-bridge';
@@ -67,6 +67,8 @@ export const CanvasArea = React.memo(function CanvasArea({
     const [showFrameExportMenu, setShowFrameExportMenu] = useState<string | null>(null); // element id for export dropdown
     const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
     const [activeImagePreviewId, setActiveImagePreviewId] = useState<string | null>(null);
+    const [activeMediaPreviewIds, setActiveMediaPreviewIds] = useState<string[]>([]);
+    const [activeMediaPreviewIndex, setActiveMediaPreviewIndex] = useState(0);
     const [editingFrameName, setEditingFrameName] = useState<string | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [imageDetailRequestVersions, setImageDetailRequestVersions] = useState<Record<string, number>>({});
@@ -378,6 +380,40 @@ export const CanvasArea = React.memo(function CanvasArea({
         viewportSize,
     });
 
+    const activeMediaPreviewElements = useMemo(() => (
+        activeMediaPreviewIds
+            .map((id) => elements.find((element) => element.id === id && !element.hidden && !!element.content && (element.type === 'image' || element.type === 'video')))
+            .filter((element): element is CanvasElement => !!element)
+    ), [activeMediaPreviewIds, elements]);
+
+    const activeMediaPreviewItems = useMemo(() => (
+        activeMediaPreviewElements.map((element) => ({
+            element,
+            resolvedImageSrc: element.type === 'image' ? resolvedImageSrcMap?.[element.id] : undefined,
+        }))
+    ), [activeMediaPreviewElements, resolvedImageSrcMap]);
+
+    useEffect(() => {
+        if (activeMediaPreviewIds.length === 0) {
+            return;
+        }
+
+        if (activeMediaPreviewElements.length === 0) {
+            setActiveMediaPreviewIds([]);
+            setActiveMediaPreviewIndex(0);
+            return;
+        }
+
+        const nextIds = activeMediaPreviewElements.map((element) => element.id);
+        if (nextIds.length !== activeMediaPreviewIds.length || nextIds.some((id, index) => id !== activeMediaPreviewIds[index])) {
+            setActiveMediaPreviewIds(nextIds);
+        }
+
+        if (activeMediaPreviewIndex >= nextIds.length) {
+            setActiveMediaPreviewIndex(nextIds.length - 1);
+        }
+    }, [activeMediaPreviewElements, activeMediaPreviewIds, activeMediaPreviewIndex]);
+
     // Wheel zoom (cursor-centered)
     const handleWheelRaw = useCallback((e: WheelEvent) => {
         cancelInertia();
@@ -577,6 +613,8 @@ export const CanvasArea = React.memo(function CanvasArea({
     const contextAllHidden = contextTargetElements.length > 0 && contextTargetElements.every(el => !!el.hidden);
     const contextAllLocked = contextTargetElements.length > 0 && contextTargetElements.every(el => isElementLocked(el));
     const contextCanSendToChat = contextTargetElements.some(el => el.type === 'image' && !!el.content);
+    const contextPreviewElements = useMemo(() => resolveMediaPreviewElements(contextTargetElements), [contextTargetElements]);
+    const contextCanPreview = contextPreviewElements.length > 0;
     const contextCanGroup = contextTargetElements.filter(el => el.type !== 'connector').length >= 2;
     const contextCanUngroup = contextTargetElements.some(el => el.type === 'frame' && el.groupFrame);
     const contextCanMerge = contextTargetElements.filter(el => ['image', 'text', 'shape', 'path'].includes(el.type)).length >= 2;
@@ -594,6 +632,15 @@ export const CanvasArea = React.memo(function CanvasArea({
     const handleContextCutSelection = useCallback(() => {
         runContextSelectionAction(onCutSelection);
     }, [onCutSelection, runContextSelectionAction]);
+
+    const handleContextPreview = useCallback(() => {
+        if (!contextCanPreview) return;
+
+        setActiveVideoId(null);
+        setActiveMediaPreviewIds(contextPreviewElements.map((element) => element.id));
+        setActiveMediaPreviewIndex(0);
+        closeContextMenu();
+    }, [closeContextMenu, contextCanPreview, contextPreviewElements]);
 
     const handleContextDuplicate = useCallback(() => {
         if (contextTargetIds.length === 0) return;
@@ -1024,6 +1071,13 @@ export const CanvasArea = React.memo(function CanvasArea({
                 activeImagePreviewElement={activeImagePreviewElement}
                 activeImagePreviewMetrics={activeImagePreviewMetrics}
                 activeImagePreviewResolvedSrc={activeImagePreviewElement ? resolvedImageSrcMap?.[activeImagePreviewElement.id] : undefined}
+                activeMediaPreviewItems={activeMediaPreviewItems}
+                activeMediaPreviewIndex={activeMediaPreviewIndex}
+                onActiveMediaPreviewIndexChange={setActiveMediaPreviewIndex}
+                onCloseMediaPreview={() => {
+                    setActiveMediaPreviewIds([]);
+                    setActiveMediaPreviewIndex(0);
+                }}
             />
 
             {/* Right-click Context Menu */}
@@ -1039,12 +1093,14 @@ export const CanvasArea = React.memo(function CanvasArea({
                     contextAllHidden={contextAllHidden}
                     contextAllLocked={contextAllLocked}
                     contextCanSendToChat={contextCanSendToChat}
+                    contextCanPreview={contextCanPreview}
                     contextCanGroup={contextCanGroup}
                     contextCanUngroup={contextCanUngroup}
                     contextCanMerge={contextCanMerge}
                     onContextCopySelection={handleContextCopySelection}
                     onContextCutSelection={handleContextCutSelection}
                     onContextPaste={handleContextPaste}
+                    onContextPreview={handleContextPreview}
                     onContextDuplicate={handleContextDuplicate}
                     onContextSendToChat={handleContextSendToChat}
                     onContextBringForward={handleContextBringForward}

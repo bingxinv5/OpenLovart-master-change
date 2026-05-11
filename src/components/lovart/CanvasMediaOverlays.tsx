@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { WorkbenchImage } from './WorkbenchImage';
 import type { CanvasElement } from './canvas-types';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
@@ -12,8 +13,77 @@ export type ImagePreviewMetrics = {
     top: number;
 };
 
+export type MediaPreviewItem = {
+    element: CanvasElement;
+    resolvedImageSrc?: string;
+};
+
+export type MediaLightboxSize = {
+    width: number;
+    height: number;
+    displayPixels: number;
+};
+
 function toOverlayPx(value: number | undefined) {
     return `${Number.isFinite(value) ? value : 0}px`;
+}
+
+function getMediaPreviewBaseSize(element: CanvasElement) {
+    const fallbackWidth = element.type === 'video' ? 1280 : 1024;
+    const fallbackHeight = element.type === 'video' ? 720 : 1024;
+    return {
+        width: Math.max(1, element.width || fallbackWidth),
+        height: Math.max(1, element.height || fallbackHeight),
+    };
+}
+
+export function isMediaPreviewElement(element: CanvasElement) {
+    return !element.hidden && !!element.content && (element.type === 'image' || element.type === 'video');
+}
+
+export function sortMediaPreviewElements(elements: CanvasElement[]) {
+    return [...elements].sort((a, b) => {
+        const aSize = getMediaPreviewBaseSize(a);
+        const bSize = getMediaPreviewBaseSize(b);
+        const aBottom = a.y + aSize.height;
+        const bBottom = b.y + bSize.height;
+        const verticalOverlap = Math.min(aBottom, bBottom) - Math.max(a.y, b.y);
+        const sameVisualRow = verticalOverlap > Math.min(aSize.height, bSize.height) * 0.45;
+
+        if (sameVisualRow && a.x !== b.x) {
+            return a.x - b.x;
+        }
+
+        if (a.y !== b.y) {
+            return a.y - b.y;
+        }
+
+        return a.x - b.x;
+    });
+}
+
+export function resolveMediaPreviewElements(elements: CanvasElement[]) {
+    return sortMediaPreviewElements(elements.filter(isMediaPreviewElement));
+}
+
+export function resolveMediaLightboxSize(element: CanvasElement, viewportSize: { width: number; height: number }): MediaLightboxSize {
+    const baseSize = getMediaPreviewBaseSize(element);
+    const aspectRatio = baseSize.width / baseSize.height;
+    const maxWidth = Math.max(240, viewportSize.width - 48);
+    const maxHeight = Math.max(240, viewportSize.height - 48);
+    let width = maxWidth;
+    let height = width / aspectRatio;
+
+    if (height > maxHeight) {
+        height = maxHeight;
+        width = height * aspectRatio;
+    }
+
+    return {
+        width: Math.round(width),
+        height: Math.round(height),
+        displayPixels: Math.max(baseSize.width, baseSize.height, width, height, 4096) * 2,
+    };
 }
 
 export function resolveActiveImagePreviewElement(
@@ -203,6 +273,171 @@ export function ImagePreviewPanel({
                 loading="eager"
                 decoding="async"
             />
+        </div>
+    );
+}
+
+export function MediaLightboxPreviewOverlay({
+    items,
+    activeIndex,
+    onActiveIndexChange,
+    onClose,
+}: {
+    items: MediaPreviewItem[];
+    activeIndex: number;
+    onActiveIndexChange: (index: number) => void;
+    onClose: () => void;
+}) {
+    const [viewportSize, setViewportSize] = useState(() => ({
+        width: typeof window === 'undefined' ? 1280 : window.innerWidth,
+        height: typeof window === 'undefined' ? 900 : window.innerHeight,
+    }));
+    const safeActiveIndex = items.length > 0 ? Math.min(Math.max(activeIndex, 0), items.length - 1) : 0;
+    const activeItem = items[safeActiveIndex] ?? null;
+    const activeElement = activeItem?.element ?? null;
+    const canNavigate = items.length > 1;
+
+    useEffect(() => {
+        if (!activeElement) {
+            return;
+        }
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                onClose();
+            } else if (event.key === 'ArrowLeft' && canNavigate) {
+                onActiveIndexChange((safeActiveIndex - 1 + items.length) % items.length);
+            } else if (event.key === 'ArrowRight' && canNavigate) {
+                onActiveIndexChange((safeActiveIndex + 1) % items.length);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [activeElement, canNavigate, items.length, onActiveIndexChange, onClose, safeActiveIndex]);
+
+    useEffect(() => {
+        if (!activeElement) {
+            return;
+        }
+
+        const updateViewportSize = () => {
+            setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+        };
+
+        updateViewportSize();
+        window.addEventListener('resize', updateViewportSize);
+        return () => window.removeEventListener('resize', updateViewportSize);
+    }, [activeElement]);
+
+    if (!activeElement?.content) {
+        return null;
+    }
+
+    const previewSize = resolveMediaLightboxSize(activeElement, viewportSize);
+    const lightboxSizeClassName = buildFloatingPanelPositionClassName('media-lightbox-preview-size', activeElement.id);
+    const lightboxSizeCss = `
+.${lightboxSizeClassName} {
+    width: ${toOverlayPx(previewSize.width)};
+    height: ${toOverlayPx(previewSize.height)};
+}
+`;
+
+    const showPrevious = () => {
+        if (canNavigate) {
+            onActiveIndexChange((safeActiveIndex - 1 + items.length) % items.length);
+        }
+    };
+
+    const showNext = () => {
+        if (canNavigate) {
+            onActiveIndexChange((safeActiveIndex + 1) % items.length);
+        }
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-[240] flex items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm"
+            onMouseDown={onClose}
+        >
+            <div
+                className="relative flex max-h-full max-w-full items-center justify-center"
+                onMouseDown={(event) => event.stopPropagation()}
+            >
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="fixed right-5 top-5 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-slate-950/70 text-white shadow-lg transition-colors hover:bg-slate-950"
+                    title="关闭预览"
+                    aria-label="关闭预览"
+                >
+                    <X size={16} />
+                </button>
+
+                {canNavigate && (
+                    <button
+                        type="button"
+                        onClick={showPrevious}
+                        className="fixed left-5 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-slate-950/65 text-white shadow-lg transition-colors hover:bg-slate-950"
+                        title="上一项"
+                        aria-label="上一项"
+                    >
+                        <ChevronLeft size={22} />
+                    </button>
+                )}
+
+                <div className={`${lightboxSizeClassName} overflow-hidden rounded-xl bg-slate-950 shadow-2xl`}>
+                    <style>{lightboxSizeCss}</style>
+                    {activeElement.type === 'image' ? (
+                        <WorkbenchImage
+                            key={activeElement.id}
+                            content={activeElement.content}
+                            debugId={`lightbox-preview-${activeElement.id}`}
+                            resolvedSrc={activeItem.resolvedImageSrc}
+                            displayPixels={previewSize.displayPixels}
+                            canvasScale={1}
+                            prioritizeDetail
+                            forceOriginal
+                            alt="Image preview"
+                            containerClassName="h-full w-full rounded-xl"
+                            imageClassName="rounded-xl"
+                            fit="contain"
+                            surfaceMode="dark"
+                            loading="eager"
+                            decoding="async"
+                        />
+                    ) : (
+                        <video
+                            key={activeElement.content}
+                            src={activeElement.content}
+                            className="block h-full w-full bg-slate-950 object-contain"
+                            controls
+                            autoPlay
+                            loop
+                            playsInline
+                            preload="auto"
+                        />
+                    )}
+                </div>
+
+                {canNavigate && (
+                    <button
+                        type="button"
+                        onClick={showNext}
+                        className="fixed right-5 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-slate-950/65 text-white shadow-lg transition-colors hover:bg-slate-950"
+                        title="下一项"
+                        aria-label="下一项"
+                    >
+                        <ChevronRight size={22} />
+                    </button>
+                )}
+
+                {canNavigate && (
+                    <div className="fixed bottom-5 left-1/2 z-30 -translate-x-1/2 rounded-full bg-slate-950/70 px-3 py-1 text-xs font-medium text-white shadow-lg">
+                        {safeActiveIndex + 1} / {items.length}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
