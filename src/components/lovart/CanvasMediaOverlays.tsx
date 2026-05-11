@@ -24,6 +24,11 @@ export type MediaLightboxSize = {
     displayPixels: number;
 };
 
+export type MediaLightboxSourceSize = {
+    width: number;
+    height: number;
+};
+
 function toOverlayPx(value: number | undefined) {
     return `${Number.isFinite(value) ? value : 0}px`;
 }
@@ -66,8 +71,13 @@ export function resolveMediaPreviewElements(elements: CanvasElement[]) {
     return sortMediaPreviewElements(elements.filter(isMediaPreviewElement));
 }
 
-export function resolveMediaLightboxSize(element: CanvasElement, viewportSize: { width: number; height: number }): MediaLightboxSize {
-    const baseSize = getMediaPreviewBaseSize(element);
+export function resolveMediaLightboxSize(
+    element: CanvasElement,
+    viewportSize: { width: number; height: number },
+    sourceSize?: MediaLightboxSourceSize,
+): MediaLightboxSize {
+    const fallbackSize = getMediaPreviewBaseSize(element);
+    const baseSize = sourceSize && sourceSize.width > 0 && sourceSize.height > 0 ? sourceSize : fallbackSize;
     const aspectRatio = baseSize.width / baseSize.height;
     const maxWidth = Math.max(240, viewportSize.width - 48);
     const maxHeight = Math.max(240, viewportSize.height - 48);
@@ -90,8 +100,9 @@ export function resolveActiveImagePreviewElement(
     elements: CanvasElement[],
     activeImagePreviewId: string | null,
     scale: number,
+    disabled = false,
 ) {
-    if (scale > 0.12 || !activeImagePreviewId) {
+    if (disabled || scale > 0.12 || !activeImagePreviewId) {
         return null;
     }
 
@@ -150,16 +161,18 @@ export function useImageHoverPreview({
     scale,
     pan,
     viewportSize,
+    disabled = false,
 }: {
     elements: CanvasElement[];
     activeImagePreviewId: string | null;
     scale: number;
     pan: { x: number; y: number };
     viewportSize: { width: number; height: number };
+    disabled?: boolean;
 }) {
     const element = useMemo(() => (
-        resolveActiveImagePreviewElement(elements, activeImagePreviewId, scale)
-    ), [activeImagePreviewId, elements, scale]);
+        resolveActiveImagePreviewElement(elements, activeImagePreviewId, scale, disabled)
+    ), [activeImagePreviewId, disabled, elements, scale]);
 
     const metrics = useMemo(() => resolveImagePreviewMetrics({
         element,
@@ -292,10 +305,12 @@ export function MediaLightboxPreviewOverlay({
         width: typeof window === 'undefined' ? 1280 : window.innerWidth,
         height: typeof window === 'undefined' ? 900 : window.innerHeight,
     }));
+    const [naturalImageSizes, setNaturalImageSizes] = useState<Record<string, MediaLightboxSourceSize>>({});
     const safeActiveIndex = items.length > 0 ? Math.min(Math.max(activeIndex, 0), items.length - 1) : 0;
     const activeItem = items[safeActiveIndex] ?? null;
     const activeElement = activeItem?.element ?? null;
     const canNavigate = items.length > 1;
+    const activeNaturalImageSize = activeElement?.type === 'image' ? naturalImageSizes[activeElement.id] : undefined;
 
     useEffect(() => {
         if (!activeElement) {
@@ -334,7 +349,7 @@ export function MediaLightboxPreviewOverlay({
         return null;
     }
 
-    const previewSize = resolveMediaLightboxSize(activeElement, viewportSize);
+    const previewSize = resolveMediaLightboxSize(activeElement, viewportSize, activeNaturalImageSize);
     const lightboxSizeClassName = buildFloatingPanelPositionClassName('media-lightbox-preview-size', activeElement.id);
     const lightboxSizeCss = `
 .${lightboxSizeClassName} {
@@ -405,6 +420,25 @@ export function MediaLightboxPreviewOverlay({
                             surfaceMode="dark"
                             loading="eager"
                             decoding="async"
+                            onLoad={(event) => {
+                                const nextWidth = event.currentTarget.naturalWidth;
+                                const nextHeight = event.currentTarget.naturalHeight;
+                                if (nextWidth <= 0 || nextHeight <= 0) {
+                                    return;
+                                }
+
+                                setNaturalImageSizes((current) => {
+                                    const previous = current[activeElement.id];
+                                    if (previous?.width === nextWidth && previous.height === nextHeight) {
+                                        return current;
+                                    }
+
+                                    return {
+                                        ...current,
+                                        [activeElement.id]: { width: nextWidth, height: nextHeight },
+                                    };
+                                });
+                            }}
                         />
                     ) : (
                         <video

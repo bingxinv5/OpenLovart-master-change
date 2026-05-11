@@ -32,6 +32,7 @@ describe('CanvasMediaOverlays', () => {
         expect(resolveActiveImagePreviewElement(elements, 'image-a', 0.13)).toBeNull();
         expect(resolveActiveImagePreviewElement(elements, 'image-hidden', 0.1)).toBeNull();
         expect(resolveActiveImagePreviewElement(elements, 'video-a', 0.1)).toBeNull();
+        expect(resolveActiveImagePreviewElement(elements, 'image-a', 0.1, true)).toBeNull();
     });
 
     it('keeps image preview metrics inside the viewport and preserves aspect ratio bounds', () => {
@@ -75,6 +76,20 @@ describe('CanvasMediaOverlays', () => {
         expect(size).toEqual({
             width: 1372,
             height: 772,
+            displayPixels: 8192,
+        });
+    });
+
+    it('uses loaded natural image dimensions over misleading canvas element bounds for lightbox sizing', () => {
+        const size = resolveMediaLightboxSize(
+            makeElement('image-a', { width: 800, height: 600 }),
+            { width: 1440, height: 820 },
+            { width: 2400, height: 600 },
+        );
+
+        expect(size).toEqual({
+            width: 1392,
+            height: 348,
             displayPixels: 8192,
         });
     });

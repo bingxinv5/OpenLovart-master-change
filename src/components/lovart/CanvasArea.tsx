@@ -330,6 +330,40 @@ export const CanvasArea = React.memo(function CanvasArea({
         });
     }, [fitViewportToBounds]);
 
+    const imageHoverPreviewTimerRef = useRef<number | null>(null);
+    const isImageHoverPreviewSuppressed = !!contextMenu || activeMediaPreviewIds.length > 0;
+    const clearImageHoverPreviewTimer = useCallback(() => {
+        if (imageHoverPreviewTimerRef.current !== null) {
+            window.clearTimeout(imageHoverPreviewTimerRef.current);
+            imageHoverPreviewTimerRef.current = null;
+        }
+    }, []);
+
+    const setActiveImagePreviewIdFromHover = useCallback((id: string | null) => {
+        clearImageHoverPreviewTimer();
+
+        if (isImageHoverPreviewSuppressed || id === null) {
+            setActiveImagePreviewId((current) => current === null ? current : null);
+            return;
+        }
+
+        imageHoverPreviewTimerRef.current = window.setTimeout(() => {
+            setActiveImagePreviewId((current) => current === id ? current : id);
+            imageHoverPreviewTimerRef.current = null;
+        }, 90);
+    }, [clearImageHoverPreviewTimer, isImageHoverPreviewSuppressed]);
+
+    useEffect(() => {
+        if (!isImageHoverPreviewSuppressed) {
+            return;
+        }
+
+        clearImageHoverPreviewTimer();
+        setActiveImagePreviewId((current) => current === null ? current : null);
+    }, [clearImageHoverPreviewTimer, isImageHoverPreviewSuppressed]);
+
+    useEffect(() => () => clearImageHoverPreviewTimer(), [clearImageHoverPreviewTimer]);
+
     // ── Stable handlers ref for CanvasElementRenderer (React.memo friendly) ──
     const elementHandlers = useMemo<ElementHandlers>(() => ({
         handleMouseDown: handleMouseDownStable,
@@ -342,7 +376,7 @@ export const CanvasArea = React.memo(function CanvasArea({
         setEditingFrameName,
         setEditingMarkId,
         setActiveVideoId,
-        setActiveImagePreviewId,
+        setActiveImagePreviewId: setActiveImagePreviewIdFromHover,
         setShowFramePresetMenu,
         setShowFrameExportMenu,
         setQuickEditMarkId,
@@ -362,6 +396,7 @@ export const CanvasArea = React.memo(function CanvasArea({
         onElementChange,
         onSelect,
         scheduleAutoLayout,
+        setActiveImagePreviewIdFromHover,
     ]);
     const elementHandlersRef = useRef<ElementHandlers>(elementHandlers);
 
@@ -378,6 +413,7 @@ export const CanvasArea = React.memo(function CanvasArea({
         scale,
         pan,
         viewportSize,
+        disabled: isImageHoverPreviewSuppressed,
     });
 
     const activeMediaPreviewElements = useMemo(() => (
@@ -456,6 +492,8 @@ export const CanvasArea = React.memo(function CanvasArea({
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
+        clearImageHoverPreviewTimer();
+        setActiveImagePreviewId((current) => current === null ? current : null);
         const rect = outerRef.current?.getBoundingClientRect();
         const offsetX = rect ? e.clientX - rect.left : e.clientX;
         const offsetY = rect ? e.clientY - rect.top : e.clientY;
@@ -479,7 +517,7 @@ export const CanvasArea = React.memo(function CanvasArea({
             canvasY,
             targetElementId: preserveSelection ? selectedIds[0] ?? null : target?.id ?? null,
         });
-    }, [getTopElementAtPoint, onSelect, pan, scale, selectedIds, setContextMenu, setContextMenuAdjusted]);
+    }, [clearImageHoverPreviewTimer, getTopElementAtPoint, onSelect, pan, scale, selectedIds, setContextMenu, setContextMenuAdjusted]);
 
     const getContextCanvasPosition = useCallback((fallback = { x: 300, y: 300 }) => {
         return {
@@ -637,6 +675,7 @@ export const CanvasArea = React.memo(function CanvasArea({
         if (!contextCanPreview) return;
 
         setActiveVideoId(null);
+        setActiveImagePreviewId(null);
         setActiveMediaPreviewIds(contextPreviewElements.map((element) => element.id));
         setActiveMediaPreviewIndex(0);
         closeContextMenu();
@@ -1068,9 +1107,9 @@ export const CanvasArea = React.memo(function CanvasArea({
                 scale={scale}
                 pan={pan}
                 onCloseVideo={() => setActiveVideoId(null)}
-                activeImagePreviewElement={activeImagePreviewElement}
-                activeImagePreviewMetrics={activeImagePreviewMetrics}
-                activeImagePreviewResolvedSrc={activeImagePreviewElement ? resolvedImageSrcMap?.[activeImagePreviewElement.id] : undefined}
+                activeImagePreviewElement={activeMediaPreviewItems.length > 0 ? null : activeImagePreviewElement}
+                activeImagePreviewMetrics={activeMediaPreviewItems.length > 0 ? null : activeImagePreviewMetrics}
+                activeImagePreviewResolvedSrc={activeMediaPreviewItems.length === 0 && activeImagePreviewElement ? resolvedImageSrcMap?.[activeImagePreviewElement.id] : undefined}
                 activeMediaPreviewItems={activeMediaPreviewItems}
                 activeMediaPreviewIndex={activeMediaPreviewIndex}
                 onActiveMediaPreviewIndexChange={setActiveMediaPreviewIndex}

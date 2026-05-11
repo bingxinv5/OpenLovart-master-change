@@ -172,8 +172,7 @@ export function WorkbenchImage({
         ? getPriorityFinalRequestPixels(finalDisplayPixels, stableCanvasScale)
         : getFinalRequestPixels(finalDisplayPixels, stableCanvasScale);
     const usesImageStoreLod = !!content && isImageRef(content);
-    const rawPreferredResolvedSrc = resolvedSrc?.trim() || null;
-    const preferredResolvedSrc = forceOriginal && usesImageStoreLod ? null : rawPreferredResolvedSrc;
+    const preferredResolvedSrc = resolvedSrc?.trim() || null;
     const shouldUpgradeToFinal = shouldRequestFinalLod({
         isNearViewport,
         isScaleSettled: Math.abs(canvasScale - stableCanvasScale) < 0.001,
@@ -479,7 +478,8 @@ export function WorkbenchImage({
                 const shouldPreserveRuntimeLayer = currentContentRef.current === content
                     && currentLodRef.current === 0
                     && previewLayer.requestPixels > 0
-                    && previewLayer.requestPixels < finalRequestPixels;
+                    && previewLayer.requestPixels < finalRequestPixels
+                    && !forceOriginal;
 
                 if (shouldPreserveRuntimeLayer) {
                     setLoadState('ready');
@@ -504,7 +504,7 @@ export function WorkbenchImage({
             cancelled = true;
             clearTimer(promotionTimerRef);
         };
-    }, [commitResolvedLayer, content, finalRequestPixels, loadRequestPixels, preferredResolvedSrc, setLoadState]);
+    }, [commitResolvedLayer, content, finalRequestPixels, forceOriginal, loadRequestPixels, preferredResolvedSrc, setLoadState]);
 
     useEffect(() => {
         if (detailRequestKey === undefined) {
@@ -557,7 +557,8 @@ export function WorkbenchImage({
 
                     const shouldPreserveRuntimeLayer = currentContentRef.current === content
                         && currentLodRef.current === 0
-                        && resolvedLayer.requestPixels < finalRequestPixels;
+                        && resolvedLayer.requestPixels < finalRequestPixels
+                        && !forceOriginal;
 
                     if (!shouldPreserveRuntimeLayer && resolvedLayer.requestPixels > bestResolvedPixels && resolvedLayer.src !== currentSrcRef.current) {
                         bestResolvedPixels = resolvedLayer.requestPixels;
@@ -590,7 +591,7 @@ export function WorkbenchImage({
                 window.clearTimeout(upgradeTimer);
             }
         };
-    }, [content, detailRequestKey, finalRequestPixels, loadRequestPixels, prioritizeDetail, setLoadState, shouldUpgradeToFinal]);
+    }, [content, detailRequestKey, finalRequestPixels, forceOriginal, loadRequestPixels, prioritizeDetail, setLoadState, shouldUpgradeToFinal]);
 
     useEffect(() => {
         if (!pendingLayer?.visible) {

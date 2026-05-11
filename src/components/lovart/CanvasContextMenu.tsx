@@ -30,7 +30,11 @@ export function useCanvasContextMenu() {
         const raf = requestAnimationFrame(() => {
             const element = contextMenuRef.current;
             if (!element) {
-                setContextMenuAdjusted({ x: contextMenu.x, y: contextMenu.y });
+                setContextMenuAdjusted((current) => (
+                    current?.x === contextMenu.x && current.y === contextMenu.y
+                        ? current
+                        : { x: contextMenu.x, y: contextMenu.y }
+                ));
                 return;
             }
 
@@ -45,7 +49,9 @@ export function useCanvasContextMenu() {
             if (x + rect.width > viewportWidth - 8) {
                 x = Math.max(8, viewportWidth - rect.width - 8);
             }
-            setContextMenuAdjusted({ x, y });
+            setContextMenuAdjusted((current) => (
+                current?.x === x && current.y === y ? current : { x, y }
+            ));
         });
 
         return () => cancelAnimationFrame(raf);
