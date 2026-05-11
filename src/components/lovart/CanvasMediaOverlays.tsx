@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { hasVideoSourceFailed, markVideoSourceFailed } from '@/lib/video-load-state';
 import { WorkbenchImage } from './WorkbenchImage';
 import type { CanvasElement } from './canvas-types';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
@@ -184,6 +185,52 @@ export function useImageHoverPreview({
     return { element, metrics };
 }
 
+function VideoUnavailablePanel() {
+    return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-950 text-white/70">
+            <span className="text-sm font-medium">视频不可用</span>
+            <span className="text-xs text-white/45">源文件无法加载</span>
+        </div>
+    );
+}
+
+function ManagedVideoPlayer({
+    src,
+    className,
+    autoPlay = false,
+}: {
+    src: string;
+    className: string;
+    autoPlay?: boolean;
+}) {
+    const [hasLoadError, setHasLoadError] = useState(() => hasVideoSourceFailed(src));
+
+    useEffect(() => {
+        setHasLoadError(hasVideoSourceFailed(src));
+    }, [src]);
+
+    if (hasLoadError || hasVideoSourceFailed(src)) {
+        return <VideoUnavailablePanel />;
+    }
+
+    return (
+        <video
+            key={src}
+            src={src}
+            className={className}
+            controls
+            autoPlay={autoPlay}
+            loop
+            playsInline
+            preload="metadata"
+            onError={() => {
+                markVideoSourceFailed(src);
+                setHasLoadError(true);
+            }}
+        />
+    );
+}
+
 export function VideoPlaybackOverlay({
     elements,
     activeVideoId,
@@ -200,6 +247,9 @@ export function VideoPlaybackOverlay({
     return (
         <>
             {elements.filter((element) => !element.hidden && element.type === 'video' && element.content && activeVideoId === element.id).map((element) => {
+                const src = element.content;
+                if (!src) return null;
+
                 const screenX = element.x * scale + pan.x;
                 const screenY = element.y * scale + pan.y;
                 const screenWidth = (element.width || 400) * scale;
@@ -220,15 +270,10 @@ export function VideoPlaybackOverlay({
                         onMouseDown={(event) => event.stopPropagation()}
                     >
                         <style>{overlayCss}</style>
-                        <video
-                            key={element.content}
-                            src={element.content}
+                        <ManagedVideoPlayer
+                            src={src}
                             className="block h-full w-full bg-[#111] object-contain"
-                            controls
                             autoPlay
-                            loop
-                            playsInline
-                            preload="auto"
                         />
                         <button
                             className="absolute top-2 right-2 bg-black/70 hover:bg-black/90 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm"
@@ -441,15 +486,10 @@ export function MediaLightboxPreviewOverlay({
                             }}
                         />
                     ) : (
-                        <video
-                            key={activeElement.content}
+                        <ManagedVideoPlayer
                             src={activeElement.content}
                             className="block h-full w-full bg-slate-950 object-contain"
-                            controls
                             autoPlay
-                            loop
-                            playsInline
-                            preload="auto"
                         />
                     )}
                 </div>

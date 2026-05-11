@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
-import { captureVideoThumbnailDataUrl } from '@/lib/project-thumbnail';
+import { getCachedVideoThumbnailDataUrl, hasVideoSourceFailed, markVideoSourceFailed } from '@/lib/video-load-state';
 import { renderPathPoints } from './canvas-ui-utils';
 import type { CanvasElement } from './canvas-types';
 import type { ElementHandlers } from './CanvasElementRenderer';
@@ -104,11 +104,21 @@ export function ImageGeneratingElementRenderer({ el }: { el: CanvasElement }) {
 function CanvasVideoPreview({ src }: { src: string }) {
     const [posterDataUrl, setPosterDataUrl] = useState<string | null>(null);
     const [isFrameReady, setIsFrameReady] = useState(false);
+    const [hasLoadError, setHasLoadError] = useState(() => hasVideoSourceFailed(src));
 
     useEffect(() => {
         let cancelled = false;
+        setPosterDataUrl(null);
+        setIsFrameReady(false);
+        setHasLoadError(hasVideoSourceFailed(src));
 
-        void captureVideoThumbnailDataUrl(src, { maxWidth: 960, quality: 0.86, seekTime: 0.1 }).then((thumbnail) => {
+        if (hasVideoSourceFailed(src)) {
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        void getCachedVideoThumbnailDataUrl(src, { maxWidth: 960, quality: 0.86, seekTime: 0.1 }).then((thumbnail) => {
             if (!cancelled) setPosterDataUrl(thumbnail);
         });
 
@@ -117,9 +127,32 @@ function CanvasVideoPreview({ src }: { src: string }) {
         };
     }, [src]);
 
+    if (hasLoadError) {
+        return (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-900 text-white/70">
+                <Play size={34} className="opacity-45" />
+                <div className="text-xs">视频不可用</div>
+            </div>
+        );
+    }
+
     return (
         <>
-            <video key={src} src={src} poster={posterDataUrl ?? undefined} preload="auto" muted playsInline className="pointer-events-none h-full w-full object-cover" onLoadedData={() => setIsFrameReady(true)} onError={() => setIsFrameReady(false)} />
+            <video
+                key={src}
+                src={src}
+                poster={posterDataUrl ?? undefined}
+                preload="metadata"
+                muted
+                playsInline
+                className="pointer-events-none h-full w-full object-cover"
+                onLoadedData={() => setIsFrameReady(true)}
+                onError={() => {
+                    markVideoSourceFailed(src);
+                    setHasLoadError(true);
+                    setIsFrameReady(false);
+                }}
+            />
             {!isFrameReady && !posterDataUrl && <div className="absolute inset-0 flex items-center justify-center bg-gray-900"><div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white/80" /></div>}
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/10" />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center"><div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/25 backdrop-blur-[2px]"><Play size={38} className="translate-x-[2px] text-white/80" /></div></div>

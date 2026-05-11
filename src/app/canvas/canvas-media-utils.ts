@@ -8,7 +8,8 @@
 import type { CanvasElement } from '@/components/lovart/canvas-types';
 import type { WorkbenchSettings } from '@/lib/workbench-settings';
 import { isImageRef, saveImage } from '@/lib/editor-kernel';
-import { captureVideoThumbnailDataUrl, pickProjectThumbnailCandidate } from '@/lib/project-thumbnail';
+import { pickProjectThumbnailCandidate } from '@/lib/project-thumbnail';
+import { getCachedVideoThumbnailDataUrl } from '@/lib/video-load-state';
 import { getViewportSize } from './canvas-focus';
 import { MAX_CANVAS_IMAGE_SIZE, STORAGE_CRITICAL_THRESHOLD, STORAGE_WARN_THRESHOLD, STORAGE_INFO_THRESHOLD } from './canvas-runtime-types';
 
@@ -256,7 +257,7 @@ export async function deriveProjectThumbnail(elements: CanvasElement[], uuidFn: 
         return candidate.content;
     }
 
-    const thumbnailDataUrl = await captureVideoThumbnailDataUrl(candidate.content);
+    const thumbnailDataUrl = await getCachedVideoThumbnailDataUrl(candidate.content);
     if (!thumbnailDataUrl) return null;
 
     return await saveImage(thumbnailDataUrl, uuidFn());

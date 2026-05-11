@@ -1,7 +1,7 @@
 'use client';
 
 import { elementStore, type LocalDbClient, saveImage } from './editor-kernel';
-import { captureVideoThumbnailDataUrl } from './project-thumbnail';
+import { getCachedVideoThumbnailDataUrl } from './video-load-state';
 
 export type ProjectListMetadataRow = {
   id: string;
@@ -56,7 +56,7 @@ export async function hydrateProjectMetadata(
     if (imageThumbnail) {
       nextThumbnail = imageThumbnail;
     } else if (firstVideoUrl) {
-      const thumbnailDataUrl = await captureVideoThumbnailDataUrl(firstVideoUrl);
+      const thumbnailDataUrl = await getCachedVideoThumbnailDataUrl(firstVideoUrl);
       if (thumbnailDataUrl) {
         nextThumbnail = await saveImage(thumbnailDataUrl, `${project.id}-thumbnail`);
       }

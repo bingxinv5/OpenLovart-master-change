@@ -25,8 +25,6 @@ type ImageLayer = {
 
 const ORIGINAL_IMAGE_REQUEST_PIXELS = Number.MAX_SAFE_INTEGER;
 const FINAL_LAYER_RETRY_DELAYS_MS = [0, 320, 800, 1600, 3200, 5000] as const;
-const DEFAULT_SCALE_SETTLE_DELAY_MS = 200;
-const PRIORITY_SCALE_SETTLE_DELAY_MS = 80;
 const DEFAULT_FINAL_UPGRADE_DELAY_MS = 140;
 const PRIORITY_FINAL_UPGRADE_DELAY_MS = 40;
 const DEFAULT_LAYER_PROMOTION_DELAY_MS = 180;
@@ -159,24 +157,23 @@ export function WorkbenchImage({
 
         return typeof window.IntersectionObserver === 'undefined';
     });
-    const [stableCanvasScale, setStableCanvasScale] = useState(canvasScale);
     const devicePixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
     const previewDevicePixelRatio = getEffectiveDevicePixelRatio(canvasScale, devicePixelRatio);
-    const finalDevicePixelRatio = getEffectiveDevicePixelRatio(stableCanvasScale, devicePixelRatio);
+    const finalDevicePixelRatio = getEffectiveDevicePixelRatio(canvasScale, devicePixelRatio);
     const previewDisplayPixels = normalizeDisplayPixels((displayPixels || 1024) * previewDevicePixelRatio);
     const finalDisplayPixels = normalizeDisplayPixels((displayPixels || 1024) * finalDevicePixelRatio);
     const previewRequestPixels = prioritizeDetail
         ? getPriorityPreviewRequestPixels(previewDisplayPixels, canvasScale)
         : getPreviewRequestPixels(previewDisplayPixels, canvasScale);
     const finalRequestPixels = prioritizeDetail
-        ? getPriorityFinalRequestPixels(finalDisplayPixels, stableCanvasScale)
-        : getFinalRequestPixels(finalDisplayPixels, stableCanvasScale);
+        ? getPriorityFinalRequestPixels(finalDisplayPixels, canvasScale)
+        : getFinalRequestPixels(finalDisplayPixels, canvasScale);
     const usesImageStoreLod = !!content && isImageRef(content);
     const preferredResolvedSrc = resolvedSrc?.trim() || null;
     const shouldUpgradeToFinal = shouldRequestFinalLod({
         isNearViewport,
-        isScaleSettled: Math.abs(canvasScale - stableCanvasScale) < 0.001,
-        canvasScale: stableCanvasScale,
+        isScaleSettled: true,
+        canvasScale,
         previewRequestPixels,
         finalRequestPixels,
         prioritizeDetail,
@@ -378,23 +375,6 @@ export function WorkbenchImage({
         setActiveLayer(nextLayer);
         setLoadState(nextLayer.src === currentSrcRef.current ? 'ready' : 'loading');
     }, [setLoadState]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') {
-            return;
-        }
-
-        if (Math.abs(canvasScale - stableCanvasScale) < 0.001) {
-            return;
-        }
-
-        const settleDelayMs = prioritizeDetail ? PRIORITY_SCALE_SETTLE_DELAY_MS : DEFAULT_SCALE_SETTLE_DELAY_MS;
-        const timer = window.setTimeout(() => {
-            setStableCanvasScale(canvasScale);
-        }, settleDelayMs);
-
-        return () => window.clearTimeout(timer);
-    }, [canvasScale, prioritizeDetail, stableCanvasScale]);
 
     useEffect(() => {
         if (typeof window === 'undefined' || typeof window.IntersectionObserver === 'undefined') {

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Check, Copy, Download, Loader2, RefreshCw } from 'lucide-react';
+import { hasVideoSourceFailed, markVideoSourceFailed } from '@/lib/video-load-state';
 import { WorkbenchImage } from './WorkbenchImage';
 import { suggestions } from './ai-designer-panel-constants';
 import type { ChatMessage } from './ai-designer-panel-types';
@@ -178,11 +179,7 @@ export function AiDesignerMessageList({
                     )}
                     {message.generatedVideo && (
                       <div className="mt-3">
-                        <video
-                          src={message.generatedVideo}
-                          controls
-                          className="rounded-xl max-w-full max-h-[400px] border border-[var(--canvas-border)] shadow-sm"
-                        />
+                        <GeneratedVideoPreview src={message.generatedVideo} />
                         <div className="flex items-center gap-2 mt-2">
                           <a
                             href={message.generatedVideo}
@@ -221,6 +218,35 @@ export function AiDesignerMessageList({
         </div>
       )}
     </div>
+  );
+}
+
+function GeneratedVideoPreview({ src }: { src: string }) {
+  const [hasLoadError, setHasLoadError] = React.useState(() => hasVideoSourceFailed(src));
+
+  React.useEffect(() => {
+    setHasLoadError(hasVideoSourceFailed(src));
+  }, [src]);
+
+  if (hasLoadError || hasVideoSourceFailed(src)) {
+    return (
+      <div className="flex h-44 max-w-full items-center justify-center rounded-xl border border-[var(--canvas-border)] bg-slate-950 text-sm text-white/65 shadow-sm">
+        视频不可用
+      </div>
+    );
+  }
+
+  return (
+    <video
+      src={src}
+      controls
+      preload="metadata"
+      className="rounded-xl max-w-full max-h-[400px] border border-[var(--canvas-border)] shadow-sm"
+      onError={() => {
+        markVideoSourceFailed(src);
+        setHasLoadError(true);
+      }}
+    />
   );
 }
 
