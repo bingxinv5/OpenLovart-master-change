@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings, Eye, EyeOff, Check, X, Trash2, HardDrive, SlidersHorizontal, Sparkles, User as UserIcon } from 'lucide-react';
 import { useUser } from '@/lib/mock-clerk';
-import { clearApiSettings, getApiSettings, saveApiSettings } from '@/lib/api-settings';
+import { clearApiSettings, getApiSettings, saveApiSettings, type ApiProviderSettings } from '@/lib/api-settings';
+import { AI_PROVIDER_OPTIONS, DEFAULT_AI_PROVIDER_ID, normalizeAiProviderId, type AiProviderId } from '@/lib/ai-providers';
 import {
     clearCdnCacheDirectory,
     getCdnCacheSettings,
@@ -22,24 +23,27 @@ import {
     DEFAULT_WORKBENCH_SETTINGS,
     VIDEO_DURATION_OPTIONS,
     getAutoSaveDirectoryHandle,
+    getImageDefaultsForProvider,
     getStorageEstimateInfo,
     getWorkbenchSettings,
     hasDirectoryPickerSupport,
     requestAutoSaveDirectoryHandle,
     requestPersistentStorage,
     saveWorkbenchSettings,
+    setImageDefaultsForProvider,
+    type ImageGenerationDefaults,
     type StorageEstimateInfo,
     type WorkbenchSettings,
 } from '@/lib/workbench-settings';
 import {
-    OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
-    OPENAI_GPT_IMAGE_SIZE_OPTIONS,
-    STANDARD_IMAGE_SIZE_OPTIONS,
-    isStandardImageSize,
     resolveOpenAiGptImageAspectRatio,
     resolveOpenAiGptImageQuality,
-    resolveOpenAiGptImageSize,
 } from '@/lib/image-generation-models';
+import {
+    getImageModelOptionsForProvider,
+    resolveImageGeneratorModelOptions,
+    type ImageModel,
+} from './generator-model-options';
 
 type SettingsTab = 'api' | 'workspace' | 'defaults' | 'account';
 
@@ -100,9 +104,22 @@ function getErrorMessage(error: unknown) {
     return error instanceof Error ? error.message : '操作失败，请稍后重试';
 }
 
+function createEmptyProviderSettings(): Record<AiProviderId, ApiProviderSettings> {
+    return AI_PROVIDER_OPTIONS.reduce((acc, provider) => {
+        acc[provider.id] = { baseUrl: '', apiKey: '' };
+        return acc;
+    }, {} as Record<AiProviderId, ApiProviderSettings>);
+}
+
+function hasCustomProviderSettings(settings: Record<AiProviderId, ApiProviderSettings>) {
+    return Object.values(settings).some((providerSettings) => !!providerSettings.baseUrl || !!providerSettings.apiKey);
+}
+
 export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCenterContentProps) {
     const { user } = useUser();
     const [activeTab, setActiveTab] = useState<SettingsTab>('workspace');
+    const [apiProviderId, setApiProviderId] = useState<AiProviderId>(() => getApiSettings().providerId);
+    const [providerSettings, setProviderSettings] = useState<Record<AiProviderId, ApiProviderSettings>>(() => getApiSettings().providers);
     const [baseUrl, setBaseUrl] = useState(() => getApiSettings().baseUrl);
     const [apiKey, setApiKey] = useState(() => getApiSettings().apiKey);
     const [showKey, setShowKey] = useState(false);
@@ -199,24 +216,78 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
         { key: 'account' as const, label: '账户', icon: UserIcon },
     ]), []);
 
-    const isOpenAiGptImageDefaultModel = settings.imageDefaults.model === 'gpt-image-2';
-    const imageDefaultAspectRatioOptions = ['auto', '1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '4:5', '5:4', '21:9'];
-    const imageDefaultSizeOptions = isOpenAiGptImageDefaultModel
-        ? [...OPENAI_GPT_IMAGE_SIZE_OPTIONS]
-        : [...STANDARD_IMAGE_SIZE_OPTIONS];
-    const imageDefaultQualityOptions = [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
-    const derivedOpenAiGptImageDefaultAspectRatio = resolveOpenAiGptImageAspectRatio(settings.imageDefaults.imageSize, settings.imageDefaults.aspectRatio);
+    const currentProvider = AI_PROVIDER_OPTIONS.find((provider) => provider.id === apiProviderId) || AI_PROVIDER_OPTIONS[0];
+    const activeImageDefaults = getImageDefaultsForProvider(settings, apiProviderId);
+    const imageDefaultModelOptions = getImageModelOptionsForProvider(apiProviderId);
+    const imageDefaultOptionState = resolveImageGeneratorModelOptions({
+        providerId: apiProviderId,
+        model: activeImageDefaults.model as ImageModel,
+        imageSize: activeImageDefaults.imageSize,
+        aspectRatio: activeImageDefaults.aspectRatio,
+        quality: activeImageDefaults.quality,
+        generateCount: activeImageDefaults.generateCount,
+        referenceImageCount: 0,
+    });
+    const isOpenAiGptImageDefaultModel = imageDefaultOptionState.isOpenAiGptImageModel;
+    const imageDefaultAspectRatioOptions = imageDefaultOptionState.availableAspectRatios;
+    const imageDefaultSizeOptions = imageDefaultOptionState.availableImageSizes;
+    const imageDefaultQualityOptions = imageDefaultOptionState.availableImageQualities;
+    const derivedOpenAiGptImageDefaultAspectRatio = imageDefaultOptionState.displayedAspectRatio;
 
-    const hasCustomSettings = !!baseUrl || !!apiKey || hasCustomWorkbenchSettings(settings) || !!cdnCacheSettings?.isCustomDirectory || !!upscaleServiceSettings?.isCustomBaseUrl;
+    const hasCustomSettings = apiProviderId !== DEFAULT_AI_PROVIDER_ID
+        || hasCustomProviderSettings({ ...providerSettings, [apiProviderId]: { baseUrl, apiKey } })
+        || hasCustomWorkbenchSettings(settings)
+        || !!cdnCacheSettings?.isCustomDirectory
+        || !!upscaleServiceSettings?.isCustomBaseUrl;
+
+    const handleProviderChange = (value: string) => {
+        const nextProviderId = normalizeAiProviderId(value);
+        const nextProviderSettings = {
+            ...providerSettings,
+            [apiProviderId]: { baseUrl, apiKey },
+        };
+        const nextSettings = nextProviderSettings[nextProviderId] || { baseUrl: '', apiKey: '' };
+        setProviderSettings(nextProviderSettings);
+        setApiProviderId(nextProviderId);
+        setBaseUrl(nextSettings.baseUrl);
+        setApiKey(nextSettings.apiKey);
+    };
+
+    const updateActiveImageDefaults = (updater: (current: ImageGenerationDefaults) => ImageGenerationDefaults) => {
+        setSettings((prev) => {
+            const currentImageDefaults = getImageDefaultsForProvider(prev, apiProviderId);
+            return setImageDefaultsForProvider(prev, apiProviderId, updater(currentImageDefaults));
+        });
+    };
+
+    const handleBaseUrlPreset = (value: string) => {
+        setBaseUrl(value);
+        setProviderSettings((prev) => ({
+            ...prev,
+            [apiProviderId]: { baseUrl: value, apiKey },
+        }));
+    };
 
     const handleSave = () => {
-        saveApiSettings({ baseUrl: baseUrl.trim(), apiKey: apiKey.trim() });
+        const nextProviderSettings = {
+            ...providerSettings,
+            [apiProviderId]: { baseUrl: baseUrl.trim(), apiKey: apiKey.trim() },
+        };
+        setProviderSettings(nextProviderSettings);
+        saveApiSettings({
+            providerId: apiProviderId,
+            baseUrl: baseUrl.trim(),
+            apiKey: apiKey.trim(),
+            providers: nextProviderSettings,
+        });
         saveWorkbenchSettings(settings);
         showSavedState();
     };
 
     const handleReset = async () => {
         clearApiSettings();
+        setApiProviderId(DEFAULT_AI_PROVIDER_ID);
+        setProviderSettings(createEmptyProviderSettings());
         setBaseUrl('');
         setApiKey('');
         setSettings(DEFAULT_WORKBENCH_SETTINGS);
@@ -625,57 +696,26 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
 
                     {activeTab === 'defaults' && (
                         <div className="space-y-4">
-                            <SettingsSection title="图片生成默认值" description="新建图片生成器节点时优先套用这里的模型、尺寸、质量和张数。">
+                            <SettingsSection title="图片生成默认值" description={`新建图片生成器节点时使用当前平台默认值：${currentProvider.label}。`}>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <LabeledField label="默认模型">
-                                        <select title="图片默认模型" data-testid="settings-image-model" className={selectClassName()} value={settings.imageDefaults.model} onChange={(event) => setSettings((prev) => {
-                                            const nextModel = event.target.value as WorkbenchSettings['imageDefaults']['model'];
-                                            const nextImageSize = nextModel === 'gpt-image-2'
-                                                ? resolveOpenAiGptImageSize(prev.imageDefaults.imageSize, prev.imageDefaults.aspectRatio)
-                                                : isStandardImageSize(prev.imageDefaults.imageSize)
-                                                    ? prev.imageDefaults.imageSize
-                                                    : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.imageSize;
-                                            const nextAspectRatio = nextModel === 'gpt-image-2'
-                                                ? resolveOpenAiGptImageAspectRatio(nextImageSize, prev.imageDefaults.aspectRatio)
-                                                : prev.imageDefaults.aspectRatio === '9:21'
-                                                    ? '9:16'
-                                                    : prev.imageDefaults.aspectRatio;
-                                            const nextQuality = nextModel === 'gpt-image-2'
-                                                ? resolveOpenAiGptImageQuality(prev.imageDefaults.quality)
-                                                : 'auto';
-
-                                            return {
-                                                ...prev,
-                                                imageDefaults: {
-                                                    ...prev.imageDefaults,
-                                                    model: nextModel,
-                                                    imageSize: nextImageSize,
-                                                    aspectRatio: nextAspectRatio,
-                                                    quality: nextQuality,
-                                                },
-                                            };
-                                        })}>
-                                            <option value="gemini-3.1-flash-image-preview">gemini-3.1-flash-image-preview</option>
-                                            <option value="nano-banana-2">nano-banana-2</option>
-                                            <option value="gpt-image-2">gpt-image-2</option>
-                                            <option value="grok-4.2-image">grok-4.2-image</option>
-                                            <option value="doubao-seedream-5-0-260128">doubao-seedream-5-0-260128</option>
+                                        <select title="图片默认模型" data-testid="settings-image-model" className={selectClassName()} value={activeImageDefaults.model} onChange={(event) => updateActiveImageDefaults((current) => ({
+                                            ...current,
+                                            model: event.target.value as WorkbenchSettings['imageDefaults']['model'],
+                                        }))}>
+                                            {imageDefaultModelOptions.map((modelOption) => (
+                                                <option key={modelOption} value={modelOption}>{modelOption}</option>
+                                            ))}
                                         </select>
                                     </LabeledField>
                                     <LabeledField label="默认图片尺寸">
-                                        <select title="图片默认尺寸" data-testid="settings-image-size" className={selectClassName()} value={settings.imageDefaults.imageSize} onChange={(event) => setSettings((prev) => {
-                                            const nextImageSize = event.target.value as WorkbenchSettings['imageDefaults']['imageSize'];
-                                            return {
-                                                ...prev,
-                                                imageDefaults: {
-                                                    ...prev.imageDefaults,
-                                                    imageSize: nextImageSize,
-                                                    aspectRatio: prev.imageDefaults.model === 'gpt-image-2'
-                                                        ? resolveOpenAiGptImageAspectRatio(nextImageSize, prev.imageDefaults.aspectRatio)
-                                                        : prev.imageDefaults.aspectRatio,
-                                                },
-                                            };
-                                        })}>
+                                        <select title="图片默认尺寸" data-testid="settings-image-size" className={selectClassName()} value={activeImageDefaults.imageSize} onChange={(event) => updateActiveImageDefaults((current) => ({
+                                            ...current,
+                                            imageSize: event.target.value,
+                                            aspectRatio: isOpenAiGptImageDefaultModel
+                                                ? resolveOpenAiGptImageAspectRatio(event.target.value, current.aspectRatio)
+                                                : current.aspectRatio,
+                                        }))}>
                                             {imageDefaultSizeOptions.map((value) => (
                                                 <option key={value} value={value}>{value}</option>
                                             ))}
@@ -685,10 +725,13 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                         {isOpenAiGptImageDefaultModel ? (
                                             <div className={`${selectClassName()} flex items-center justify-between`}>
                                                 <span>{derivedOpenAiGptImageDefaultAspectRatio}</span>
-                                                <span className="text-[11px] text-gray-400">{settings.imageDefaults.imageSize === 'auto' ? '由模型自动决定' : '由尺寸自动推导'}</span>
+                                                <span className="text-[11px] text-gray-400">{activeImageDefaults.imageSize === 'auto' ? '由模型自动决定' : '由尺寸自动推导'}</span>
                                             </div>
                                         ) : (
-                                            <select title="图片默认宽高比" data-testid="settings-image-aspect-ratio" className={selectClassName()} value={settings.imageDefaults.aspectRatio} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, aspectRatio: event.target.value as WorkbenchSettings['imageDefaults']['aspectRatio'] } }))}>
+                                            <select title="图片默认宽高比" data-testid="settings-image-aspect-ratio" className={selectClassName()} value={activeImageDefaults.aspectRatio} onChange={(event) => updateActiveImageDefaults((current) => ({
+                                                ...current,
+                                                aspectRatio: event.target.value as WorkbenchSettings['imageDefaults']['aspectRatio'],
+                                            }))}>
                                                 {imageDefaultAspectRatioOptions.map((value) => (
                                                     <option key={value} value={value}>{value}</option>
                                                 ))}
@@ -696,7 +739,10 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                         )}
                                     </LabeledField>
                                     <LabeledField label="默认生成张数">
-                                        <select title="图片默认生成张数" data-testid="settings-image-generate-count" className={selectClassName()} value={settings.imageDefaults.generateCount} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, generateCount: Number(event.target.value) as WorkbenchSettings['imageDefaults']['generateCount'] } }))}>
+                                        <select title="图片默认生成张数" data-testid="settings-image-generate-count" className={selectClassName()} value={activeImageDefaults.generateCount} onChange={(event) => updateActiveImageDefaults((current) => ({
+                                            ...current,
+                                            generateCount: Number(event.target.value) as WorkbenchSettings['imageDefaults']['generateCount'],
+                                        }))}>
                                             {[1, 2, 3, 4].map((value) => (
                                                 <option key={value} value={value}>{value} 张</option>
                                             ))}
@@ -704,7 +750,10 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                     </LabeledField>
                                     {isOpenAiGptImageDefaultModel && (
                                         <LabeledField label="默认质量">
-                                            <select title="图片默认质量" data-testid="settings-image-quality" className={selectClassName()} value={settings.imageDefaults.quality} onChange={(event) => setSettings((prev) => ({ ...prev, imageDefaults: { ...prev.imageDefaults, quality: resolveOpenAiGptImageQuality(event.target.value) } }))}>
+                                            <select title="图片默认质量" data-testid="settings-image-quality" className={selectClassName()} value={activeImageDefaults.quality} onChange={(event) => updateActiveImageDefaults((current) => ({
+                                                ...current,
+                                                quality: resolveOpenAiGptImageQuality(event.target.value),
+                                            }))}>
                                                 {imageDefaultQualityOptions.map((value) => (
                                                     <option key={value} value={value}>{value}</option>
                                                 ))}
@@ -759,9 +808,51 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
 
                     {activeTab === 'api' && (
                         <div className="space-y-4">
-                            <SettingsSection title="AI 接口设置" description="用于浏览器直连和服务端代理请求的基础地址与密钥。">
-                                <LabeledField label="API Base URL" hint="留空时回退到默认服务地址">
-                                    <input data-testid="settings-api-base-url" className={inputClassName()} type="url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.bltcy.ai" />
+                            <SettingsSection title="AI 接口设置" description="按平台分别保存基础地址与密钥，生成请求会随当前平台路由。">
+                                <LabeledField label="API 平台" hint={currentProvider.capabilities.geminiNativeImage ? '支持 Gemini 原生生图' : '默认兼容通道'}>
+                                    <select
+                                        data-testid="settings-api-provider"
+                                        title="API 平台"
+                                        className={selectClassName()}
+                                        value={apiProviderId}
+                                        onChange={(event) => handleProviderChange(event.target.value)}
+                                    >
+                                        {AI_PROVIDER_OPTIONS.map((provider) => (
+                                            <option key={provider.id} value={provider.id}>{provider.label}</option>
+                                        ))}
+                                    </select>
+                                </LabeledField>
+
+                                <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2.5 text-[11px] leading-4 text-gray-500">
+                                    <div className="font-medium text-gray-700">{currentProvider.label}</div>
+                                    <div className="mt-1">{currentProvider.description}</div>
+                                    <div className="mt-1 break-all">默认地址：{currentProvider.defaultBaseUrl}</div>
+                                </div>
+
+                                {currentProvider.baseUrlOptions && currentProvider.baseUrlOptions.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {currentProvider.baseUrlOptions.map((option) => (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                onClick={() => handleBaseUrlPreset(option.value)}
+                                                className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium transition ${baseUrl === option.value ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
+                                            >
+                                                {option.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <LabeledField label="API Base URL" hint="留空时使用当前平台默认地址">
+                                    <input
+                                        data-testid="settings-api-base-url"
+                                        className={inputClassName()}
+                                        type="url"
+                                        value={baseUrl}
+                                        onChange={(event) => setBaseUrl(event.target.value)}
+                                        placeholder={currentProvider.defaultBaseUrl}
+                                    />
                                 </LabeledField>
                                 <LabeledField label="API Key" hint="仅保存在当前浏览器 localStorage">
                                     <div className="relative">
@@ -772,7 +863,7 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                     </div>
                                 </LabeledField>
                                 <div className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2.5 text-[11px] leading-4 text-amber-600">
-                                    密钥仅用于当前设备，不会同步到其他服务；在公共设备上使用后建议执行“恢复默认”。
+                                    密钥仅用于当前设备，不会同步到其他服务；切换平台会使用对应平台保存的 Base URL 和 Key。
                                 </div>
                             </SettingsSection>
 
@@ -947,7 +1038,7 @@ export function ApiSettingsDialog({ onClose }: ApiSettingsDialogProps) {
     }, [onClose]);
 
     return createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 px-4 py-6 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/30 px-4 py-6 backdrop-blur-sm animate-in fade-in duration-200">
             <div ref={dialogRef} className="max-h-full overflow-auto">
                 <SettingsCenterContent onClose={onClose} />
             </div>

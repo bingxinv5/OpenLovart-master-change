@@ -122,4 +122,19 @@ describe('requestImageGeneration', () => {
       quality: 'high',
     });
   });
+
+  it('formats upstream invalid token errors with actionable API key guidance', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      error: '图片生成失败',
+      details: 'Invalid token (request id: 20260513044345585531636zrVIzKx)',
+    }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    }));
+
+    await expect(requestImageGeneration({
+      prompt: 'token error',
+      model: 'gemini-3.1-flash-image-preview',
+    })).rejects.toThrow('当前平台 API Key 无效或已过期');
+  });
 });

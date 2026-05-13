@@ -1,6 +1,7 @@
-export type VideoGenerationTransport = 'standard' | 'domestic-official';
+export type VideoGenerationTransport = 'standard' | 'domestic-official' | 'magicapi';
 
 const DOMESTIC_OFFICIAL_TASK_PREFIX = 'domestic-official:';
+const MAGICAPI_TASK_PREFIX = 'magicapi:';
 
 export function getVideoGenerationTransport(model: string | null | undefined): VideoGenerationTransport {
     const normalized = typeof model === 'string' ? model.trim().toLowerCase() : '';
@@ -18,6 +19,12 @@ export function encodeVideoTaskId(taskId: string, transport: VideoGenerationTran
         return normalized;
     }
 
+    if (transport === 'magicapi') {
+        return normalized.startsWith(MAGICAPI_TASK_PREFIX)
+            ? normalized
+            : `${MAGICAPI_TASK_PREFIX}${normalized}`;
+    }
+
     return normalized.startsWith(DOMESTIC_OFFICIAL_TASK_PREFIX)
         ? normalized
         : `${DOMESTIC_OFFICIAL_TASK_PREFIX}${normalized}`;
@@ -32,6 +39,13 @@ export function parseVideoTaskId(taskId: string | null | undefined): {
         return {
             transport: 'domestic-official',
             upstreamTaskId: normalized.slice(DOMESTIC_OFFICIAL_TASK_PREFIX.length),
+        };
+    }
+
+    if (normalized.startsWith(MAGICAPI_TASK_PREFIX)) {
+        return {
+            transport: 'magicapi',
+            upstreamTaskId: normalized.slice(MAGICAPI_TASK_PREFIX.length),
         };
     }
 

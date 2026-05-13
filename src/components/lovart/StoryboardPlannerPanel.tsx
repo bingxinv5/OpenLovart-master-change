@@ -11,13 +11,13 @@ import {
 import { isDataUrl } from '@/lib/data-url';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import { useImageGenerationDefaults, type ImageGenerationDefaults } from '@/lib/generation-defaults';
+import { getApiSettings, subscribeApiSettingsChange } from '@/lib/api-settings';
 import {
   describeOpenAiGptImageAspectRatio,
   getOpenAiGptImagePixelSizeValidationError,
+  isGrokImageModel as isKnownGrokImageModel,
+  isOpenAiGptImageModel as isKnownOpenAiGptImageModel,
   isOpenAiGptImagePixelSize,
-  OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
-  OPENAI_GPT_IMAGE_SIZE_OPTIONS,
-  STANDARD_IMAGE_SIZE_OPTIONS,
   isStandardImageSize,
   normalizeOpenAiGptImagePixelSize,
   resolveOpenAiGptImageAspectRatio,
@@ -48,6 +48,11 @@ import { useCanvasImageSelectionEvent } from './generator-panel-shared';
 import { StoryboardPlannerFooter } from './StoryboardPlannerFooter';
 import { StoryboardPlannerSourcePicker } from './StoryboardPlannerSourcePicker';
 import { StoryboardPlannerResultPanel } from './StoryboardPlannerResultPanel';
+import {
+  getImageModelOptionsForProvider,
+  resolveImageGeneratorModelOptions,
+  type ImageModel,
+} from './generator-model-options';
 
 type PlannerCanvasImage = {
   id: string;
@@ -71,10 +76,6 @@ type PlannerLiveGenerationParams = {
 };
 
 type AspectRatioOption = 'auto' | ImageGenerationDefaults['aspectRatio'];
-
-const GROK_ASPECT_RATIO_OPTIONS: AspectRatioOption[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1'];
-const STORYBOARD_ASPECT_RATIO_OPTIONS: AspectRatioOption[] = ['auto', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '1:1', '4:5', '5:4', '21:9'];
-const STORYBOARD_MODEL_OPTIONS: ImageGenerationDefaults['model'][] = ['gemini-3.1-flash-image-preview', 'nano-banana-2', 'gpt-image-2', 'grok-4.2-image', 'doubao-seedream-5-0-260128'];
 
 interface StoryboardPlannerPanelProps {
   elementId: string;
@@ -295,9 +296,9 @@ export function StoryboardPlannerPanel({
   });
   const [combinedPrompt, setCombinedPrompt] = useState(() => getChineseCombinedPrompt(persisted));
   const imageDefaults = useImageGenerationDefaults();
+  const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().providerId);
 
   // ── 用户可选的生成参数（对齐图片生成器） ──
-  const imageSizeOptions: ImageGenerationDefaults['imageSize'][] = [...STANDARD_IMAGE_SIZE_OPTIONS];
   const hasPersistedAspectRatioOverride = persisted.userAspectRatioOverride === true
     || (typeof persisted.userAspectRatio === 'string' && persisted.userAspectRatio !== 'auto');
 
@@ -323,18 +324,34 @@ export function StoryboardPlannerPanel({
   const [showAspectRatioMenu, setShowAspectRatioMenu] = useState(false);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
-  const isGrokImageModel = userModel === 'grok-4.2-image';
-  const isOpenAiGptImageModel = userModel === 'gpt-image-2';
-  const availableAspectRatioOptions = isGrokImageModel ? GROK_ASPECT_RATIO_OPTIONS : STORYBOARD_ASPECT_RATIO_OPTIONS;
-  const availableImageSizeOptions: string[] = isOpenAiGptImageModel
-    ? [...OPENAI_GPT_IMAGE_SIZE_OPTIONS]
-    : isGrokImageModel
-      ? (['1K', '2K'] as ImageGenerationDefaults['imageSize'][])
-      : imageSizeOptions;
-  const availableImageQualityOptions = [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
+  const modelOptions = useMemo(() => getImageModelOptionsForProvider(apiProviderId), [apiProviderId]);
+  const resolvedGenerationOptions = resolveImageGeneratorModelOptions({
+    providerId: apiProviderId,
+    model: userModel as ImageModel,
+    imageSize: userImageSize,
+    aspectRatio: userAspectRatio === 'auto' ? imageDefaults.aspectRatio : userAspectRatio,
+    quality: userQuality,
+    generateCount: imageDefaults.generateCount,
+    referenceImageCount: sourceImages.length,
+  });
+  const isGrokImageModel = isKnownGrokImageModel(userModel);
+  const isOpenAiGptImageModel = isKnownOpenAiGptImageModel(userModel);
+  const usesMagicApiProvider = apiProviderId === 'magicapi';
+  const supportsOpenAiGptExperimentalSize = isOpenAiGptImageModel && !usesMagicApiProvider;
+  const availableAspectRatioOptions = resolvedGenerationOptions.availableAspectRatios as AspectRatioOption[];
+  const availableImageSizeOptions = resolvedGenerationOptions.availableImageSizes;
+  const availableImageQualityOptions = resolvedGenerationOptions.availableImageQualities;
   const derivedOpenAiGptAspectRatio = describeOpenAiGptImageAspectRatio(userImageSize, userAspectRatio);
-  const isOpenAiGptImageExperimentalSize = !!normalizeOpenAiGptImagePixelSize(userImageSize) && !isOpenAiGptImagePixelSize(userImageSize);
-  const fallbackStandardImageSize = isStandardImageSize(imageDefaults.imageSize) ? imageDefaults.imageSize : '4K';
+  const isOpenAiGptImageExperimentalSize = supportsOpenAiGptExperimentalSize && !!normalizeOpenAiGptImagePixelSize(userImageSize) && !isOpenAiGptImagePixelSize(userImageSize);
+  const fallbackImageSize = availableImageSizeOptions.includes(imageDefaults.imageSize)
+    ? imageDefaults.imageSize
+    : availableImageSizeOptions[0] || imageDefaults.imageSize;
+
+  useEffect(() => {
+    return subscribeApiSettingsChange(() => {
+      setApiProviderId(getApiSettings().providerId);
+    });
+  }, []);
 
   const [isPlanning, setIsPlanning] = useState(false);
   const [isGeneratingBoard, setIsGeneratingBoard] = useState(false);
@@ -346,33 +363,69 @@ export function StoryboardPlannerPanel({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storyboardAspectRatio = useMemo(() => getStoryboardCollageAspectRatio(shotCount), [shotCount]);
   const defaultAspectRatioSeed = imageDefaults.aspectRatio === 'auto' ? storyboardAspectRatio : imageDefaults.aspectRatio;
-  const effectiveDefaultAspectRatio: AspectRatioOption = isOpenAiGptImageModel
+  const effectiveDefaultAspectRatio: AspectRatioOption = isOpenAiGptImageModel && !usesMagicApiProvider
     ? resolveOpenAiGptImageAspectRatio(
       resolveOpenAiGptImageSize(imageDefaults.imageSize, defaultAspectRatioSeed),
       defaultAspectRatioSeed,
     )
-    : isGrokImageModel && !GROK_ASPECT_RATIO_OPTIONS.includes(imageDefaults.aspectRatio as AspectRatioOption)
+    : isGrokImageModel && !availableAspectRatioOptions.includes(imageDefaults.aspectRatio as AspectRatioOption)
       ? '1:1'
       : imageDefaults.aspectRatio === '9:21'
         ? '9:16'
         : imageDefaults.aspectRatio;
-  const effectiveDefaultImageSize = isOpenAiGptImageModel
+  const effectiveDefaultImageSize = isOpenAiGptImageModel && !usesMagicApiProvider
     ? resolveOpenAiGptImageSize(
       imageDefaults.imageSize,
       effectiveDefaultAspectRatio === 'auto' ? storyboardAspectRatio : effectiveDefaultAspectRatio,
     )
-    : isGrokImageModel && fallbackStandardImageSize === '4K'
-      ? '2K'
-      : fallbackStandardImageSize;
+    : fallbackImageSize;
   const effectiveDefaultQuality: ImageGenerationDefaults['quality'] = isOpenAiGptImageModel
-    ? resolveOpenAiGptImageQuality(imageDefaults.quality)
+    ? availableImageQualityOptions.includes(imageDefaults.quality)
+      ? imageDefaults.quality
+      : availableImageQualityOptions[0] || 'high'
     : 'auto';
+
+  useEffect(() => {
+    if (availableAspectRatioOptions.includes(userAspectRatio)) {
+      return;
+    }
+
+    setUserAspectRatio(effectiveDefaultAspectRatio);
+    setUserAspectRatioOverride(false);
+  }, [availableAspectRatioOptions, effectiveDefaultAspectRatio, userAspectRatio]);
+
+  useEffect(() => {
+    if (availableImageSizeOptions.includes(userImageSize)) {
+      return;
+    }
+
+    setUserImageSize(effectiveDefaultImageSize);
+    setUserImageSizeOverride(false);
+  }, [availableImageSizeOptions, effectiveDefaultImageSize, userImageSize]);
+
+  useEffect(() => {
+    if (availableImageQualityOptions.includes(userQuality)) {
+      return;
+    }
+
+    setUserQuality(effectiveDefaultQuality);
+    setUserQualityOverride(false);
+  }, [availableImageQualityOptions, effectiveDefaultQuality, userQuality]);
 
   useEffect(() => {
     if (!userModelOverride && userModel !== imageDefaults.model) {
       setUserModel(imageDefaults.model);
     }
   }, [imageDefaults.model, userModel, userModelOverride]);
+
+  useEffect(() => {
+    if (modelOptions.includes(userModel as ImageModel)) {
+      return;
+    }
+
+    setUserModel(imageDefaults.model);
+    setUserModelOverride(false);
+  }, [imageDefaults.model, modelOptions, userModel]);
 
   useEffect(() => {
     if (!userImageSizeOverride && userImageSize !== effectiveDefaultImageSize) {
@@ -393,7 +446,11 @@ export function StoryboardPlannerPanel({
   }, [effectiveDefaultQuality, userQuality, userQualityOverride]);
 
   useEffect(() => {
-    if (isGrokImageModel && !GROK_ASPECT_RATIO_OPTIONS.includes(userAspectRatio)) {
+    if (usesMagicApiProvider) {
+      return;
+    }
+
+    if (isGrokImageModel && !availableAspectRatioOptions.includes(userAspectRatio)) {
       setUserAspectRatio('1:1');
       return;
     }
@@ -416,16 +473,20 @@ export function StoryboardPlannerPanel({
     if (userAspectRatio === '9:21') {
       setUserAspectRatio('9:16');
     }
-  }, [isGrokImageModel, isOpenAiGptImageModel, storyboardAspectRatio, userAspectRatio, userImageSize]);
+  }, [availableAspectRatioOptions, isGrokImageModel, isOpenAiGptImageModel, storyboardAspectRatio, userAspectRatio, userImageSize, usesMagicApiProvider]);
 
   useEffect(() => {
-    if (!isOpenAiGptImageModel && !isStandardImageSize(userImageSize)) {
-      setUserImageSize(isGrokImageModel && fallbackStandardImageSize === '4K' ? '2K' : fallbackStandardImageSize);
+    if (usesMagicApiProvider) {
+      return;
     }
-  }, [fallbackStandardImageSize, isGrokImageModel, isOpenAiGptImageModel, userImageSize]);
+
+    if (!isOpenAiGptImageModel && !isStandardImageSize(userImageSize)) {
+      setUserImageSize(fallbackImageSize);
+    }
+  }, [fallbackImageSize, isOpenAiGptImageModel, userImageSize, usesMagicApiProvider]);
 
   useEffect(() => {
-    if (!isOpenAiGptImageModel) {
+    if (!supportsOpenAiGptExperimentalSize) {
       return;
     }
 
@@ -434,7 +495,7 @@ export function StoryboardPlannerPanel({
       setExperimentalUserImageSizeInput(normalizedImageSize);
       setExperimentalUserImageSizeError(null);
     }
-  }, [experimentalUserImageSizeInput, isOpenAiGptImageModel, userImageSize]);
+  }, [experimentalUserImageSizeInput, supportsOpenAiGptExperimentalSize, userImageSize]);
 
   const handleApplyExperimentalUserImageSize = useCallback(() => {
     const validationError = getOpenAiGptImagePixelSizeValidationError(experimentalUserImageSizeInput);
@@ -459,10 +520,14 @@ export function StoryboardPlannerPanel({
   }, [experimentalUserImageSizeInput, userAspectRatio]);
 
   useEffect(() => {
+    if (usesMagicApiProvider) {
+      return;
+    }
+
     if (isGrokImageModel && userImageSize === '4K') {
       setUserImageSize('2K');
     }
-  }, [isGrokImageModel, userImageSize]);
+  }, [isGrokImageModel, userImageSize, usesMagicApiProvider]);
 
   const syncPlannerElement = useCallback((newAttrs: Partial<CanvasElement>) => {
     onElementChange?.(elementId, newAttrs);
@@ -1051,6 +1116,7 @@ export function StoryboardPlannerPanel({
         isGeneratingBoard={isGeneratingBoard}
         imageDefaults={imageDefaults}
         isOpenAiGptImageModel={isOpenAiGptImageModel}
+        supportsOpenAiGptExperimentalSize={supportsOpenAiGptExperimentalSize}
         derivedOpenAiGptAspectRatio={derivedOpenAiGptAspectRatio}
         isOpenAiGptImageExperimentalSize={isOpenAiGptImageExperimentalSize}
         storyboardAspectRatio={storyboardAspectRatio}
@@ -1068,7 +1134,7 @@ export function StoryboardPlannerPanel({
         availableAspectRatioOptions={availableAspectRatioOptions}
         availableImageSizeOptions={availableImageSizeOptions}
         availableImageQualityOptions={availableImageQualityOptions}
-        modelOptions={STORYBOARD_MODEL_OPTIONS}
+        modelOptions={modelOptions as ImageGenerationDefaults['model'][]}
         onClose={onClose}
         onBuildStoryboardPrompt={() => void handleBuildStoryboardPrompt()}
         onGenerateStoryboardBoard={() => void handleGenerateStoryboardBoard()}

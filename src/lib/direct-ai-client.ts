@@ -8,15 +8,14 @@
  * 本模块专注于请求 / 响应 / 错误翻译。
  */
 
-import { getApiSettings, getSafeClientBaseUrl } from './api-settings';
-import { DEFAULT_AI_BASE_URL } from './network-policy';
+import { getApiSettings, getEffectiveApiBaseUrl } from './api-settings';
 
 // ── Config resolution (client-side) ──────────────────────────
 
 export function getAiServiceConfig(): { baseUrl: string; apiKey: string } {
     const settings = getApiSettings();
     return {
-        baseUrl: getSafeClientBaseUrl(settings.baseUrl) || DEFAULT_AI_BASE_URL,
+        baseUrl: getEffectiveApiBaseUrl(settings),
         apiKey: settings.apiKey,
     };
 }

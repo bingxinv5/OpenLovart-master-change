@@ -11,8 +11,13 @@ import {
   buildUpstreamImageGenerationBody,
   getOpenAiGptImagePromptCompensation,
   getImageGenerationModelBranch,
+  getMagicApiGeminiImageSizeOptions,
+  getMagicApiGptImageSizeOptions,
   getMaxReferenceImagesForImageModel,
+  isMagicApiGptImageOfficialSize,
+  resolveMagicApiOpenAiStyleImageSize,
   normalizeOpenAiGptImagePixelSize,
+  resolveMagicApiGeminiImageSize,
   resolveOpenAiGptImageAspectRatio,
   resolveOpenAiGptImagePixelSize,
   resolveOpenAiGptImageSize,
@@ -23,8 +28,69 @@ describe('image-generation-models', () => {
     expect(getImageGenerationModelBranch('gpt-image-2')).toBe('openai-gpt-image');
   });
 
+  it('routes MagicAPI-compatible image model aliases to the right branches', () => {
+    expect(getImageGenerationModelBranch('gpt-image-2-pro')).toBe('openai-gpt-image');
+    expect(getImageGenerationModelBranch('grok-4-2-image')).toBe('grok');
+    expect(getImageGenerationModelBranch('doubao-seedream-4-5-251128')).toBe('domestic');
+    expect(getMaxReferenceImagesForImageModel('gemini-3-pro-image-preview')).toBeGreaterThan(DEFAULT_MAX_REFERENCE_IMAGES);
+  });
+
   it('keeps gpt-image-2 on the default reference image budget until capability is verified', () => {
     expect(getMaxReferenceImagesForImageModel('gpt-image-2')).toBe(DEFAULT_MAX_REFERENCE_IMAGES);
+  });
+
+  it('exposes MagicAPI model-specific image size options', () => {
+    expect(getMagicApiGeminiImageSizeOptions('gemini-3-pro-image-preview')).toEqual(['1K', '2K', '4K']);
+    expect(getMagicApiGeminiImageSizeOptions('gemini-3.1-flash-image-preview')).toEqual(['1K', '2K', '4K']);
+    expect(resolveMagicApiGeminiImageSize('gemini-3.1-flash-image-preview', '4K')).toBe('4K');
+    expect(resolveMagicApiGeminiImageSize('gemini-2.5-flash-image-preview', '4K')).toBe('1K');
+
+    expect(getMagicApiGptImageSizeOptions('gpt-image-2')).toEqual([
+      '1024x1024',
+      '1536x1152',
+      '1536x1024',
+      '1024x1536',
+      '1920x1080',
+      '1080x1920',
+      '2048x2048',
+      '2048x1536',
+      '2560x1712',
+      '1712x2560',
+      '2048x1152',
+      '1152x2048',
+      '2240x960',
+      '960x2240',
+      '2880x2880',
+      '3840x2880',
+      '3840x2560',
+      '2560x3840',
+      '3840x2160',
+      '2160x3840',
+    ]);
+    expect(getMagicApiGptImageSizeOptions('gpt-image-2-pro')).toEqual([
+      '2048x2048',
+      '2048x1536',
+      '2560x1712',
+      '1712x2560',
+      '2048x1152',
+      '1152x2048',
+      '2240x960',
+      '960x2240',
+      '2880x2880',
+      '3840x2880',
+      '3840x2560',
+      '2560x3840',
+      '3840x2160',
+      '2160x3840',
+    ]);
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2', '21:9')).toBe('2240x960');
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2', '9:21')).toBe('960x2240');
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2-pro', '21:9')).toBe('2240x960');
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2-pro', '9:21')).toBe('960x2240');
+    expect(isMagicApiGptImageOfficialSize('gpt-image-2', '3840x2160')).toBe(false);
+    expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '3840x2160')).toBe(true);
+    expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '2240x960')).toBe(false);
+    expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '3840x2880')).toBe(false);
   });
 
   it('exposes official and curated gpt-image-2 preset sizes', () => {
@@ -69,6 +135,8 @@ describe('image-generation-models', () => {
     expect(resolveOpenAiGptImageAspectRatio('1024x1024')).toBe('1:1');
     expect(resolveOpenAiGptImageAspectRatio('2048x1152')).toBe('16:9');
     expect(resolveOpenAiGptImageAspectRatio('1152x2048')).toBe('9:16');
+    expect(resolveOpenAiGptImageAspectRatio('2560x1712')).toBe('3:2');
+    expect(resolveOpenAiGptImageAspectRatio('1712x2560')).toBe('2:3');
     expect(resolveOpenAiGptImageAspectRatio('2240x960')).toBe('21:9');
     expect(resolveOpenAiGptImageAspectRatio('960x2240')).toBe('9:21');
     expect(resolveOpenAiGptImageAspectRatio('1080x2560', '9:21')).toBe('9:21');
@@ -81,6 +149,8 @@ describe('image-generation-models', () => {
     expect(describeOpenAiGptImageAspectRatio('1024x1024')).toBe('1:1');
     expect(describeOpenAiGptImageAspectRatio('2048x1152')).toBe('16:9');
     expect(describeOpenAiGptImageAspectRatio('1152x2048')).toBe('9:16');
+    expect(describeOpenAiGptImageAspectRatio('2560x1712')).toBe('3:2');
+    expect(describeOpenAiGptImageAspectRatio('1712x2560')).toBe('2:3');
     expect(describeOpenAiGptImageAspectRatio('2240x960')).toBe('21:9');
     expect(describeOpenAiGptImageAspectRatio('960x2240')).toBe('9:21');
     expect(describeOpenAiGptImageAspectRatio('1536x864')).toBe('16:9');

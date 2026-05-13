@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Settings } from 'lucide-react';
-import { getApiSettings, subscribeApiSettingsChange } from '@/lib/api-settings';
+import { hasCustomApiSettings, subscribeApiSettingsChange } from '@/lib/api-settings';
 import { getCdnCacheSettings, subscribeCdnCacheSettingsChange } from '@/lib/cache-settings';
 import { getUpscaleServiceSettings, subscribeUpscaleServiceSettingsChange } from '@/lib/upscale-service-settings';
 import { DEFAULT_WORKBENCH_SETTINGS, getWorkbenchSettings, subscribeWorkbenchSettingsChange, type WorkbenchSettings } from '@/lib/workbench-settings';
@@ -18,9 +18,8 @@ export function ApiSettingsButton() {
 
     useEffect(() => {
         const syncState = () => {
-            const apiSettings = getApiSettings();
             const workbenchSettings = getWorkbenchSettings();
-            const hasLocalCustomConfig = !!apiSettings.baseUrl || !!apiSettings.apiKey || hasCustomWorkbenchSettings(workbenchSettings);
+            const hasLocalCustomConfig = hasCustomApiSettings() || hasCustomWorkbenchSettings(workbenchSettings);
             setHasCustomConfig(hasLocalCustomConfig);
 
             void Promise.all([

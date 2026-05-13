@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
 import { debugLog } from '@/lib/debug-log';
+import { isMagicApiProvider } from '@/lib/ai-providers';
 import { encodeVideoTaskId, getVideoGenerationTransport } from '@/lib/video-generation-transport';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
             tools,
         } = await request.json();
 
-        const { apiKey, baseUrl } = resolveAiServiceConfig(request);
+        const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request);
 
         const requestedModel = typeof model === 'string' && model.trim() ? model.trim() : 'veo3.1';
         const selectedModel = resolveUpstreamVideoModel(requestedModel);
@@ -99,6 +100,26 @@ export async function POST(request: NextRequest) {
             });
 
         debugLog(`[generate-video] model=${requestedModel}, upstreamModel=${selectedModel}, transport=${transport}, prompt="${normalizedPrompt.substring(0, 50)}...", images=${normalizedImageEntries.length}, videos=${normalizedVideos.length}, audios=${normalizedAudios.length}`);
+
+        if (isMagicApiProvider(providerId)) {
+            return await submitMagicApiVideoGeneration({
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt: normalizedPrompt,
+                aspectRatio: normalizedAspectRatio,
+                duration: normalizedDuration,
+                imageEntries: normalizedImageEntries,
+                videos: normalizedVideos,
+                audios: normalizedAudios,
+                resolution: normalizedResolution,
+                generateAudio,
+                watermark,
+                seed: normalizedSeed,
+                returnLastFrame,
+                tools: normalizedTools,
+            });
+        }
 
         const targetUrl = isDomesticOfficialTransport
             ? `${baseUrl}/seedance/v3/contents/generations/tasks`
@@ -160,6 +181,168 @@ export async function POST(request: NextRequest) {
     } catch (error: unknown) {
         return handleApiRouteError(error, '视频生成失败', 'generate-video');
     }
+}
+
+async function submitMagicApiVideoGeneration(params: {
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+    resolution?: '480p' | '720p' | '1080p';
+    generateAudio: unknown;
+    watermark: unknown;
+    seed?: number;
+    returnLastFrame: unknown;
+    tools: Array<{ type: string }>;
+}) {
+    const body = buildMagicApiVideoBody(params);
+    const targetUrl = `${params.baseUrl}/v1/videos`;
+    let response: Response;
+
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            {
+                method: 'POST',
+                headers: createAiHeaders(params.apiKey, true),
+                body: JSON.stringify(body),
+            },
+            { label: 'generate-video:magicapi', timeoutMs: AI_UPSTREAM_TIMEOUT_MS.submit },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-video][magicapi] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(params.baseUrl, error);
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+
+    if (!response.ok) {
+        console.error('[generate-video][magicapi] API error:', data);
+        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+    }
+
+    debugLog('[generate-video][magicapi] Full response:', JSON.stringify(data));
+
+    const rawTaskId = getNestedValue(data, 'data', 'task_id')
+        || getNestedValue(data, 'task_id')
+        || getNestedValue(data, 'data', 'id')
+        || getNestedValue(data, 'id')
+        || getNestedValue(data, 'data', 'taskId')
+        || getNestedValue(data, 'taskId');
+    const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0
+        ? encodeVideoTaskId(rawTaskId, 'magicapi')
+        : null;
+    const videoUrl = extractVideoUrl(data);
+
+    if (videoUrl) {
+        return NextResponse.json({ status: 'completed', taskId, videoUrl });
+    }
+
+    if (taskId) {
+        return NextResponse.json({ taskId, status: 'pending' });
+    }
+
+    console.error('[generate-video][magicapi] Could not extract task_id from response:', JSON.stringify(data));
+    return NextResponse.json(
+        { error: '未获取到任务ID', details: `API 响应结构异常: ${JSON.stringify(data).substring(0, 500)}` },
+        { status: 502 },
+    );
+}
+
+function buildMagicApiVideoBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+    resolution?: '480p' | '720p' | '1080p';
+    generateAudio: unknown;
+    watermark: unknown;
+    seed?: number;
+    returnLastFrame: unknown;
+    tools: Array<{ type: string }>;
+}) {
+    const body: Record<string, unknown> = {
+        model: params.selectedModel,
+        prompt: params.prompt,
+    };
+    const images = normalizeMagicApiVideoImages(params.imageEntries);
+
+    if (params.aspectRatio) {
+        body.aspect_ratio = params.aspectRatio;
+        body.ratio = params.aspectRatio;
+    }
+
+    if (params.duration !== undefined) {
+        body.duration = params.duration;
+    }
+
+    if (images.length > 0) {
+        body.images = images;
+    }
+
+    if (params.videos.length > 0) {
+        body.videos = params.videos;
+    }
+
+    if (params.audios.length > 0) {
+        body.audios = params.audios;
+    }
+
+    if (params.resolution) {
+        body.resolution = params.resolution;
+    }
+
+    if (typeof params.generateAudio === 'boolean') {
+        body.generate_audio = params.generateAudio;
+    }
+
+    if (typeof params.watermark === 'boolean') {
+        body.watermark = params.watermark;
+    }
+
+    if (params.seed !== undefined) {
+        body.seed = params.seed;
+    }
+
+    if (typeof params.returnLastFrame === 'boolean') {
+        body.return_last_frame = params.returnLastFrame;
+    }
+
+    if (params.tools.length > 0) {
+        body.tools = params.tools;
+    }
+
+    return body;
+}
+
+function normalizeMagicApiVideoImages(imageEntries: Array<{ image: string; imageType?: string }>): string[] {
+    return imageEntries.map((entry) => {
+        const image = entry.image.trim();
+        if (!image) {
+            return '';
+        }
+
+        if (isDataUrl(image)) {
+            const base64 = extractDataUrlBase64(image);
+            if (estimateBase64Bytes(base64) > MAX_VIDEO_REFERENCE_IMAGE_BYTES) {
+                throw new ApiRouteError(
+                    `单张参考图不能超过 ${(MAX_VIDEO_REFERENCE_IMAGE_BYTES / 1024 / 1024).toFixed(0)}MB`,
+                    413,
+                );
+            }
+            return base64;
+        }
+
+        return image;
+    }).filter((image) => image.length > 0);
 }
 
 function resolveUpstreamVideoModel(model: string): string {

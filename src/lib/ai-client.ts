@@ -353,14 +353,37 @@ async function readJsonResponse<T>(
   const data = await parseResponseJson(response);
 
   if (!response.ok) {
+    const rawMessage = getStringValue(data.details)
+      ?? getStringValue(data.error)
+      ?? `${fallbackMessage} (${response.status})`;
+
     throw new Error(
-      getStringValue(data.details)
-        ?? getStringValue(data.error)
-        ?? `${fallbackMessage} (${response.status})`,
+      formatApiResponseError(rawMessage, fallbackMessage, response.status),
     );
   }
 
   return data as T;
+}
+
+function formatApiResponseError(rawMessage: string, fallbackMessage: string, status: number): string {
+  const normalizedMessage = rawMessage.trim() || `${fallbackMessage} (${status})`;
+  const lower = normalizedMessage.toLowerCase();
+
+  if (
+    lower.includes('invalid token')
+    || lower.includes('invalid api key')
+    || lower.includes('invalid key')
+    || lower.includes('unauthorized')
+    || lower.includes('authentication')
+    || status === 401
+    || status === 403
+  ) {
+    return `${fallbackMessage}：当前平台 API Key 无效或已过期，请在右上角设置中重新填写后再试。上游原始错误：${normalizedMessage}`;
+  }
+
+  return normalizedMessage.includes(fallbackMessage)
+    ? normalizedMessage
+    : `${fallbackMessage}：${normalizedMessage}`;
 }
 
 async function parseResponseJson(response: Response): Promise<Record<string, unknown>> {

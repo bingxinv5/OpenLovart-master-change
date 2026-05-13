@@ -72,6 +72,15 @@ describe('generation-defaults adapter', () => {
         expect(resolved.model).toBe('gpt-image-2');
     });
 
+    it('can resolve MagicAPI image defaults explicitly by provider', () => {
+        const defaults = getImageGenerationDefaults('magicapi');
+
+        expect(defaults.model).toBe('gemini-3-pro-image-preview');
+        expect(defaults.imageSize).toBe('2K');
+        expect(defaults.aspectRatio).toBe('21:9');
+        expect(defaults.generateCount).toBe(1);
+    });
+
     // ── Video request resolver ──────────────────────────────
 
     it('resolveVideoRequest fills missing fields from defaults', () => {

@@ -3,14 +3,16 @@
 import { ensureImageRef } from '@/lib/editor-kernel';
 import {
     getMaxReferenceImagesForImageModel,
+    isOpenAiGptImageModel,
     resolveOpenAiGptImageQuality,
     isStandardImageSize,
     resolveOpenAiGptImageAspectRatio,
     resolveOpenAiGptImageSize,
 } from '@/lib/image-generation-models';
+import { IMAGE_DEFAULT_MODEL_OPTIONS, type ImageDefaultModel } from '@/lib/workbench-settings';
 import { createLocalCollection } from '@/lib/typed-local-collection';
 
-export type ImageHistoryModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
+export type ImageHistoryModel = ImageDefaultModel;
 export type ImageHistoryAspectRatio = 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9' | '9:21';
 export type ImageHistorySize = string;
 export type ImageHistoryQuality = 'auto' | 'low' | 'medium' | 'high';
@@ -157,8 +159,8 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
     if (!isObject(value)) return null;
     if (typeof value.prompt !== 'string' || !value.prompt.trim()) return null;
 
-    const model = value.model === 'nano-banana-2' || value.model === 'gpt-image-2' || value.model === 'grok-4.2-image' || value.model === 'doubao-seedream-5-0-260128'
-        ? value.model
+    const model = typeof value.model === 'string' && (IMAGE_DEFAULT_MODEL_OPTIONS as readonly string[]).includes(value.model)
+        ? value.model as ImageHistoryModel
         : 'gemini-3.1-flash-image-preview';
     const aspectRatio = value.aspectRatio === 'auto'
         || value.aspectRatio === '1:1'
@@ -174,12 +176,12 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
         || value.aspectRatio === '21:9'
         ? value.aspectRatio
         : '21:9';
-    const imageSize = model === 'gpt-image-2'
+    const imageSize = isOpenAiGptImageModel(model)
         ? resolveOpenAiGptImageSize(value.imageSize, aspectRatio)
         : isStandardImageSize(value.imageSize)
             ? value.imageSize
             : '4K';
-    const quality = model === 'gpt-image-2'
+    const quality = isOpenAiGptImageModel(model)
         ? resolveOpenAiGptImageQuality(value.quality)
         : 'auto';
     const generateCount = value.generateCount === 1 || value.generateCount === 2 || value.generateCount === 3 || value.generateCount === 4 ? value.generateCount : 1;
@@ -192,7 +194,7 @@ function sanitizeHistoryItem(value: unknown): ImageGenerationHistoryItem | null 
         id: typeof value.id === 'string' && value.id.trim() ? value.id : createHistoryId(),
         prompt: value.prompt.trim(),
         model,
-        aspectRatio: model === 'gpt-image-2'
+        aspectRatio: isOpenAiGptImageModel(model)
             ? resolveOpenAiGptImageAspectRatio(imageSize, aspectRatio)
             : aspectRatio === '9:21'
                 ? '9:16'

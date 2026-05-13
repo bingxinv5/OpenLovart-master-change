@@ -51,6 +51,7 @@ import {
 } from './generator-mention-view-model';
 import { runImageGenerationFlow } from './image-generation-flow';
 import { requestImageGeneration } from '@/lib/ai-client';
+import { getApiSettings, subscribeApiSettingsChange } from '@/lib/api-settings';
 import { isDataUrl } from '@/lib/data-url';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import {
@@ -64,7 +65,8 @@ import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing'
 import { useImageGenerationDefaults } from '@/lib/generation-defaults';
 import {
     GROK_IMAGE_ASPECT_RATIOS,
-    IMAGE_MODEL_OPTIONS,
+    getImageModelOptionsForProvider,
+    isImageModel,
     resolveImageGeneratorModelOptions,
     type GenerateCount,
     type ImageAspectRatio as AspectRatio,
@@ -98,11 +100,12 @@ interface ImageGeneratorPanelProps {
 export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const { elementId, onGenerate, onRecoverTask, isGenerating: isGeneratingFromParent, style, canvasElements, onElementChange, onSubmittingChange, onAddElement, onRequestCanvasSelect, projectReferenceImages = [], onUseProjectReferenceImage } = props;
     const imageDefaults = useImageGenerationDefaults();
+    const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().providerId);
 
     // Read initial values from element
     const currentElement = findGeneratorElement(canvasElements, elementId);
     const [prompt, setPrompt] = useState(currentElement?.savedPrompt || '');
-    const [model, setModel] = useState<ImageModel>((currentElement?.selectedModel as ImageModel) || imageDefaults.model);
+    const [model, setModel] = useState<ImageModel>(isImageModel(currentElement?.selectedModel) ? currentElement.selectedModel : imageDefaults.model);
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>((currentElement?.selectedAspectRatio as AspectRatio) || imageDefaults.aspectRatio);
     const [generateCount, setGenerateCount] = useState<GenerateCount>((currentElement?.selectedGenerateCount as GenerateCount) || imageDefaults.generateCount);
     const [imageSize, setImageSize] = useState<ImageSize>((currentElement?.selectedImageSize as ImageSize) || imageDefaults.imageSize);
@@ -196,6 +199,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [maxPromptRows, prompt]);
 
     useEffect(() => {
+        return subscribeApiSettingsChange(() => {
+            setApiProviderId(getApiSettings().providerId);
+        });
+    }, []);
+
+    useEffect(() => {
         promptDraftRef.current = prompt;
     }, [prompt]);
 
@@ -213,7 +222,13 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [closeAllMenus]);
 
-    const models: ImageModel[] = IMAGE_MODEL_OPTIONS;
+    const models = useMemo(() => getImageModelOptionsForProvider(apiProviderId), [apiProviderId]);
+
+    useEffect(() => {
+        if (!models.includes(model)) {
+            setModel(models[0] || 'gemini-3.1-flash-image-preview');
+        }
+    }, [model, models]);
     const {
         maxReferenceImages,
         isGrokImageModel,
@@ -232,10 +247,33 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         quality,
         generateCount,
         referenceImageCount: referenceImages.length,
+        providerId: apiProviderId,
     });
     const fallbackStandardImageSize = isStandardImageSize(imageDefaults.imageSize) ? imageDefaults.imageSize : '4K';
 
     useEffect(() => {
+        if (!availableAspectRatios.includes(aspectRatio)) {
+            setAspectRatio(availableAspectRatios[0] || '1:1');
+        }
+    }, [aspectRatio, availableAspectRatios]);
+
+    useEffect(() => {
+        if (!availableImageSizes.includes(imageSize)) {
+            setImageSize(availableImageSizes[0] || '1K');
+        }
+    }, [availableImageSizes, imageSize]);
+
+    useEffect(() => {
+        if (!availableImageQualities.includes(quality)) {
+            setQuality(availableImageQualities[0] || 'auto');
+        }
+    }, [availableImageQualities, quality]);
+
+    useEffect(() => {
+        if (apiProviderId === 'magicapi') {
+            return;
+        }
+
         if (isGrokImageModel && !GROK_IMAGE_ASPECT_RATIOS.includes(aspectRatio)) {
             setAspectRatio('1:1');
             return;
@@ -258,19 +296,27 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         if (aspectRatio === '9:21') {
             setAspectRatio('9:16');
         }
-    }, [aspectRatio, imageSize, isGrokImageModel, isOpenAiGptImageModel]);
+    }, [apiProviderId, aspectRatio, imageSize, isGrokImageModel, isOpenAiGptImageModel]);
 
     useEffect(() => {
+        if (apiProviderId === 'magicapi') {
+            return;
+        }
+
         if (!isOpenAiGptImageModel && !isStandardImageSize(imageSize)) {
             setImageSize(isGrokImageModel && fallbackStandardImageSize === '4K' ? '2K' : fallbackStandardImageSize);
         }
-    }, [fallbackStandardImageSize, imageSize, isGrokImageModel, isOpenAiGptImageModel]);
+    }, [apiProviderId, fallbackStandardImageSize, imageSize, isGrokImageModel, isOpenAiGptImageModel]);
 
     useEffect(() => {
+        if (apiProviderId === 'magicapi') {
+            return;
+        }
+
         if (isGrokImageModel && imageSize === '4K') {
             setImageSize('2K');
         }
-    }, [imageSize, isGrokImageModel]);
+    }, [apiProviderId, imageSize, isGrokImageModel]);
 
     useEffect(() => {
         if (grokUsesReferenceAspectRatio && showAspectRatioMenu) {

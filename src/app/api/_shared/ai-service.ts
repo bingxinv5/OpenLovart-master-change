@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DEFAULT_AI_BASE_URL, validateAiGatewayBaseUrl } from '@/lib/network-policy';
+import {
+  DEFAULT_AI_PROVIDER_ID,
+  getAiProvider,
+  normalizeAiProviderId,
+  type AiProviderDefinition,
+  type AiProviderId,
+} from '@/lib/ai-providers';
+import { validateAiGatewayBaseUrl } from '@/lib/network-policy';
 import { fetchRemoteAsset, fetchRemoteAssetPrefix } from './cdn-cache';
 
 type JsonObject = Record<string, unknown>;
@@ -20,6 +27,7 @@ const IMAGE_DIMENSION_FALLBACK_BYTES = 4 * 1024 * 1024;
 
 export const AI_UPSTREAM_TIMEOUT_MS = {
   submit: 45_000,
+  slowImageSubmit: 300_000,
   status: 15_000,
 } as const;
 
@@ -35,30 +43,45 @@ export class ApiRouteError extends Error {
   }
 }
 
-export function resolveAiServiceConfig(request: NextRequest) {
+export type AiServiceConfig = {
+  providerId: AiProviderId;
+  provider: AiProviderDefinition;
+  apiKey: string;
+  baseUrl: string;
+};
+
+export function resolveAiServiceConfig(
+  request: NextRequest,
+  options: { providerId?: AiProviderId } = {},
+): AiServiceConfig {
+  const providerId = normalizeAiProviderId(options.providerId || request.headers.get('x-ai-provider') || process.env.AI_PROVIDER || DEFAULT_AI_PROVIDER_ID);
+  const provider = getAiProvider(providerId);
   const clientBaseUrl = request.headers.get('x-ai-base-url');
   const clientApiKey = request.headers.get('x-ai-api-key');
-  const apiKey = clientApiKey || process.env.AI_API_KEY;
-  const rawBaseUrl = clientBaseUrl || process.env.AI_API_BASE_URL || DEFAULT_AI_BASE_URL;
+  const apiKey = clientApiKey || process.env[provider.apiKeyEnv] || process.env.AI_API_KEY;
+  const rawBaseUrl = clientBaseUrl || process.env[provider.baseUrlEnv] || (providerId === DEFAULT_AI_PROVIDER_ID ? process.env.AI_API_BASE_URL : undefined) || provider.defaultBaseUrl;
 
   if (!apiKey) {
-    throw new ApiRouteError('AI_API_KEY 未配置，请在设置中填写 API 密钥', 500);
+    throw new ApiRouteError(`${provider.apiKeyEnv} 未配置，请在设置中填写 ${provider.label} API 密钥`, 500);
   }
 
   let baseUrl: string;
 
   try {
     baseUrl = validateAiGatewayBaseUrl(rawBaseUrl, {
-      defaultBaseUrl: DEFAULT_AI_BASE_URL,
-      allowedPublicPatterns: parseAllowedAiHosts(process.env.AI_API_ALLOWED_HOSTS),
+      defaultBaseUrl: provider.defaultBaseUrl,
+      allowedPublicPatterns: [
+        ...provider.allowedPublicPatterns,
+        ...parseAllowedAiHosts(process.env.AI_API_ALLOWED_HOSTS),
+      ],
     }).normalizedBaseUrl;
   } catch (error: unknown) {
     const message = getErrorMessage(error, 'AI 服务地址无效');
-    const source = clientBaseUrl ? '请求头中的 x-ai-base-url' : '服务端 AI_API_BASE_URL 配置';
+    const source = clientBaseUrl ? '请求头中的 x-ai-base-url' : `服务端 ${provider.baseUrlEnv} 配置`;
     throw new ApiRouteError(`${source} 不合法`, clientBaseUrl ? 400 : 500, message);
   }
 
-  return { apiKey, baseUrl };
+  return { providerId, provider, apiKey, baseUrl };
 }
 
 export function createAiHeaders(apiKey: string, includeJsonContentType: boolean = false) {
@@ -156,14 +179,39 @@ export async function fetchWithRetry(
   throw lastError instanceof Error ? lastError : new Error('请求失败');
 }
 
-export function createUpstreamConnectionError(baseUrl: string, error: unknown): ApiRouteError {
+export function createUpstreamConnectionError(
+  baseUrl: string,
+  error: unknown,
+  options: { timeoutMs?: number } = {},
+): ApiRouteError {
   const errorMessage = getErrorMessage(error);
+
+  if (isTimeoutLikeError(error)) {
+    const waitSeconds = options.timeoutMs ? Math.round(options.timeoutMs / 1000) : null;
+    const waitHint = waitSeconds ? `，已等待约 ${waitSeconds} 秒` : '';
+
+    return new ApiRouteError(
+      `AI 服务响应超时 (${baseUrl})`,
+      504,
+      `上游生成耗时过长${waitHint}，任务可能没有及时返回结果。请稍后重试，或降低图片分辨率后再试。上游原始错误: ${errorMessage}`,
+    );
+  }
 
   return new ApiRouteError(
     `无法连接到 AI 服务 (${baseUrl})`,
     502,
     `上游服务连接失败: ${errorMessage}。请检查 API Base URL 是否正确、网络是否可达。`,
   );
+}
+
+function isTimeoutLikeError(error: unknown): boolean {
+  const text = error instanceof Error
+    ? `${error.name} ${error.message}`.toLowerCase()
+    : String(error).toLowerCase();
+
+  return text.includes('timeout')
+    || text.includes('timed out')
+    || text.includes('aborted due to timeout');
 }
 
 export function extractImageResult(payload: unknown): {
@@ -232,6 +280,7 @@ export function extractImageResult(payload: unknown): {
     pushUrl(record.image_url);
     pushUrl(record.download_url);
     pushUrl(record.output_url);
+    pushUrl(record.result_url);
     setImageData(record.b64_json);
     setImageData(record.image_base64);
     setImageData(record.base64);

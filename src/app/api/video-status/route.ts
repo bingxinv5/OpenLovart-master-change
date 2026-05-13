@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { debugLog } from '@/lib/debug-log';
+import { isMagicApiProvider } from '@/lib/ai-providers';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     createAiHeaders,
@@ -25,14 +26,16 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: '缺少 taskId 参数' }, { status: 400 });
         }
 
-        const { apiKey, baseUrl } = resolveAiServiceConfig(request);
+        const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request);
 
         const { transport, upstreamTaskId } = parseVideoTaskId(taskId);
-        const preferredTransports: VideoGenerationTransport[] = transport === 'domestic-official'
-            ? ['domestic-official']
-            : looksLikeDomesticOfficialTaskId(upstreamTaskId)
-                ? ['domestic-official', 'standard']
-                : ['standard', 'domestic-official'];
+        const preferredTransports: VideoGenerationTransport[] = transport === 'magicapi' || isMagicApiProvider(providerId)
+            ? ['magicapi']
+            : transport === 'domestic-official'
+                ? ['domestic-official']
+                : looksLikeDomesticOfficialTaskId(upstreamTaskId)
+                    ? ['domestic-official', 'standard']
+                    : ['standard', 'domestic-official'];
         const { data, transport: resolvedTransport } = await fetchVideoStatusWithFallback({
             apiKey,
             baseUrl,
@@ -55,7 +58,7 @@ export async function GET(request: NextRequest) {
         const rawProgress = getNestedValue(data, 'progress') || getNestedValue(data, 'data', 'progress');
         const taskKind = inferGenerationTaskKind(data);
 
-        if (status === 'success' || status === 'succeeded') {
+        if (status === 'success' || status === 'succeeded' || status === 'completed') {
             if (!videoUrl) {
                 if (taskKind === 'image') {
                     return NextResponse.json({
@@ -77,7 +80,7 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        if (status === 'failure' || status === 'failed' || status === 'expired') {
+        if (status === 'failure' || status === 'failed' || status === 'expired' || status === 'cancelled' || status === 'canceled') {
             return NextResponse.json({
                 status: 'failed',
                 error: typeof failReason === 'string' ? failReason : '视频生成失败',
@@ -107,9 +110,7 @@ async function fetchVideoStatusWithFallback(params: {
     let lastStatus = 500;
 
     for (const transport of transports) {
-        const endpoint = transport === 'domestic-official'
-            ? `${baseUrl}/seedance/v3/contents/generations/tasks/${encodeURIComponent(taskId)}`
-            : `${baseUrl}/v2/videos/generations/${encodeURIComponent(taskId)}`;
+        const endpoint = resolveVideoStatusEndpoint(baseUrl, taskId, transport);
         const response = await fetch(endpoint, {
             method: 'GET',
             headers: createAiHeaders(apiKey),
@@ -132,6 +133,18 @@ async function fetchVideoStatusWithFallback(params: {
     throw new Error(getApiErrorMessage(lastPayload, `视频状态查询失败 (${lastStatus})`));
 }
 
+function resolveVideoStatusEndpoint(baseUrl: string, taskId: string, transport: VideoGenerationTransport): string {
+    if (transport === 'magicapi') {
+        return `${baseUrl}/v1/videos/${encodeURIComponent(taskId)}`;
+    }
+
+    if (transport === 'domestic-official') {
+        return `${baseUrl}/seedance/v3/contents/generations/tasks/${encodeURIComponent(taskId)}`;
+    }
+
+    return `${baseUrl}/v2/videos/generations/${encodeURIComponent(taskId)}`;
+}
+
 function resolveVideoStatusProgress(status: string, rawProgress: unknown): number {
     const progressNum = parseTaskProgress(rawProgress);
     if (status === 'not_start') {
@@ -142,7 +155,7 @@ function resolveVideoStatusProgress(status: string, rawProgress: unknown): numbe
         return progressNum || 10;
     }
 
-    if (status === 'running' || status === 'in_progress') {
+    if (status === 'running' || status === 'in_progress' || status === 'processing') {
         return progressNum || 50;
     }
 

@@ -1,13 +1,27 @@
 'use client';
 
 import {
+  MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS,
+  MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS,
+  getMagicApiGeminiImageSizeOptions,
+  getMagicApiGptImageSizeOptions,
   isOpenAiGptImageModel,
+  isGeminiNativeImageModel,
   resolveOpenAiGptImageQuality,
   isStandardImageSize,
+  resolveMagicApiOpenAiStyleImageSize,
   resolveOpenAiGptImageAspectRatio,
   resolveOpenAiGptImageSize,
 } from './image-generation-models';
 import type { OpenAiGptImageQuality } from './image-generation-models';
+import {
+  AI_PROVIDER_OPTIONS,
+  DEFAULT_AI_PROVIDER_ID,
+  getProviderImageModels,
+  isMagicApiProvider,
+  normalizeAiProviderId,
+  type AiProviderId,
+} from './ai-providers';
 
 export interface WorkbenchSettings {
   autoSaveGenerated: boolean;
@@ -16,14 +30,28 @@ export interface WorkbenchSettings {
   defaultImageFit: 'contain' | 'cover';
   defaultImageSurface: 'checker' | 'light' | 'dark';
   imageDefaults: ImageGenerationDefaults;
+  imageProviderDefaults: Record<AiProviderId, ImageGenerationDefaults>;
   videoDefaults: VideoGenerationDefaults;
 }
 
 export const VIDEO_DURATION_OPTIONS = ['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'] as const;
 export type VideoDuration = typeof VIDEO_DURATION_OPTIONS[number];
+export const IMAGE_DEFAULT_MODEL_OPTIONS = [
+  'gemini-3.1-flash-image-preview',
+  'nano-banana-2',
+  'gpt-image-2',
+  'grok-4.2-image',
+  'doubao-seedream-5-0-260128',
+  'gemini-3-pro-image-preview',
+  'gemini-2.5-flash-image-preview',
+  'doubao-seedream-4-5-251128',
+  'grok-4-2-image',
+  'gpt-image-2-pro',
+] as const;
+export type ImageDefaultModel = typeof IMAGE_DEFAULT_MODEL_OPTIONS[number];
 
 export interface ImageGenerationDefaults {
-  model: 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
+  model: ImageDefaultModel;
   aspectRatio: 'auto' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '2:3' | '3:2' | '4:5' | '5:4' | '21:9' | '9:21';
   imageSize: string;
   quality: OpenAiGptImageQuality;
@@ -36,6 +64,23 @@ export interface VideoGenerationDefaults {
   duration: VideoDuration;
   enhancePrompt: boolean;
 }
+
+export const DEFAULT_IMAGE_PROVIDER_DEFAULTS: Record<AiProviderId, ImageGenerationDefaults> = {
+  bltcy: {
+    model: 'gemini-3.1-flash-image-preview',
+    aspectRatio: '21:9',
+    imageSize: '2K',
+    quality: 'auto',
+    generateCount: 1,
+  },
+  magicapi: {
+    model: 'gemini-3-pro-image-preview',
+    aspectRatio: '21:9',
+    imageSize: '2K',
+    quality: 'auto',
+    generateCount: 1,
+  },
+};
 
 export interface StorageEstimateInfo {
   usageBytes: number;
@@ -57,13 +102,8 @@ export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
   canvasTheme: 'light',
   defaultImageFit: 'contain',
   defaultImageSurface: 'checker',
-  imageDefaults: {
-    model: 'gemini-3.1-flash-image-preview',
-    aspectRatio: '21:9',
-    imageSize: '2K',
-    quality: 'auto',
-    generateCount: 1,
-  },
+  imageDefaults: DEFAULT_IMAGE_PROVIDER_DEFAULTS.bltcy,
+  imageProviderDefaults: DEFAULT_IMAGE_PROVIDER_DEFAULTS,
   videoDefaults: {
     model: 'veo3.1',
     aspectRatio: '16:9',
@@ -117,41 +157,152 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function sanitizeImageDefaults(value: unknown): ImageGenerationDefaults {
+function isImageDefaultModel(value: unknown): value is ImageDefaultModel {
+  return typeof value === 'string' && (IMAGE_DEFAULT_MODEL_OPTIONS as readonly string[]).includes(value);
+}
+
+function isImageDefaultAspectRatio(value: unknown): value is ImageGenerationDefaults['aspectRatio'] {
+  return value === 'auto'
+    || value === '1:1'
+    || value === '4:3'
+    || value === '3:4'
+    || value === '16:9'
+    || value === '9:16'
+    || value === '2:3'
+    || value === '3:2'
+    || value === '4:5'
+    || value === '5:4'
+    || value === '9:21'
+    || value === '21:9';
+}
+
+function getDefaultImageDefaultsForProvider(providerId: AiProviderId): ImageGenerationDefaults {
+  return { ...DEFAULT_IMAGE_PROVIDER_DEFAULTS[normalizeAiProviderId(providerId)] };
+}
+
+function getImageDefaultModelsForProvider(providerId: AiProviderId): ImageDefaultModel[] {
+  const providerModels = getProviderImageModels(providerId).filter(isImageDefaultModel);
+  return providerModels.length > 0 ? providerModels : [...IMAGE_DEFAULT_MODEL_OPTIONS];
+}
+
+function getFallbackModelForProvider(providerId: AiProviderId, fallback: ImageGenerationDefaults): ImageDefaultModel {
+  const providerModels = getImageDefaultModelsForProvider(providerId);
+  return providerModels.includes(fallback.model) ? fallback.model : providerModels[0] || DEFAULT_IMAGE_PROVIDER_DEFAULTS.bltcy.model;
+}
+
+function resolveMagicApiDefaultImageSize(
+  model: ImageDefaultModel,
+  rawImageSize: unknown,
+  aspectRatio: ImageGenerationDefaults['aspectRatio'],
+  fallbackImageSize: string,
+): string {
+  if (isOpenAiGptImageModel(model)) {
+    const options = getMagicApiGptImageSizeOptions(model);
+    if (typeof rawImageSize === 'string' && options.includes(rawImageSize.trim() as (typeof options)[number])) {
+      return rawImageSize.trim();
+    }
+    if (options.includes(fallbackImageSize as (typeof options)[number])) {
+      return fallbackImageSize;
+    }
+    return options[0] || '1024x1024';
+  }
+
+  if (isGeminiNativeImageModel(model)) {
+    const options = getMagicApiGeminiImageSizeOptions(model);
+    if (isStandardImageSize(rawImageSize) && options.includes(rawImageSize)) {
+      return rawImageSize;
+    }
+    if (isStandardImageSize(fallbackImageSize) && options.includes(fallbackImageSize)) {
+      return fallbackImageSize;
+    }
+    return options[0] || '1K';
+  }
+
+  return resolveMagicApiOpenAiStyleImageSize(
+    model,
+    aspectRatio === 'auto' ? '16:9' : aspectRatio,
+    rawImageSize,
+  );
+}
+
+function resolveDefaultImageSize(
+  providerId: AiProviderId,
+  model: ImageDefaultModel,
+  rawImageSize: unknown,
+  aspectRatio: ImageGenerationDefaults['aspectRatio'],
+  fallbackImageSize: string,
+): string {
+  if (isMagicApiProvider(providerId)) {
+    return resolveMagicApiDefaultImageSize(model, rawImageSize, aspectRatio, fallbackImageSize);
+  }
+
+  if (isOpenAiGptImageModel(model)) {
+    return resolveOpenAiGptImageSize(rawImageSize, aspectRatio);
+  }
+
+  return isStandardImageSize(rawImageSize)
+    ? rawImageSize
+    : isStandardImageSize(fallbackImageSize)
+      ? fallbackImageSize
+      : DEFAULT_IMAGE_PROVIDER_DEFAULTS.bltcy.imageSize;
+}
+
+function resolveDefaultAspectRatio(
+  providerId: AiProviderId,
+  model: ImageDefaultModel,
+  imageSize: string,
+  parsedAspectRatio: ImageGenerationDefaults['aspectRatio'],
+  fallbackAspectRatio: ImageGenerationDefaults['aspectRatio'],
+): ImageGenerationDefaults['aspectRatio'] {
+  if (isMagicApiProvider(providerId)) {
+    const allowedAspectRatios = isOpenAiGptImageModel(model)
+      ? (MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS as readonly string[])
+      : (MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS as readonly string[]);
+
+    if (allowedAspectRatios.includes(parsedAspectRatio)) {
+      return parsedAspectRatio;
+    }
+    return allowedAspectRatios.includes(fallbackAspectRatio)
+      ? fallbackAspectRatio
+      : '21:9';
+  }
+
+  if (isOpenAiGptImageModel(model)) {
+    return resolveOpenAiGptImageAspectRatio(imageSize, parsedAspectRatio);
+  }
+
+  return parsedAspectRatio === '9:21' ? '9:16' : parsedAspectRatio;
+}
+
+function resolveDefaultQuality(providerId: AiProviderId, model: ImageDefaultModel, rawQuality: unknown): OpenAiGptImageQuality {
+  if (isOpenAiGptImageModel(model)) {
+    return isMagicApiProvider(providerId) ? 'high' : resolveOpenAiGptImageQuality(rawQuality);
+  }
+
+  return 'auto';
+}
+
+function sanitizeImageDefaults(
+  value: unknown,
+  options: { providerId?: AiProviderId; fallback?: ImageGenerationDefaults } = {},
+): ImageGenerationDefaults {
+  const providerId = normalizeAiProviderId(options.providerId || DEFAULT_AI_PROVIDER_ID);
+  const fallback = options.fallback || getDefaultImageDefaultsForProvider(providerId);
   const parsed = isObject(value) ? value : {};
-  const model = parsed.model === 'nano-banana-2' || parsed.model === 'gpt-image-2' || parsed.model === 'grok-4.2-image' || parsed.model === 'doubao-seedream-5-0-260128'
+  const allowedModels = getImageDefaultModelsForProvider(providerId);
+  const fallbackModel = getFallbackModelForProvider(providerId, fallback);
+  const model = isImageDefaultModel(parsed.model) && allowedModels.includes(parsed.model)
     ? parsed.model
-    : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.model;
-  const parsedAspectRatio = parsed.aspectRatio === 'auto'
-    || parsed.aspectRatio === '1:1'
-    || parsed.aspectRatio === '4:3'
-    || parsed.aspectRatio === '3:4'
-    || parsed.aspectRatio === '16:9'
-    || parsed.aspectRatio === '9:16'
-    || parsed.aspectRatio === '2:3'
-    || parsed.aspectRatio === '3:2'
-    || parsed.aspectRatio === '4:5'
-    || parsed.aspectRatio === '5:4'
-    || parsed.aspectRatio === '9:21'
-    || parsed.aspectRatio === '21:9'
+    : fallbackModel;
+  const parsedAspectRatio = isImageDefaultAspectRatio(parsed.aspectRatio)
     ? parsed.aspectRatio
-    : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.aspectRatio;
-  const imageSize = isOpenAiGptImageModel(model)
-    ? resolveOpenAiGptImageSize(parsed.imageSize, parsedAspectRatio)
-    : isStandardImageSize(parsed.imageSize)
-      ? parsed.imageSize
-      : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.imageSize;
-  const quality = isOpenAiGptImageModel(model)
-    ? resolveOpenAiGptImageQuality(parsed.quality)
-    : 'auto';
-  const aspectRatio = isOpenAiGptImageModel(model)
-    ? resolveOpenAiGptImageAspectRatio(imageSize, parsedAspectRatio)
-    : parsedAspectRatio === '9:21'
-      ? '9:16'
-      : parsedAspectRatio;
+    : fallback.aspectRatio;
+  const imageSize = resolveDefaultImageSize(providerId, model, parsed.imageSize, parsedAspectRatio, fallback.imageSize);
+  const quality = resolveDefaultQuality(providerId, model, parsed.quality ?? fallback.quality);
+  const aspectRatio = resolveDefaultAspectRatio(providerId, model, imageSize, parsedAspectRatio, fallback.aspectRatio);
   const generateCount = parsed.generateCount === 1 || parsed.generateCount === 2 || parsed.generateCount === 3 || parsed.generateCount === 4
     ? parsed.generateCount
-    : DEFAULT_WORKBENCH_SETTINGS.imageDefaults.generateCount;
+    : fallback.generateCount;
 
   return {
     model,
@@ -160,6 +311,20 @@ function sanitizeImageDefaults(value: unknown): ImageGenerationDefaults {
     quality,
     generateCount,
   };
+}
+
+function sanitizeImageProviderDefaults(value: unknown, legacyImageDefaults: ImageGenerationDefaults): Record<AiProviderId, ImageGenerationDefaults> {
+  const parsed = isObject(value) ? value : {};
+  return AI_PROVIDER_OPTIONS.reduce((acc, provider) => {
+    const providerId = provider.id;
+    const fallback = providerId === DEFAULT_AI_PROVIDER_ID
+      ? legacyImageDefaults
+      : getDefaultImageDefaultsForProvider(providerId);
+    acc[providerId] = parsed[providerId] === undefined
+      ? fallback
+      : sanitizeImageDefaults(parsed[providerId], { providerId, fallback });
+    return acc;
+  }, {} as Record<AiProviderId, ImageGenerationDefaults>);
 }
 
 function sanitizeVideoDefaults(value: unknown): VideoGenerationDefaults {
@@ -194,6 +359,8 @@ function sanitizeVideoDefaults(value: unknown): VideoGenerationDefaults {
 
 export function normalizeWorkbenchSettings(value: unknown): WorkbenchSettings {
   const parsed = isObject(value) ? value : {};
+  const imageDefaults = sanitizeImageDefaults(parsed.imageDefaults, { providerId: DEFAULT_AI_PROVIDER_ID });
+  const imageProviderDefaults = sanitizeImageProviderDefaults(parsed.imageProviderDefaults, imageDefaults);
 
   return {
     autoSaveGenerated:
@@ -216,8 +383,38 @@ export function normalizeWorkbenchSettings(value: unknown): WorkbenchSettings {
       parsed.defaultImageSurface === 'checker' || parsed.defaultImageSurface === 'light' || parsed.defaultImageSurface === 'dark'
         ? parsed.defaultImageSurface
         : DEFAULT_WORKBENCH_SETTINGS.defaultImageSurface,
-    imageDefaults: sanitizeImageDefaults(parsed.imageDefaults),
+    imageDefaults: imageProviderDefaults[DEFAULT_AI_PROVIDER_ID],
+    imageProviderDefaults,
     videoDefaults: sanitizeVideoDefaults(parsed.videoDefaults),
+  };
+}
+
+export function getImageDefaultsForProvider(settings: WorkbenchSettings, providerId: unknown): ImageGenerationDefaults {
+  const normalizedProviderId = normalizeAiProviderId(providerId);
+  return settings.imageProviderDefaults?.[normalizedProviderId]
+    || getDefaultImageDefaultsForProvider(normalizedProviderId);
+}
+
+export function setImageDefaultsForProvider(
+  settings: WorkbenchSettings,
+  providerId: unknown,
+  imageDefaults: ImageGenerationDefaults,
+): WorkbenchSettings {
+  const normalizedProviderId = normalizeAiProviderId(providerId);
+  const currentProviderDefaults = getImageDefaultsForProvider(settings, normalizedProviderId);
+  const nextProviderDefaults = sanitizeImageDefaults(imageDefaults, {
+    providerId: normalizedProviderId,
+    fallback: currentProviderDefaults,
+  });
+  const imageProviderDefaults = {
+    ...settings.imageProviderDefaults,
+    [normalizedProviderId]: nextProviderDefaults,
+  };
+
+  return {
+    ...settings,
+    imageDefaults: imageProviderDefaults[DEFAULT_AI_PROVIDER_ID],
+    imageProviderDefaults,
   };
 }
 

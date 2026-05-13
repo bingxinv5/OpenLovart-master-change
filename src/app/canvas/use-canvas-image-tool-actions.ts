@@ -4,6 +4,7 @@ import type { CanvasElement } from '@/components/lovart/canvas-types';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from '@/components/lovart/generator-error-utils';
 import { runImageGenerationFlow } from '@/components/lovart/image-generation-flow';
 import { createGenerationTaskPatch } from '@/lib/generation-task-state';
+import { getImageGenerationDefaults } from '@/lib/generation-defaults';
 import { getImageDataUrl, saveImageBlob } from '@/lib/editor-kernel';
 import { annotateImageBlob, type AnnotateImageOptions } from '@/lib/image-annotate';
 import { cropImageBlob, type CropImageOptions } from '@/lib/image-crop';
@@ -139,10 +140,11 @@ export function useCanvasImageToolActions({
             return;
         }
 
-        const model = element.selectedModel || workbenchSettings.imageDefaults.model;
-        const aspectRatio = element.selectedAspectRatio || workbenchSettings.imageDefaults.aspectRatio;
-        const imageSize = element.selectedImageSize || workbenchSettings.imageDefaults.imageSize;
-        const quality = element.selectedImageQuality || workbenchSettings.imageDefaults.quality;
+        const imageDefaults = getImageGenerationDefaults();
+        const model = element.selectedModel || imageDefaults.model;
+        const aspectRatio = element.selectedAspectRatio || imageDefaults.aspectRatio;
+        const imageSize = element.selectedImageSize || imageDefaults.imageSize;
+        const quality = element.selectedImageQuality || imageDefaults.quality;
 
         handleGeneratorSubmittingChange(element.id, true, { prompt, model, aspectRatio, imageSize, quality });
         showToast('✨ AI 正在处理中，请稍候...', 'info');
@@ -237,7 +239,7 @@ export function useCanvasImageToolActions({
         } finally {
             handleGeneratorSubmittingChange(element.id, false, { prompt, model, aspectRatio, imageSize, quality }, { outcome: submissionOutcome });
         }
-    }, [announceCompletedResult, currentProjectIdRef, dirtyTrackerRef, finalizeAiEditedImageElement, handleGeneratorSubmittingChange, resolveElementReferenceImages, setElements, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
+    }, [announceCompletedResult, currentProjectIdRef, dirtyTrackerRef, finalizeAiEditedImageElement, handleGeneratorSubmittingChange, resolveElementReferenceImages, setElements, showToast]);
 
     const handleRecoverEditedImageTask = useCallback(async (elementId: string, rawTaskId: string) => {
         const taskId = rawTaskId.trim();

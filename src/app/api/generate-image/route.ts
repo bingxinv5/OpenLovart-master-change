@@ -18,13 +18,22 @@ import {
     resolveAiServiceConfig,
 } from '../_shared/ai-service';
 import {
+    createMagicApiLocalImageJob,
+    MAGICAPI_IMAGE_TASK_PREFIX,
+} from '../_shared/magicapi-image-jobs';
+import {
     buildUpstreamImageGenerationBody,
     describeOpenAiGptImageAspectRatio,
     getMaxReferenceImagesForImageModel,
     getOpenAiGptImagePromptCompensation,
+    isGeminiNativeImageModel,
+    isMagicApiGptImageOfficialSize,
     isOpenAiGptImageAutoSize,
     isOpenAiGptImageModel,
+    resolveMagicApiGeminiImageSize,
+    resolveMagicApiOpenAiStyleImageSize,
 } from '@/lib/image-generation-models';
+import { isMagicApiProvider } from '@/lib/ai-providers';
 
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -32,6 +41,8 @@ type NormalizedReferenceImage = {
     base64: string;
     mime: string;
 };
+
+type ImageResultShape = ReturnType<typeof extractImageResult>;
 
 export async function POST(request: NextRequest) {
     try {
@@ -41,7 +52,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: '请输入提示词' }, { status: 400 });
         }
 
-        const { apiKey, baseUrl } = resolveAiServiceConfig(request);
+        const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request);
 
         const selectedModel = model || 'gemini-3.1-flash-image-preview';
         const maxReferenceImageCount = getMaxReferenceImagesForImageModel(selectedModel);
@@ -119,6 +130,20 @@ export async function POST(request: NextRequest) {
         }
 
         debugLog(`[generate-image] model=${selectedModel}, baseUrl=${baseUrl}, prompt="${prompt.substring(0, 50)}..."`);
+
+        if (isMagicApiProvider(providerId)) {
+            return await submitMagicApiImageGeneration({
+                request,
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt,
+                aspectRatio,
+                imageSize,
+                normalizedImages,
+                forceAsync,
+            });
+        }
 
         const usesGptImageEdits = isOpenAiGptImageModel(selectedModel) && normalizedImages.length > 0;
         const targetUrl = `${baseUrl}${usesGptImageEdits ? '/v1/images/edits' : '/v1/images/generations'}${forceAsync === true ? '?async=true' : ''}`;
@@ -224,6 +249,385 @@ function buildGptImageEditsFormData(
     });
 
     return formData;
+}
+
+async function submitMagicApiImageGeneration(params: {
+    request: NextRequest;
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    normalizedImages: NormalizedReferenceImage[];
+    forceAsync: unknown;
+}) {
+    const {
+        request,
+        apiKey,
+        baseUrl,
+        selectedModel,
+        prompt,
+        aspectRatio,
+        imageSize,
+        normalizedImages,
+        forceAsync,
+    } = params;
+    const isGeminiNative = isGeminiNativeImageModel(selectedModel);
+    const shouldUseAsyncTask = forceAsync === true;
+    const targetUrl = isGeminiNative
+        ? `${baseUrl}/v1beta/models/${encodeURIComponent(selectedModel)}:generateContent`
+        : `${baseUrl}/v1/images/generations`;
+    const requestBody = isGeminiNative
+        ? buildMagicApiGeminiImageBody({ selectedModel, prompt, aspectRatio, imageSize, normalizedImages })
+        : buildMagicApiOpenAiStyleImageBody({
+            selectedModel,
+            prompt,
+            aspectRatio,
+            imageSize,
+            normalizedImages,
+        });
+    const submitTimeoutMs = isOpenAiGptImageModel(selectedModel) && !shouldUseAsyncTask
+        ? AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit
+        : AI_UPSTREAM_TIMEOUT_MS.submit;
+
+    if (shouldUseAsyncTask) {
+        const localTaskId = createMagicApiLocalImageJob(async () => {
+            const data = await fetchMagicApiImageGenerationData({
+                targetUrl,
+                apiKey,
+                baseUrl,
+                requestBody,
+                attempts: 1,
+            });
+            const normalizedData = normalizeMagicApiLocalImageResultData(data, isGeminiNative);
+
+            return {
+                data: normalizedData,
+                upstreamTaskId: hasExtractableImageResult(normalizedData) ? null : extractMagicApiImageTaskId(normalizedData),
+            };
+        });
+
+        return NextResponse.json({ taskId: localTaskId, status: 'pending' });
+    }
+
+    const data = await fetchMagicApiImageGenerationData({
+        targetUrl,
+        apiKey,
+        baseUrl,
+        requestBody,
+        timeoutMs: submitTimeoutMs,
+        attempts: isOpenAiGptImageModel(selectedModel) ? 1 : undefined,
+    });
+
+    return buildMagicApiImageGenerationResponse({
+        request,
+        selectedModel,
+        isGeminiNative,
+        data,
+    });
+}
+
+async function fetchMagicApiImageGenerationData(params: {
+    targetUrl: string;
+    apiKey: string;
+    baseUrl: string;
+    requestBody: Record<string, unknown>;
+    timeoutMs?: number;
+    attempts?: number;
+}): Promise<Record<string, unknown>> {
+    const { targetUrl, apiKey, baseUrl, requestBody, timeoutMs, attempts } = params;
+    let response: Response;
+
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            {
+                method: 'POST',
+                headers: createAiHeaders(apiKey, true),
+                body: JSON.stringify(requestBody),
+            },
+            {
+                attempts,
+                label: 'generate-image:magicapi',
+                timeoutMs,
+            },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-image][magicapi] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(baseUrl, error, { timeoutMs });
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        console.error('[generate-image][magicapi] API error:', data);
+        throw new Error(translateImageApiError(getApiErrorMessage(data, JSON.stringify(data))));
+    }
+
+    return data;
+}
+
+function extractMagicApiImageTaskId(data: Record<string, unknown>): string | null {
+    const rawTaskId = getNestedValue(data, 'data', 'task_id')
+        || getNestedValue(data, 'task_id')
+        || getNestedValue(data, 'data', 'taskId')
+        || getNestedValue(data, 'taskId')
+        || getNestedValue(data, 'data', 'id')
+        || getNestedValue(data, 'id');
+
+    return typeof rawTaskId === 'string' && rawTaskId.trim().length > 0 ? rawTaskId.trim() : null;
+}
+
+function hasExtractableImageResult(data: Record<string, unknown>): boolean {
+    const result = extractImageResult(data);
+    return !!result.imageUrl || !!result.imageData || result.images.length > 0;
+}
+
+function normalizeMagicApiLocalImageResultData(data: Record<string, unknown>, isGeminiNative: boolean): Record<string, unknown> {
+    if (!isGeminiNative) {
+        return data;
+    }
+
+    const result = mergeImageResults(extractGeminiNativeImageResult(data), extractImageResult(data));
+    if (!result.imageUrl && !result.imageData && result.images.length === 0) {
+        return data;
+    }
+
+    return {
+        ...data,
+        ...(result.imageUrl ? { image_url: result.imageUrl } : {}),
+        ...(result.imageData ? { image_base64: result.imageData } : {}),
+        ...(result.images.length > 0 ? { images: result.images } : {}),
+    };
+}
+
+function buildMagicApiImageGenerationResponse(params: {
+    request: NextRequest;
+    selectedModel: string;
+    isGeminiNative: boolean;
+    data: Record<string, unknown>;
+}) {
+    const { request, selectedModel, isGeminiNative, data } = params;
+    const rawTaskId = extractMagicApiImageTaskId(data);
+    const taskId = rawTaskId ? encodeMagicApiImageTaskId(rawTaskId) : null;
+
+    const rawImageResult = isGeminiNative
+        ? mergeImageResults(extractGeminiNativeImageResult(data), extractImageResult(data))
+        : extractImageResult(data);
+    const imageResult = proxyImageResultUrls(rawImageResult, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
+        filenamePrefix: 'lovart-generate-image-magicapi',
+    });
+
+    if (imageResult.imageUrl) {
+        return NextResponse.json({ status: 'completed', taskId, imageUrl: imageResult.imageUrl, images: imageResult.images });
+    }
+    if (imageResult.imageData) {
+        return NextResponse.json({ status: 'completed', taskId, imageData: imageResult.imageData, images: imageResult.images });
+    }
+
+    if (taskId) {
+        return NextResponse.json({ taskId, status: 'pending' });
+    }
+
+    return NextResponse.json({ taskId: null, status: 'unknown', raw: data });
+}
+
+function buildMagicApiGeminiImageBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    normalizedImages: NormalizedReferenceImage[];
+}) {
+    const { selectedModel, prompt, aspectRatio, imageSize, normalizedImages } = params;
+    const parts: Array<Record<string, unknown>> = normalizedImages.map((image) => ({
+        inlineData: {
+            mimeType: image.mime || 'image/png',
+            data: image.base64,
+        },
+    }));
+    parts.push({ text: prompt });
+
+    const generationConfig: Record<string, unknown> = {
+        responseModalities: ['IMAGE', 'TEXT'],
+        temperature: 1.0,
+        topP: 0.95,
+        maxOutputTokens: 8192,
+    };
+    const imageConfig: Record<string, unknown> = {};
+    if (typeof aspectRatio === 'string' && aspectRatio && aspectRatio !== 'auto') {
+        imageConfig.aspectRatio = aspectRatio;
+    }
+    imageConfig.imageSize = resolveMagicApiGeminiImageSize(selectedModel, imageSize);
+    generationConfig.imageConfig = imageConfig;
+
+    return {
+        contents: [
+            {
+                role: 'user',
+                parts,
+            },
+        ],
+        generationConfig,
+    };
+}
+
+function buildMagicApiOpenAiStyleImageBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    normalizedImages: NormalizedReferenceImage[];
+}) {
+    const { selectedModel, prompt, aspectRatio, imageSize, normalizedImages } = params;
+    const targetSize = resolveMagicApiOpenAiStyleImageSize(selectedModel, aspectRatio, imageSize);
+    const body: Record<string, unknown> = {
+        model: selectedModel,
+        prompt: prompt.trim(),
+        n: 1,
+        size: targetSize,
+    };
+
+    if (isOpenAiGptImageModel(selectedModel)) {
+        body.quality = 'high';
+        body.response_format = 'url';
+        if (!isMagicApiGptImageOfficialSize(selectedModel, targetSize)) {
+            const ratioHint = typeof aspectRatio === 'string' && aspectRatio && aspectRatio !== 'auto'
+                ? aspectRatio.split('(')[0]
+                : describeOpenAiGptImageAspectRatio(targetSize, aspectRatio);
+            body.prompt = `${prompt.trimEnd()}, 图片比例${ratioHint}`;
+        }
+    }
+
+    if (normalizedImages.length > 0) {
+        body.image = normalizedImages.map((image) => image.base64);
+    }
+
+    return body;
+}
+
+function encodeMagicApiImageTaskId(taskId: string): string {
+    const normalized = taskId.trim();
+    return normalized.startsWith(MAGICAPI_IMAGE_TASK_PREFIX)
+        ? normalized
+        : `${MAGICAPI_IMAGE_TASK_PREFIX}${normalized}`;
+}
+
+function extractGeminiNativeImageResult(payload: unknown): ImageResultShape {
+    const imageUrls: string[] = [];
+    let imageData: string | null = null;
+    const pushImageUrl = (value: string) => {
+        const normalized = value.trim();
+        if (normalized && !imageUrls.includes(normalized)) {
+            imageUrls.push(normalized);
+        }
+    };
+
+    const scanTextPart = (text: string) => {
+        const dataUriMatch = text.match(/data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/);
+        if (dataUriMatch && !imageData) {
+            imageData = `data:${dataUriMatch[1]};base64,${dataUriMatch[2]}`;
+        }
+
+        const markdownImagePattern = /!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/g;
+        for (const match of text.matchAll(markdownImagePattern)) {
+            pushImageUrl(match[1]);
+        }
+
+        const plainImageUrlPattern = /https?:\/\/[^\s)]+\.(?:png|jpe?g|jpe|webp|gif)(?:\?[^\s)]*)?/gi;
+        for (const match of text.matchAll(plainImageUrlPattern)) {
+            pushImageUrl(match[0]);
+        }
+    };
+
+    const visit = (value: unknown) => {
+        if (!value || typeof value !== 'object') {
+            return;
+        }
+
+        if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+        }
+
+        const record = value as Record<string, unknown>;
+        if (typeof record.text === 'string') {
+            scanTextPart(record.text);
+        }
+
+        const inlineData = record.inlineData || record.inline_data;
+        if (inlineData && typeof inlineData === 'object') {
+            const inlineRecord = inlineData as Record<string, unknown>;
+            const data = typeof inlineRecord.data === 'string' ? inlineRecord.data : '';
+            if (data) {
+                if (data.startsWith('http://') || data.startsWith('https://')) {
+                    pushImageUrl(data);
+                    return;
+                }
+
+                const mime = typeof inlineRecord.mimeType === 'string'
+                    ? inlineRecord.mimeType
+                    : typeof inlineRecord.mime_type === 'string'
+                        ? inlineRecord.mime_type
+                        : 'image/png';
+                imageData = imageData || (data.startsWith('data:image/') ? data : `data:${mime};base64,${data}`);
+            }
+        }
+
+        const fileData = record.fileData || record.file_data;
+        if (fileData && typeof fileData === 'object') {
+            const fileRecord = fileData as Record<string, unknown>;
+            const fileUri = typeof fileRecord.fileUri === 'string'
+                ? fileRecord.fileUri
+                : typeof fileRecord.file_uri === 'string'
+                    ? fileRecord.file_uri
+                    : '';
+            if (fileUri) {
+                pushImageUrl(fileUri);
+            }
+        }
+
+        Object.values(record).forEach(visit);
+    };
+
+    visit(payload);
+
+    return {
+        imageUrl: imageUrls[0] || null,
+        imageData,
+        images: imageUrls,
+    };
+}
+
+function mergeImageResults(primary: ImageResultShape, fallback: ImageResultShape): ImageResultShape {
+    const images = [...primary.images];
+    for (const image of fallback.images) {
+        if (!images.includes(image)) {
+            images.push(image);
+        }
+    }
+
+    return {
+        imageUrl: primary.imageUrl || fallback.imageUrl,
+        imageData: primary.imageData || fallback.imageData,
+        images,
+    };
+}
+
+function translateImageApiError(rawMsg: string): string {
+    if (rawMsg.includes('could not generate an image')) {
+        return '模型无法根据该提示词生成图片，请尝试更换提示词或参考图。';
+    }
+    if (rawMsg.includes('safety') || rawMsg.includes('blocked')) {
+        return '内容被安全策略拦截，请修改提示词后重试。';
+    }
+    if (rawMsg.includes('rate limit') || rawMsg.includes('too many')) {
+        return 'API 请求过于频繁，请稍后再试。';
+    }
+    if (rawMsg.includes('quota') || rawMsg.includes('insufficient')) {
+        return 'API 额度不足，请检查账户余额。';
+    }
+    return rawMsg;
 }
 
 function appendFormDataString(formData: FormData, key: string, value: unknown) {

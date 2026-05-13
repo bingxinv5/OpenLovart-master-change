@@ -7,6 +7,7 @@ import {
     getVideoAspectRatioOptions,
     getVideoDurationOptions,
     getVideoResolutionOptions,
+    getImageModelOptionsForProvider,
     resolveImageGeneratorModelOptions,
 } from './generator-model-options';
 
@@ -40,6 +41,121 @@ describe('generator model options', () => {
         expect(options.grokUsesReferenceAspectRatio).toBe(true);
         expect(options.availableImageSizes).toEqual(['1K', '2K']);
         expect(options.settingsSummary).toBe('参考图比例 · 2K · ×1');
+    });
+
+    it('exposes MagicAPI-specific image model options by provider', () => {
+        expect(getImageModelOptionsForProvider('magicapi')).toEqual([
+            'gemini-3-pro-image-preview',
+            'gemini-2.5-flash-image-preview',
+            'gemini-3.1-flash-image-preview',
+            'doubao-seedream-4-5-251128',
+            'doubao-seedream-5-0-260128',
+            'grok-4-2-image',
+            'gpt-image-2',
+            'gpt-image-2-pro',
+        ]);
+    });
+
+    it('derives MagicAPI Gemini options from the GeekNow adapter profile', () => {
+        const proOptions = resolveImageGeneratorModelOptions({
+            providerId: 'magicapi',
+            model: 'gemini-3-pro-image-preview',
+            imageSize: '2K',
+            aspectRatio: '16:9',
+            quality: 'auto',
+            generateCount: 1,
+            referenceImageCount: 0,
+        });
+        expect(proOptions.availableAspectRatios).toEqual(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9']);
+        expect(proOptions.availableImageSizes).toEqual(['1K', '2K', '4K']);
+
+        const flashOptions = resolveImageGeneratorModelOptions({
+            providerId: 'magicapi',
+            model: 'gemini-3.1-flash-image-preview',
+            imageSize: '4K',
+            aspectRatio: '16:9',
+            quality: 'auto',
+            generateCount: 1,
+            referenceImageCount: 0,
+        });
+        expect(flashOptions.availableImageSizes).toEqual(['1K', '2K', '4K']);
+    });
+
+    it('derives MagicAPI GPT image options by model capability', () => {
+        const standardOptions = resolveImageGeneratorModelOptions({
+            providerId: 'magicapi',
+            model: 'gpt-image-2',
+            imageSize: '2560x1712',
+            aspectRatio: '3:2',
+            quality: 'high',
+            generateCount: 1,
+            referenceImageCount: 0,
+        });
+        expect(standardOptions.displayedAspectRatio).toBe('3:2');
+        expect(standardOptions.settingsSummary).toBe('2560x1712 · 高 · 3:2 · ×1');
+        expect(standardOptions.availableAspectRatios).toEqual(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21']);
+        expect(standardOptions.availableImageSizes).toEqual([
+            '1024x1024',
+            '1536x1152',
+            '1536x1024',
+            '1024x1536',
+            '1920x1080',
+            '1080x1920',
+            '2048x2048',
+            '2048x1536',
+            '2560x1712',
+            '1712x2560',
+            '2048x1152',
+            '1152x2048',
+            '2240x960',
+            '960x2240',
+            '2880x2880',
+            '3840x2880',
+            '3840x2560',
+            '2560x3840',
+            '3840x2160',
+            '2160x3840',
+        ]);
+
+        const gptOptions = resolveImageGeneratorModelOptions({
+            providerId: 'magicapi',
+            model: 'gpt-image-2-pro',
+            imageSize: '3840x2160',
+            aspectRatio: '16:9',
+            quality: 'low',
+            generateCount: 1,
+            referenceImageCount: 0,
+        });
+        expect(gptOptions.availableImageSizes).toEqual([
+            '2048x2048',
+            '2048x1536',
+            '2560x1712',
+            '1712x2560',
+            '2048x1152',
+            '1152x2048',
+            '2240x960',
+            '960x2240',
+            '2880x2880',
+            '3840x2880',
+            '3840x2560',
+            '2560x3840',
+            '3840x2160',
+            '2160x3840',
+        ]);
+        expect(gptOptions.availableImageQualities).toEqual(['high']);
+    });
+
+    it('derives MagicAPI OpenAI-style non-GPT image options from plugin size maps', () => {
+        const doubaoOptions = resolveImageGeneratorModelOptions({
+            providerId: 'magicapi',
+            model: 'doubao-seedream-5-0-260128',
+            imageSize: '2K',
+            aspectRatio: '21:9',
+            quality: 'auto',
+            generateCount: 1,
+            referenceImageCount: 0,
+        });
+        expect(doubaoOptions.availableImageSizes).toEqual(['3024x1296']);
     });
 
     it('derives video media limits by model', () => {

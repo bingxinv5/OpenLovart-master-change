@@ -1,15 +1,38 @@
 import {
     describeOpenAiGptImageAspectRatio,
     getMaxReferenceImagesForImageModel,
+    MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS,
     OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
     OPENAI_GPT_IMAGE_SIZE_OPTIONS,
     STANDARD_IMAGE_SIZE_OPTIONS,
+    MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS,
+    getMagicApiGeminiImageSizeOptions,
+    getMagicApiGptImageSizeOptions,
+    isDomesticImageModel as isKnownDomesticImageModel,
+    isGeminiNativeImageModel,
+    isGrokImageModel as isKnownGrokImageModel,
+    isOpenAiGptImageModel as isKnownOpenAiGptImageModel,
+    resolveMagicApiOpenAiStyleImageSize,
     shouldUseDomesticImageBatching,
 } from '@/lib/image-generation-models';
+import { DEFAULT_AI_PROVIDER_ID, getProviderImageModels, isMagicApiProvider, type AiProviderId } from '@/lib/ai-providers';
 import type { ImageGenerationDefaults } from '@/lib/generation-defaults';
 import { VIDEO_DURATION_OPTIONS, type VideoDuration } from '@/lib/workbench-settings';
 
-export type ImageModel = 'gemini-3.1-flash-image-preview' | 'nano-banana-2' | 'gpt-image-2' | 'grok-4.2-image' | 'doubao-seedream-5-0-260128';
+export const IMAGE_MODEL_OPTIONS = [
+    'gemini-3.1-flash-image-preview',
+    'nano-banana-2',
+    'gpt-image-2',
+    'grok-4.2-image',
+    'doubao-seedream-5-0-260128',
+    'gemini-3-pro-image-preview',
+    'gemini-2.5-flash-image-preview',
+    'doubao-seedream-4-5-251128',
+    'grok-4-2-image',
+    'gpt-image-2-pro',
+] as const;
+
+export type ImageModel = (typeof IMAGE_MODEL_OPTIONS)[number];
 export type ImageAspectRatio = ImageGenerationDefaults['aspectRatio'];
 export type ImageSize = string;
 export type ImageQuality = ImageGenerationDefaults['quality'];
@@ -21,21 +44,29 @@ export type VideoDurationValue = VideoDuration;
 export type VideoResolution = '480p' | '720p';
 export type DomesticGenerationMode = 'first-last-frame' | 'omni-reference';
 
-export const IMAGE_MODEL_OPTIONS: ImageModel[] = [
-    'gemini-3.1-flash-image-preview',
-    'nano-banana-2',
-    'gpt-image-2',
-    'grok-4.2-image',
-    'doubao-seedream-5-0-260128',
-];
-
 export const IMAGE_MODEL_LABELS: Record<ImageModel, string> = {
     'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
     'nano-banana-2': 'nano-banana-2',
     'gpt-image-2': 'gpt-image-2',
     'grok-4.2-image': 'grok-4.2-image',
     'doubao-seedream-5-0-260128': 'doubao-seedream-5-0-260128',
+    'gemini-3-pro-image-preview': 'gemini-3-pro-image-preview',
+    'gemini-2.5-flash-image-preview': 'gemini-2.5-flash-image-preview',
+    'doubao-seedream-4-5-251128': 'doubao-seedream-4-5-251128',
+    'grok-4-2-image': 'grok-4-2-image',
+    'gpt-image-2-pro': 'gpt-image-2-pro',
 };
+
+const ALL_IMAGE_MODELS = new Set<string>(IMAGE_MODEL_OPTIONS);
+
+export function isImageModel(value: unknown): value is ImageModel {
+    return typeof value === 'string' && ALL_IMAGE_MODELS.has(value);
+}
+
+export function getImageModelOptionsForProvider(providerId: AiProviderId = DEFAULT_AI_PROVIDER_ID): ImageModel[] {
+    const models = getProviderImageModels(providerId).filter(isImageModel);
+    return models.length > 0 ? models : [...IMAGE_MODEL_OPTIONS];
+}
 
 export const IMAGE_QUALITY_LABELS: Record<ImageQuality, string> = {
     auto: '自动',
@@ -57,6 +88,7 @@ export function resolveImageGeneratorModelOptions({
     quality,
     generateCount,
     referenceImageCount,
+    providerId = DEFAULT_AI_PROVIDER_ID,
 }: {
     model: ImageModel;
     imageSize: ImageSize;
@@ -64,21 +96,37 @@ export function resolveImageGeneratorModelOptions({
     quality: ImageQuality;
     generateCount: GenerateCount;
     referenceImageCount: number;
+    providerId?: AiProviderId;
 }) {
+    const isMagicApi = isMagicApiProvider(providerId);
     const maxReferenceImages = getMaxReferenceImagesForImageModel(model);
-    const isGrokImageModel = model === 'grok-4.2-image';
-    const isOpenAiGptImageModel = model === 'gpt-image-2';
+    const isGrokImageModel = isKnownGrokImageModel(model);
+    const isOpenAiGptImageModel = isKnownOpenAiGptImageModel(model);
+    const isGeminiImageModel = isGeminiNativeImageModel(model);
+    const isDomesticImageModel = isKnownDomesticImageModel(model);
     const usesDomesticImageBatching = shouldUseDomesticImageBatching(model);
     const grokUsesReferenceAspectRatio = isGrokImageModel && referenceImageCount > 0;
-    const availableAspectRatios = isGrokImageModel
+    const availableAspectRatios = isMagicApi && isOpenAiGptImageModel
+        ? [...MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS]
+        : isMagicApi
+        ? [...MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS]
+        : isGrokImageModel
         ? GROK_IMAGE_ASPECT_RATIOS
         : STANDARD_IMAGE_ASPECT_RATIOS;
-    const availableImageSizes: ImageSize[] = isOpenAiGptImageModel
+    const availableImageSizes: ImageSize[] = isMagicApi && isOpenAiGptImageModel
+        ? getMagicApiGptImageSizeOptions(model)
+        : isMagicApi && isGeminiImageModel
+            ? getMagicApiGeminiImageSizeOptions(model)
+            : isMagicApi && (isGrokImageModel || isDomesticImageModel)
+                ? [resolveMagicApiOpenAiStyleImageSize(model, aspectRatio, imageSize)]
+                : isOpenAiGptImageModel
         ? [...OPENAI_GPT_IMAGE_SIZE_OPTIONS]
         : isGrokImageModel
             ? GROK_IMAGE_SIZES
             : [...STANDARD_IMAGE_SIZE_OPTIONS];
-    const availableImageQualities: ImageQuality[] = [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
+    const availableImageQualities: ImageQuality[] = isMagicApi && isOpenAiGptImageModel
+        ? ['high']
+        : [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
     const derivedOpenAiGptImageAspectRatio = describeOpenAiGptImageAspectRatio(imageSize, aspectRatio);
     const displayedAspectRatio = grokUsesReferenceAspectRatio
         ? '参考图比例'

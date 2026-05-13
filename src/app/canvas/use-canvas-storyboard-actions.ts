@@ -6,6 +6,7 @@ import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSu
 import { runImageGenerationFlow } from '@/components/lovart/image-generation-flow';
 import { runVideoGenerationFlow } from '@/components/lovart/video-generation-flow';
 import type { StoryboardPlanResponse } from '@/lib/ai-client';
+import { getImageGenerationDefaults } from '@/lib/generation-defaults';
 import { createGenerationIdlePatch, createGenerationTaskPatch } from '@/lib/generation-task-state';
 import type { WorkbenchSettings } from '@/lib/workbench-settings';
 import { buildStoryboardExportBlob, type StoryboardExportOptions } from '@/lib/storyboard-export';
@@ -168,6 +169,7 @@ export function useCanvasStoryboardActions({
         }
 
         void (async () => {
+            const imageDefaults = getImageGenerationDefaults();
             const center = getPlacementPosition();
             const groupName = plan.title?.trim() || `${plan.mode === 'story' ? '故事' : '分镜'}规划草稿`;
             const columns = plan.shots.length === 4
@@ -195,10 +197,10 @@ export function useCanvasStoryboardActions({
                     content: localizedBoardContent,
                     savedPrompt: combinedPrompt?.trim() || plan.summary,
                     savedReferenceImages: referenceImages.length > 0 ? JSON.stringify(referenceImages) : undefined,
-                    selectedModel: workbenchSettings.imageDefaults.model,
-                    selectedAspectRatio: workbenchSettings.imageDefaults.aspectRatio,
-                    selectedImageSize: workbenchSettings.imageDefaults.imageSize,
-                    selectedImageQuality: workbenchSettings.imageDefaults.quality,
+                    selectedModel: imageDefaults.model,
+                    selectedAspectRatio: imageDefaults.aspectRatio,
+                    selectedImageSize: imageDefaults.imageSize,
+                    selectedImageQuality: imageDefaults.quality,
                 });
 
                 addElementsWithOptionalAutoGroup([boardElement], groupName);
@@ -247,10 +249,10 @@ export function useCanvasStoryboardActions({
                     storyboardCameraMove: shot.cameraMove,
                     storyboardDuration: shot.duration,
                     storyboardNote: shot.note,
-                    selectedModel: workbenchSettings.imageDefaults.model,
-                    selectedAspectRatio: workbenchSettings.imageDefaults.aspectRatio,
-                    selectedImageSize: workbenchSettings.imageDefaults.imageSize,
-                    selectedImageQuality: workbenchSettings.imageDefaults.quality,
+                    selectedModel: imageDefaults.model,
+                    selectedAspectRatio: imageDefaults.aspectRatio,
+                    selectedImageSize: imageDefaults.imageSize,
+                    selectedImageQuality: imageDefaults.quality,
                 });
             });
 
@@ -261,7 +263,7 @@ export function useCanvasStoryboardActions({
                 'success',
             );
         })();
-    }, [addElementsWithOptionalAutoGroup, buildImageElement, getPlacementPosition, normalizeGeneratedImageContent, setStoryboardPlannerSourceElementId, showToast, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
+    }, [addElementsWithOptionalAutoGroup, buildImageElement, getPlacementPosition, normalizeGeneratedImageContent, setStoryboardPlannerSourceElementId, showToast]);
 
     const submitStoryboardGeneratorElement = useCallback(async (elementId: string, snapshot?: CanvasElement) => {
         const currentElement = snapshot || elementsMapRef.current.get(elementId);
@@ -276,10 +278,11 @@ export function useCanvasStoryboardActions({
             return false;
         }
 
-        const model = currentElement.selectedModel || workbenchSettings.imageDefaults.model;
-        const aspectRatio = currentElement.selectedAspectRatio || workbenchSettings.imageDefaults.aspectRatio;
-        const imageSize = currentElement.selectedImageSize || workbenchSettings.imageDefaults.imageSize;
-        const quality = currentElement.selectedImageQuality || workbenchSettings.imageDefaults.quality;
+        const imageDefaults = getImageGenerationDefaults();
+        const model = currentElement.selectedModel || imageDefaults.model;
+        const aspectRatio = currentElement.selectedAspectRatio || imageDefaults.aspectRatio;
+        const imageSize = currentElement.selectedImageSize || imageDefaults.imageSize;
+        const quality = currentElement.selectedImageQuality || imageDefaults.quality;
         const referenceImages = await resolveElementReferenceImages(currentElement);
         const projectId = currentProjectIdRef.current;
 
@@ -367,7 +370,7 @@ export function useCanvasStoryboardActions({
         } finally {
             setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
         }
-    }, [announcePassiveCompletedResult, currentProjectIdRef, dirtyTrackerRef, elementsMapRef, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, resolveElementReferenceImages, setElements, setGeneratorSubmittingMap, workbenchSettings.imageDefaults.aspectRatio, workbenchSettings.imageDefaults.imageSize, workbenchSettings.imageDefaults.model, workbenchSettings.imageDefaults.quality]);
+    }, [announcePassiveCompletedResult, currentProjectIdRef, dirtyTrackerRef, elementsMapRef, finalizeGeneratedImageElement, replaceGeneratorWithPendingImage, resolveElementReferenceImages, setElements, setGeneratorSubmittingMap]);
 
     const submitStoryboardVideoGeneratorElement = useCallback(async (elementId: string, snapshot?: CanvasElement) => {
         const currentElement = snapshot || elementsMapRef.current.get(elementId);

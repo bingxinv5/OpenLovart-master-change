@@ -44,4 +44,25 @@ describe('generator-error-utils', () => {
     expect(message).toContain('上游服务暂时不可用');
     expect(message).toContain('网关错误');
   });
+
+  it('classifies slow upstream generation timeouts with resolution guidance', () => {
+    const message = classifyGenerationError(
+      'image',
+      new Error('图片生成请求失败：上游生成耗时过长，已等待约 300 秒，任务可能没有及时返回结果。'),
+    );
+
+    expect(message).toContain('上游生成超时');
+    expect(message).toContain('降低图片分辨率');
+    expect(message).toContain('gpt-image-2-pro');
+  });
+
+  it('classifies upstream invalid token errors as API key failures', () => {
+    const message = classifyGenerationError(
+      'image',
+      new Error('图片生成请求失败：Invalid token (request id: 20260513044345585531636zrVIzKx)'),
+    );
+
+    expect(message).toContain('API 密钥错误');
+    expect(message).toContain('API Key 无效或已过期');
+  });
 });

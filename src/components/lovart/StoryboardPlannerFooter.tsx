@@ -3,6 +3,7 @@ import { ChevronDown, Film, Loader2, Wand2 } from 'lucide-react';
 import type { ImageGenerationDefaults } from '@/lib/generation-defaults';
 import {
     describeOpenAiGptImageAspectRatio,
+    isOpenAiGptImageModel as isKnownOpenAiGptImageModel,
     resolveOpenAiGptImageAspectRatio,
     resolveOpenAiGptImageQuality,
 } from '@/lib/image-generation-models';
@@ -16,6 +17,7 @@ interface StoryboardPlannerFooterProps {
     isGeneratingBoard: boolean;
     imageDefaults: ImageGenerationDefaults;
     isOpenAiGptImageModel: boolean;
+    supportsOpenAiGptExperimentalSize: boolean;
     derivedOpenAiGptAspectRatio: string;
     isOpenAiGptImageExperimentalSize: boolean;
     storyboardAspectRatio: ImageGenerationDefaults['aspectRatio'];
@@ -61,6 +63,7 @@ export function StoryboardPlannerFooter({
     isGeneratingBoard,
     imageDefaults,
     isOpenAiGptImageModel,
+    supportsOpenAiGptExperimentalSize,
     derivedOpenAiGptAspectRatio,
     isOpenAiGptImageExperimentalSize,
     storyboardAspectRatio,
@@ -141,7 +144,7 @@ export function StoryboardPlannerFooter({
                     </button>
                     {showSizeMenu && (
                         <div className={`absolute bottom-full mb-1 rounded-md border border-slate-200 bg-white py-1 shadow-lg z-10 ${isOpenAiGptImageModel ? 'min-w-[220px]' : 'min-w-[50px]'}`}>
-                            {isOpenAiGptImageModel && (
+                            {supportsOpenAiGptExperimentalSize && (
                                 <div className="border-b border-slate-100 px-2.5 py-2">
                                     <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-slate-500">
                                         <span>尺寸</span>
@@ -158,6 +161,8 @@ export function StoryboardPlannerFooter({
                                         if (isOpenAiGptImageModel) {
                                             setUserAspectRatio(resolveOpenAiGptImageAspectRatio(size, userAspectRatio));
                                             setUserAspectRatioOverride(false);
+                                        }
+                                        if (supportsOpenAiGptExperimentalSize) {
                                             setExperimentalUserImageSizeError(null);
                                         }
                                         setShowSizeMenu(false);
@@ -167,7 +172,7 @@ export function StoryboardPlannerFooter({
                                     </div>
                                 ))}
                             </div>
-                            {isOpenAiGptImageModel && (
+                            {supportsOpenAiGptExperimentalSize && (
                                 <div className="border-t border-slate-100 px-2.5 py-2">
                                     <div className="mb-1 text-[10px] font-medium text-slate-500">自定义尺寸</div>
                                     <div className="flex gap-1.5">
@@ -238,7 +243,7 @@ export function StoryboardPlannerFooter({
                                 <div key={model} onClick={() => {
                                     setUserModel(model);
                                     setUserModelOverride(model !== imageDefaults.model);
-                                    if (model === 'gpt-image-2') {
+                                    if (isKnownOpenAiGptImageModel(model)) {
                                         if (!userQualityOverride) setUserQuality(resolveOpenAiGptImageQuality(imageDefaults.quality));
                                     } else {
                                         setUserQuality('auto');

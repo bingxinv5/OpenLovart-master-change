@@ -18,19 +18,22 @@
 
 import { useState, useEffect } from 'react';
 import {
+    getImageDefaultsForProvider,
     getWorkbenchSettings,
     subscribeWorkbenchSettingsChange,
     type ImageGenerationDefaults,
     type VideoGenerationDefaults,
 } from './workbench-settings';
+import { getApiSettings, subscribeApiSettingsChange } from './api-settings';
+import type { AiProviderId } from './ai-providers';
 import type { ImageGenerationRequest, VideoGenerationRequest } from './ai-client';
 
 // ── Re-export canonical types from workbench-settings ───────
 
 export type { ImageGenerationDefaults, VideoGenerationDefaults };
 
-export function getImageGenerationDefaults(): ImageGenerationDefaults {
-    return getWorkbenchSettings().imageDefaults;
+export function getImageGenerationDefaults(providerId: AiProviderId = getApiSettings().providerId): ImageGenerationDefaults {
+    return getImageDefaultsForProvider(getWorkbenchSettings(), providerId);
 }
 
 export function getVideoGenerationDefaults(): VideoGenerationDefaults {
@@ -83,13 +86,18 @@ export function resolveVideoRequest<T extends VideoGenerationRequest>(
  */
 export function useImageGenerationDefaults(): ImageGenerationDefaults {
     const [defaults, setDefaults] = useState<ImageGenerationDefaults>(
-        () => getWorkbenchSettings().imageDefaults,
+        () => getImageGenerationDefaults(),
     );
 
     useEffect(() => {
-        return subscribeWorkbenchSettingsChange(() => {
-            setDefaults(getWorkbenchSettings().imageDefaults);
-        });
+        const syncDefaults = () => setDefaults(getImageGenerationDefaults());
+        const unsubscribeWorkbench = subscribeWorkbenchSettingsChange(syncDefaults);
+        const unsubscribeApiSettings = subscribeApiSettingsChange(syncDefaults);
+
+        return () => {
+            unsubscribeWorkbench();
+            unsubscribeApiSettings();
+        };
     }, []);
 
     return defaults;

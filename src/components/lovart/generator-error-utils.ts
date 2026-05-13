@@ -106,6 +106,10 @@ export function classifyGenerationError(
     return `⚠ 网络连接失败\n\n无法连接到${mediaLabel}生成服务，请检查：\n• API 地址是否正确（右上角 ⚙ 设置）\n• 网络连接是否正常\n• 开发服务器是否已启动\n\n原始错误：${msg}`;
   }
 
+  if (lower.includes('上游生成耗时过长')) {
+    return `⏱ 上游生成超时\n\n当前 ${mediaLabel} 请求已经发到上游，但模型返回结果太慢。\n\n建议：\n• 稍后重试\n• 优先降低图片分辨率后再试\n• gpt-image-2-pro 高分辨率任务通常会比普通模型更慢\n\n上游原始错误：${msg}`;
+  }
+
   if (lower.includes('timeout') || lower.includes('aborted') || lower.includes('deadline')) {
     return kind === 'video'
       ? '⏱ 请求超时\n\n服务器响应时间过长，可能原因：\n• 视频生成通常需要较长时间\n• 当前 AI 服务负载较高\n\n请稍后重试。'
@@ -117,10 +121,12 @@ export function classifyGenerationError(
     || lower.includes('api key')
     || lower.includes('未配置')
     || lower.includes('unauthorized')
+    || lower.includes('invalid token')
     || lower.includes('invalid key')
+    || lower.includes('token 无效')
     || lower.includes('密钥')
   ) {
-    return '🔑 API 密钥错误\n\nAPI 密钥未配置或无效，请点击右上角 ⚙ 设置，填写正确的 API Key。';
+    return '🔑 API 密钥错误\n\n当前平台 API Key 无效或已过期，请点击右上角 ⚙ 设置，重新填写正确的 API Key。';
   }
 
   if (
