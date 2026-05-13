@@ -22,6 +22,16 @@ describe('video-generation-transport', () => {
         });
     });
 
+    it('encodes and parses MagicAPI task ids', () => {
+        const encoded = encodeVideoTaskId('video_123', 'magicapi');
+
+        expect(encoded).toBe('magicapi:video_123');
+        expect(parseVideoTaskId(encoded)).toEqual({
+            transport: 'magicapi',
+            upstreamTaskId: 'video_123',
+        });
+    });
+
     it('recognizes raw official task ids for manual recovery fallback', () => {
         expect(looksLikeDomesticOfficialTaskId('cgt-20260408182454-5dqsn')).toBe(true);
         expect(looksLikeDomesticOfficialTaskId('veo-task-123')).toBe(false);

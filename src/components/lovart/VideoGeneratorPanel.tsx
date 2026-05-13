@@ -21,6 +21,7 @@ import {
 } from './generator-panel-shared';
 import { runVideoGenerationFlow } from './video-generation-flow';
 import { uploadReferenceFile } from '@/lib/ai-client';
+import { getApiSettings, subscribeApiSettingsChange } from '@/lib/api-settings';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import type { ProjectMediaHistoryItem } from '@/lib/project-media-history';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
@@ -44,12 +45,13 @@ import {
     getVideoAddImageTitle,
     getVideoAspectRatioOptions,
     getVideoDurationOptions,
+    getVideoModelOptionsForProvider,
     getVideoResolutionOptions,
     isComponentsVideoModel,
     isDomesticMultimodalVideoModel,
+    supportsVideoAudioGeneration,
     VIDEO_MODEL_DESC,
     VIDEO_MODEL_LABELS,
-    VIDEO_MODEL_OPTIONS,
     type DomesticGenerationMode,
     type VideoAspectRatio as AspectRatio,
     type VideoDurationValue as Duration,
@@ -120,6 +122,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         onRecordProjectMediaItem,
     } = props;
     const videoDefaults = useVideoGenerationDefaults();
+    const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().providerId);
 
     // Read initial values from element
     const currentElement = findGeneratorElement(canvasElements, elementId);
@@ -205,10 +208,18 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         setShowRecoveryPanel(false);
     }, []);
 
+    useEffect(() => {
+        return subscribeApiSettingsChange(() => {
+            setApiProviderId(getApiSettings().providerId);
+        });
+    }, []);
+
+    const videoModelOptions = useMemo(() => getVideoModelOptionsForProvider(apiProviderId), [apiProviderId]);
     const aspectRatios = getVideoAspectRatioOptions(model);
     const durations = getVideoDurationOptions(model);
     const resolutionOptions = getVideoResolutionOptions(model);
     const isDomesticModel = isDomesticMultimodalVideoModel(model);
+    const supportsAudioGeneration = supportsVideoAudioGeneration(model);
     const isDomesticFirstLastMode = isDomesticModel && domesticMode === 'first-last-frame';
     const isDomesticOmniMode = isDomesticModel && domesticMode === 'omni-reference';
     const usesReferenceImages = isComponentsVideoModel(model) || isDomesticOmniMode;
@@ -265,6 +276,14 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     );
     const hasAnyReferenceAssets = frameImages.length > 0 || referenceVideos.length > 0 || referenceAudios.length > 0;
     const canGenerate = (prompt.trim().length > 0 || (isDomesticModel && hasAnyReferenceAssets)) && !isGenerating && !isReferenceUploadBusy;
+
+    useEffect(() => {
+        if (videoModelOptions.includes(model)) {
+            return;
+        }
+
+        setModel(videoModelOptions.includes(videoDefaults.model) ? videoDefaults.model : videoModelOptions[0]);
+    }, [model, videoDefaults.model, videoModelOptions]);
 
     useEffect(() => {
         if (aspectRatios.includes(aspectRatio)) {
@@ -786,7 +805,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 videos: isDomesticOmniMode && referenceVideos.length > 0 ? referenceVideos.map((item) => item.url) : undefined,
                 audios: isDomesticOmniMode && referenceAudios.length > 0 ? referenceAudios.map((item) => item.url) : undefined,
                 resolution: isDomesticModel ? resolution : undefined,
-                generateAudio: isDomesticModel ? generateAudio : undefined,
+                generateAudio: supportsAudioGeneration ? generateAudio : undefined,
             });
 
             debugLog('[VideoGen] API response:', data);
@@ -1091,15 +1110,15 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                             <div className="w-3.5 h-3.5 rounded-full bg-black flex items-center justify-center flex-shrink-0">
                                 <Video size={8} className="text-white" />
                             </div>
-                            <span className="whitespace-nowrap">{VIDEO_MODEL_LABELS[model]}</span>
+                            <span className="whitespace-nowrap">{VIDEO_MODEL_LABELS[model] || model}</span>
                             <ChevronDown size={11} className="text-slate-400" />
                         </button>
                         {showModelMenu && (
                             <div className="canvas-popover absolute bottom-full mb-1 left-0 rounded-[14px] py-1 z-30 min-w-[200px]">
-                                {VIDEO_MODEL_OPTIONS.map((m) => (
+                                {videoModelOptions.map((m) => (
                                     <div key={m} onClick={() => { setModel(m); setShowModelMenu(false); }} className={`canvas-menu-item px-3 py-2 cursor-pointer rounded-lg mx-1 transition-colors ${model === m ? 'is-active' : ''}`}>
-                                            <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{VIDEO_MODEL_LABELS[m]}</div>
-                                            <div className="text-[10px] text-slate-400 mt-0.5">{VIDEO_MODEL_DESC[m]}</div>
+                                            <div className={`text-xs font-medium ${model === m ? 'text-violet-600' : 'text-slate-700'}`}>{VIDEO_MODEL_LABELS[m] || m}</div>
+                                            <div className="text-[10px] text-slate-400 mt-0.5">{VIDEO_MODEL_DESC[m] || '视频生成模型'}</div>
                                     </div>
                                 ))}
                             </div>
@@ -1109,6 +1128,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                     <VideoGeneratorSettingsPanel
                         isOpen={showSettingsPanel}
                         isDomesticModel={isDomesticModel}
+                        supportsAudioGeneration={supportsAudioGeneration}
                         domesticMode={domesticMode}
                         aspectRatio={aspectRatio}
                         resolution={resolution}

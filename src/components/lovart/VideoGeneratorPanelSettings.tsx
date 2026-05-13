@@ -81,6 +81,7 @@ export function VideoAddReferenceMenu({
 interface VideoGeneratorSettingsPanelProps {
     isOpen: boolean;
     isDomesticModel: boolean;
+    supportsAudioGeneration: boolean;
     domesticMode: DomesticGenerationMode;
     aspectRatio: AspectRatio;
     resolution: VideoResolution;
@@ -107,6 +108,9 @@ const RATIO_SHAPE_CLASSES: Record<string, string> = {
     '1:1': 'h-2.5 w-2.5',
     '4:3': 'w-3 h-[9px]',
     '3:4': 'w-[9px] h-3',
+    '3:2': 'w-3.5 h-[9px]',
+    '2:3': 'w-[9px] h-3.5',
+    '21:9': 'w-4 h-[7px]',
 };
 
 const DURATION_GRID_COLUMN_CLASSES = ['grid-cols-1', 'grid-cols-2', 'grid-cols-3', 'grid-cols-4', 'grid-cols-5', 'grid-cols-6'];
@@ -114,6 +118,7 @@ const DURATION_GRID_COLUMN_CLASSES = ['grid-cols-1', 'grid-cols-2', 'grid-cols-3
 export function VideoGeneratorSettingsPanel({
     isOpen,
     isDomesticModel,
+    supportsAudioGeneration,
     domesticMode,
     aspectRatio,
     resolution,
@@ -134,6 +139,8 @@ export function VideoGeneratorSettingsPanel({
     onEnhancePromptChange,
 }: VideoGeneratorSettingsPanelProps) {
     const durationGridClassName = DURATION_GRID_COLUMN_CLASSES[Math.max(0, Math.min(durations.length, 6) - 1)] || 'grid-cols-1';
+    const showAudioGeneration = isDomesticModel || supportsAudioGeneration;
+    const showResolution = resolutionOptions.length > 1;
 
     return (
         <div className="relative shrink-0" data-popover-menu>
@@ -145,9 +152,9 @@ export function VideoGeneratorSettingsPanel({
                 {isDomesticModel && <><Settings2 size={12} /><span className="font-medium">{domesticMode === 'first-last-frame' ? '首尾帧' : '全能参考'}</span><span className="text-slate-300">·</span></>}
                 <span>{aspectRatio}</span>
                 <span className="text-slate-300">·</span>
-                {isDomesticModel && <><span>{resolution.toUpperCase()}</span><span className="text-slate-300">·</span></>}
+                {showResolution && <><span>{resolution.toUpperCase()}</span><span className="text-slate-300">·</span></>}
                 <span>{duration}</span>
-                {isDomesticModel && <><span className="text-slate-300">·</span><Volume2 size={11} className={generateAudio ? 'text-emerald-500' : 'text-slate-300'} /></>}
+                {showAudioGeneration && <><span className="text-slate-300">·</span><Volume2 size={11} className={generateAudio ? 'text-emerald-500' : 'text-slate-300'} /></>}
                 {enhancePrompt && <><span className="text-slate-300">·</span><Sparkles size={11} className="text-violet-500" /></>}
                 <ChevronDown size={11} className="text-slate-400 ml-0.5" />
             </button>
@@ -156,7 +163,7 @@ export function VideoGeneratorSettingsPanel({
                 <div className="absolute bottom-full mb-1 left-0 bg-white/96 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200/60 z-30 w-[280px] overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                         <span className="text-xs font-medium text-slate-700">生成设置</span>
-                        <span className="text-[10px] text-slate-400">{isDomesticModel ? `${domesticMode === 'first-last-frame' ? '首尾帧' : '全能参考'} · ` : ''}{aspectRatio}{isDomesticModel ? ` · ${resolution.toUpperCase()}` : ''} · {duration}</span>
+                        <span className="text-[10px] text-slate-400">{isDomesticModel ? `${domesticMode === 'first-last-frame' ? '首尾帧' : '全能参考'} · ` : ''}{aspectRatio}{showResolution ? ` · ${resolution.toUpperCase()}` : ''} · {duration}</span>
                     </div>
                     <div className="p-4 space-y-0">
                         {isDomesticModel && (
@@ -182,7 +189,7 @@ export function VideoGeneratorSettingsPanel({
                             </div>
                         </div>
 
-                        {isDomesticModel && (
+                        {showResolution && (
                             <div className="py-3 border-t border-slate-100/80">
                                 <div className="mb-2 text-[11px] font-medium text-slate-500">分辨率</div>
                                 <div className="flex gap-1.5">
@@ -202,7 +209,7 @@ export function VideoGeneratorSettingsPanel({
                             </div>
                         </div>
 
-                        {isDomesticModel && (
+                        {showAudioGeneration && (
                             <div className="flex items-center justify-between py-3 border-t border-slate-100/80">
                                 <div className="flex items-center gap-1.5">
                                     <Volume2 size={13} className={generateAudio ? 'text-emerald-500' : 'text-slate-400'} />

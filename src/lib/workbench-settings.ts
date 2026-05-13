@@ -18,10 +18,24 @@ import {
   AI_PROVIDER_OPTIONS,
   DEFAULT_AI_PROVIDER_ID,
   getProviderImageModels,
+  getProviderVideoModels,
   isMagicApiProvider,
   normalizeAiProviderId,
   type AiProviderId,
 } from './ai-providers';
+import {
+  VIDEO_DURATION_OPTIONS,
+  getDefaultVideoModelForProvider,
+  getVideoAspectRatioOptions,
+  getVideoDurationOptions,
+  isVideoModel,
+  type VideoAspectRatio,
+  type VideoDuration,
+  type VideoModel,
+} from './video-generation-models';
+
+export { VIDEO_DURATION_OPTIONS } from './video-generation-models';
+export type { VideoDuration } from './video-generation-models';
 
 export interface WorkbenchSettings {
   autoSaveGenerated: boolean;
@@ -32,10 +46,9 @@ export interface WorkbenchSettings {
   imageDefaults: ImageGenerationDefaults;
   imageProviderDefaults: Record<AiProviderId, ImageGenerationDefaults>;
   videoDefaults: VideoGenerationDefaults;
+  videoProviderDefaults: Record<AiProviderId, VideoGenerationDefaults>;
 }
 
-export const VIDEO_DURATION_OPTIONS = ['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'] as const;
-export type VideoDuration = typeof VIDEO_DURATION_OPTIONS[number];
 export const IMAGE_DEFAULT_MODEL_OPTIONS = [
   'gemini-3.1-flash-image-preview',
   'nano-banana-2',
@@ -43,8 +56,6 @@ export const IMAGE_DEFAULT_MODEL_OPTIONS = [
   'grok-4.2-image',
   'doubao-seedream-5-0-260128',
   'gemini-3-pro-image-preview',
-  'gemini-2.5-flash-image-preview',
-  'doubao-seedream-4-5-251128',
   'grok-4-2-image',
   'gpt-image-2-pro',
 ] as const;
@@ -59,8 +70,8 @@ export interface ImageGenerationDefaults {
 }
 
 export interface VideoGenerationDefaults {
-  model: 'veo3.1' | 'veo3.1-fast' | 'veo3.1-components' | 'doubao-seedance-2-0-260128';
-  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
+  model: VideoModel;
+  aspectRatio: VideoAspectRatio;
   duration: VideoDuration;
   enhancePrompt: boolean;
 }
@@ -79,6 +90,21 @@ export const DEFAULT_IMAGE_PROVIDER_DEFAULTS: Record<AiProviderId, ImageGenerati
     imageSize: '2K',
     quality: 'auto',
     generateCount: 1,
+  },
+};
+
+export const DEFAULT_VIDEO_PROVIDER_DEFAULTS: Record<AiProviderId, VideoGenerationDefaults> = {
+  bltcy: {
+    model: 'veo3.1',
+    aspectRatio: '16:9',
+    duration: '5s',
+    enhancePrompt: true,
+  },
+  magicapi: {
+    model: 'sora-2',
+    aspectRatio: '16:9',
+    duration: '10s',
+    enhancePrompt: false,
   },
 };
 
@@ -104,12 +130,8 @@ export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
   defaultImageSurface: 'checker',
   imageDefaults: DEFAULT_IMAGE_PROVIDER_DEFAULTS.bltcy,
   imageProviderDefaults: DEFAULT_IMAGE_PROVIDER_DEFAULTS,
-  videoDefaults: {
-    model: 'veo3.1',
-    aspectRatio: '16:9',
-    duration: '5s',
-    enhancePrompt: true,
-  },
+  videoDefaults: DEFAULT_VIDEO_PROVIDER_DEFAULTS.bltcy,
+  videoProviderDefaults: DEFAULT_VIDEO_PROVIDER_DEFAULTS,
 };
 
 let dbInstance: IDBDatabase | null = null;
@@ -327,24 +349,56 @@ function sanitizeImageProviderDefaults(value: unknown, legacyImageDefaults: Imag
   }, {} as Record<AiProviderId, ImageGenerationDefaults>);
 }
 
-function sanitizeVideoDefaults(value: unknown): VideoGenerationDefaults {
+function getDefaultVideoDefaultsForProvider(providerId: AiProviderId): VideoGenerationDefaults {
+  return { ...DEFAULT_VIDEO_PROVIDER_DEFAULTS[normalizeAiProviderId(providerId)] };
+}
+
+function getVideoDefaultModelsForProvider(providerId: AiProviderId): VideoModel[] {
+  const providerModels = getProviderVideoModels(providerId).filter(isVideoModel);
+  return providerModels.length > 0 ? providerModels : [getDefaultVideoModelForProvider(providerId)];
+}
+
+function getFallbackVideoModelForProvider(providerId: AiProviderId, fallback: VideoGenerationDefaults): VideoModel {
+  const providerModels = getVideoDefaultModelsForProvider(providerId);
+  return providerModels.includes(fallback.model) ? fallback.model : providerModels[0] || DEFAULT_VIDEO_PROVIDER_DEFAULTS.bltcy.model;
+}
+
+function isVideoDefaultAspectRatio(value: unknown): value is VideoAspectRatio {
+  return value === '16:9'
+    || value === '9:16'
+    || value === '1:1'
+    || value === '4:3'
+    || value === '3:4'
+    || value === '3:2'
+    || value === '2:3'
+    || value === '21:9';
+}
+
+function sanitizeVideoDefaults(
+  value: unknown,
+  options: { providerId?: AiProviderId; fallback?: VideoGenerationDefaults } = {},
+): VideoGenerationDefaults {
+  const providerId = normalizeAiProviderId(options.providerId || DEFAULT_AI_PROVIDER_ID);
+  const fallback = options.fallback || getDefaultVideoDefaultsForProvider(providerId);
   const parsed = isObject(value) ? value : {};
-  const model = parsed.model === 'veo3.1'
-    || parsed.model === 'veo3.1-fast'
-    || parsed.model === 'veo3.1-components'
-    || parsed.model === 'doubao-seedance-2-0-260128'
+  const allowedModels = getVideoDefaultModelsForProvider(providerId);
+  const fallbackModel = getFallbackVideoModelForProvider(providerId, fallback);
+  const model = isVideoModel(parsed.model) && allowedModels.includes(parsed.model)
     ? parsed.model
-    : DEFAULT_WORKBENCH_SETTINGS.videoDefaults.model;
-  const aspectRatio = parsed.aspectRatio === '16:9'
-    || parsed.aspectRatio === '9:16'
-    || parsed.aspectRatio === '1:1'
-    || parsed.aspectRatio === '4:3'
-    || parsed.aspectRatio === '3:4'
+    : fallbackModel;
+  const aspectRatioOptions = getVideoAspectRatioOptions(model);
+  const aspectRatio = isVideoDefaultAspectRatio(parsed.aspectRatio) && aspectRatioOptions.includes(parsed.aspectRatio)
     ? parsed.aspectRatio
-    : DEFAULT_WORKBENCH_SETTINGS.videoDefaults.aspectRatio;
+    : aspectRatioOptions.includes(fallback.aspectRatio)
+      ? fallback.aspectRatio
+      : aspectRatioOptions[0] || '16:9';
+  const durationOptions = getVideoDurationOptions(model);
   const duration = typeof parsed.duration === 'string' && (VIDEO_DURATION_OPTIONS as readonly string[]).includes(parsed.duration)
+    && durationOptions.includes(parsed.duration as VideoDuration)
     ? parsed.duration as VideoDuration
-    : DEFAULT_WORKBENCH_SETTINGS.videoDefaults.duration;
+    : durationOptions.includes(fallback.duration)
+      ? fallback.duration
+      : durationOptions[0] || '5s';
 
   return {
     model,
@@ -353,14 +407,30 @@ function sanitizeVideoDefaults(value: unknown): VideoGenerationDefaults {
     enhancePrompt:
       typeof parsed.enhancePrompt === 'boolean'
         ? parsed.enhancePrompt
-        : DEFAULT_WORKBENCH_SETTINGS.videoDefaults.enhancePrompt,
+        : fallback.enhancePrompt,
   };
+}
+
+function sanitizeVideoProviderDefaults(value: unknown, legacyVideoDefaults: VideoGenerationDefaults): Record<AiProviderId, VideoGenerationDefaults> {
+  const parsed = isObject(value) ? value : {};
+  return AI_PROVIDER_OPTIONS.reduce((acc, provider) => {
+    const providerId = provider.id;
+    const fallback = providerId === DEFAULT_AI_PROVIDER_ID
+      ? legacyVideoDefaults
+      : getDefaultVideoDefaultsForProvider(providerId);
+    acc[providerId] = parsed[providerId] === undefined
+      ? fallback
+      : sanitizeVideoDefaults(parsed[providerId], { providerId, fallback });
+    return acc;
+  }, {} as Record<AiProviderId, VideoGenerationDefaults>);
 }
 
 export function normalizeWorkbenchSettings(value: unknown): WorkbenchSettings {
   const parsed = isObject(value) ? value : {};
   const imageDefaults = sanitizeImageDefaults(parsed.imageDefaults, { providerId: DEFAULT_AI_PROVIDER_ID });
   const imageProviderDefaults = sanitizeImageProviderDefaults(parsed.imageProviderDefaults, imageDefaults);
+  const videoDefaults = sanitizeVideoDefaults(parsed.videoDefaults, { providerId: DEFAULT_AI_PROVIDER_ID });
+  const videoProviderDefaults = sanitizeVideoProviderDefaults(parsed.videoProviderDefaults, videoDefaults);
 
   return {
     autoSaveGenerated:
@@ -385,7 +455,8 @@ export function normalizeWorkbenchSettings(value: unknown): WorkbenchSettings {
         : DEFAULT_WORKBENCH_SETTINGS.defaultImageSurface,
     imageDefaults: imageProviderDefaults[DEFAULT_AI_PROVIDER_ID],
     imageProviderDefaults,
-    videoDefaults: sanitizeVideoDefaults(parsed.videoDefaults),
+    videoDefaults: videoProviderDefaults[DEFAULT_AI_PROVIDER_ID],
+    videoProviderDefaults,
   };
 }
 
@@ -415,6 +486,35 @@ export function setImageDefaultsForProvider(
     ...settings,
     imageDefaults: imageProviderDefaults[DEFAULT_AI_PROVIDER_ID],
     imageProviderDefaults,
+  };
+}
+
+export function getVideoDefaultsForProvider(settings: WorkbenchSettings, providerId: unknown): VideoGenerationDefaults {
+  const normalizedProviderId = normalizeAiProviderId(providerId);
+  return settings.videoProviderDefaults?.[normalizedProviderId]
+    || getDefaultVideoDefaultsForProvider(normalizedProviderId);
+}
+
+export function setVideoDefaultsForProvider(
+  settings: WorkbenchSettings,
+  providerId: unknown,
+  videoDefaults: VideoGenerationDefaults,
+): WorkbenchSettings {
+  const normalizedProviderId = normalizeAiProviderId(providerId);
+  const currentProviderDefaults = getVideoDefaultsForProvider(settings, normalizedProviderId);
+  const nextProviderDefaults = sanitizeVideoDefaults(videoDefaults, {
+    providerId: normalizedProviderId,
+    fallback: currentProviderDefaults,
+  });
+  const videoProviderDefaults = {
+    ...settings.videoProviderDefaults,
+    [normalizedProviderId]: nextProviderDefaults,
+  };
+
+  return {
+    ...settings,
+    videoDefaults: videoProviderDefaults[DEFAULT_AI_PROVIDER_ID],
+    videoProviderDefaults,
   };
 }
 

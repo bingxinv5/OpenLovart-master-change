@@ -593,6 +593,16 @@ export function extractVideoUrl(payload: unknown): string | null {
     }
   }
 
+  const rootOutput = getNestedValue(payload, 'output');
+  if (rootOutput && typeof rootOutput === 'object') {
+    const nested = rootOutput as Record<string, unknown>;
+    const candidate = nested.video_url || nested.url || nested.video || nested.download_url;
+
+    if (typeof candidate === 'string' && candidate.length > 0) {
+      return candidate;
+    }
+  }
+
   const fallbackPaths = [
     ['output'],
     ['data', 'url'],
@@ -605,6 +615,8 @@ export function extractVideoUrl(payload: unknown): string | null {
     ['data', 'video_url'],
     ['data', 'video'],
     ['data', 'download_url'],
+    ['detail', 'url'],
+    ['detail', 'video_url'],
     ['video_url'],
     ['video'],
     ['url'],

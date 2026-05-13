@@ -6,6 +6,7 @@ import {
     getVideoAddImageTitle,
     getVideoAspectRatioOptions,
     getVideoDurationOptions,
+    getVideoModelOptionsForProvider,
     getVideoResolutionOptions,
     getImageModelOptionsForProvider,
     resolveImageGeneratorModelOptions,
@@ -46,9 +47,7 @@ describe('generator model options', () => {
     it('exposes MagicAPI-specific image model options by provider', () => {
         expect(getImageModelOptionsForProvider('magicapi')).toEqual([
             'gemini-3-pro-image-preview',
-            'gemini-2.5-flash-image-preview',
             'gemini-3.1-flash-image-preview',
-            'doubao-seedream-4-5-251128',
             'doubao-seedream-5-0-260128',
             'grok-4-2-image',
             'gpt-image-2',
@@ -172,5 +171,25 @@ describe('generator model options', () => {
         expect(getVideoResolutionOptions('doubao-seedance-2-0-260128')).toEqual(['480p', '720p']);
         expect(getVideoAddImageTitle('doubao-seedance-2-0-260128', 'first-last-frame')).toBe('添加首尾帧图片');
         expect(getVideoAddImageTitle('doubao-seedance-2-0-260128', 'omni-reference')).toBe('添加全能参考素材');
+    });
+
+    it('exposes MagicAPI-specific video model options by provider', () => {
+        expect(getVideoModelOptionsForProvider('magicapi')).toEqual([
+            'sora-2',
+            'grok-video-3-pro',
+            'doubao-seed-2-0-pro-260215',
+            'veo_3_1',
+            'veo_3_1-fast',
+            'veo_3_1-components',
+        ]);
+        expect(getVideoDurationOptions('sora-2')).toEqual(['5s', '10s', '15s']);
+        expect(getVideoDurationOptions('grok-video-3-pro')).toEqual(['10s']);
+        expect(getVideoResolutionOptions('grok-video-3-pro')).toEqual(['720p', '1080p']);
+        expect(getVideoDurationOptions('doubao-seed-2-0-pro-260215')).toEqual(['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s']);
+        expect(getVideoAspectRatioOptions('doubao-seed-2-0-pro-260215')).toEqual(['16:9', '9:16', '1:1', '4:3', '3:4']);
+        expect(getVideoResolutionOptions('doubao-seed-2-0-pro-260215')).toEqual(['480p', '720p']);
+        expect(getVideoDurationOptions('veo_3_1')).toEqual(['5s', '8s']);
+        expect(getVideoDurationOptions('veo_3_1-fast')).toEqual(['5s', '8s']);
+        expect(getVideoDurationOptions('veo_3_1-components')).toEqual(['5s', '8s']);
     });
 });

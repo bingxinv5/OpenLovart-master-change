@@ -135,4 +135,13 @@ describe('generation-defaults adapter', () => {
         });
         expect((resolved as Record<string, unknown>).enhancePrompt).toBe(false);
     });
+
+    it('can resolve MagicAPI video defaults explicitly by provider', () => {
+        const defaults = getVideoGenerationDefaults('magicapi');
+
+        expect(defaults.model).toBe('sora-2');
+        expect(defaults.aspectRatio).toBe('16:9');
+        expect(defaults.duration).toBe('10s');
+        expect(defaults.enhancePrompt).toBe(false);
+    });
 });

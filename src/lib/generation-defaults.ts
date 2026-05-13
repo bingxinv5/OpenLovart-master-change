@@ -19,6 +19,7 @@
 import { useState, useEffect } from 'react';
 import {
     getImageDefaultsForProvider,
+    getVideoDefaultsForProvider,
     getWorkbenchSettings,
     subscribeWorkbenchSettingsChange,
     type ImageGenerationDefaults,
@@ -36,8 +37,8 @@ export function getImageGenerationDefaults(providerId: AiProviderId = getApiSett
     return getImageDefaultsForProvider(getWorkbenchSettings(), providerId);
 }
 
-export function getVideoGenerationDefaults(): VideoGenerationDefaults {
-    return getWorkbenchSettings().videoDefaults;
+export function getVideoGenerationDefaults(providerId: AiProviderId = getApiSettings().providerId): VideoGenerationDefaults {
+    return getVideoDefaultsForProvider(getWorkbenchSettings(), providerId);
 }
 
 // ── Request Resolvers ───────────────────────────────────────
@@ -108,13 +109,18 @@ export function useImageGenerationDefaults(): ImageGenerationDefaults {
  */
 export function useVideoGenerationDefaults(): VideoGenerationDefaults {
     const [defaults, setDefaults] = useState<VideoGenerationDefaults>(
-        () => getWorkbenchSettings().videoDefaults,
+        () => getVideoGenerationDefaults(),
     );
 
     useEffect(() => {
-        return subscribeWorkbenchSettingsChange(() => {
-            setDefaults(getWorkbenchSettings().videoDefaults);
-        });
+        const syncDefaults = () => setDefaults(getVideoGenerationDefaults());
+        const unsubscribeWorkbench = subscribeWorkbenchSettingsChange(syncDefaults);
+        const unsubscribeApiSettings = subscribeApiSettingsChange(syncDefaults);
+
+        return () => {
+            unsubscribeWorkbench();
+            unsubscribeApiSettings();
+        };
     }, []);
 
     return defaults;

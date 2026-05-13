@@ -28,7 +28,7 @@ import {
     requestAiChat,
 } from '@/lib/ai-client';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
-import { useImageGenerationDefaults } from '@/lib/generation-defaults';
+import { useImageGenerationDefaults, useVideoGenerationDefaults } from '@/lib/generation-defaults';
 import { runImageGenerationFlow } from './image-generation-flow';
 import { runVideoGenerationFlow } from './video-generation-flow';
 import { useAiDesignerTaskPolling } from './ai-designer-task-polling';
@@ -124,6 +124,7 @@ function getAiDesignerMentionSearchText(item: MentionItem): string {
 
 export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externalModel, onModelChange, isExpanded, onExpandToggle, panelMode, onPanelModeChange, marks, onDeleteMark, onClearAllMarks, canvasImages, onPickFromCanvas, canvasPlanContextSummary, onApplyCanvasPlan }: AiDesignerPanelProps) {
     const imageDefaults = useImageGenerationDefaults();
+    const videoDefaults = useVideoGenerationDefaults();
     const [inputValue, setInputValue] = useState('');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -342,7 +343,10 @@ export function AiDesignerPanel({ onClose, initialPrompt, selectedModel: externa
         try {
             const data = await runVideoGenerationFlow({
                 prompt,
-                model: 'veo3.1',
+                model: videoDefaults.model,
+                aspectRatio: videoDefaults.aspectRatio,
+                duration: videoDefaults.duration,
+                enhancePrompt: videoDefaults.enhancePrompt,
                 images: currentAttachments.length > 0
                     ? currentAttachments.slice(0, 2).map((att, i) => ({
                         image: att.dataUrl,

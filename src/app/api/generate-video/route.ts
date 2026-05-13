@@ -1,8 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
+import { decodeDataUrlBytes, extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
 import { debugLog } from '@/lib/debug-log';
 import { isMagicApiProvider } from '@/lib/ai-providers';
 import { encodeVideoTaskId, getVideoGenerationTransport } from '@/lib/video-generation-transport';
+import {
+    getMaxImagesForVideoModel,
+    isMagicApiDoubaoMultipartVideoModel,
+    isMagicApiDoubaoUrlVideoModel,
+    isMagicApiGrokVideoModel,
+    isMagicApiHailuoVideoModel,
+    isMagicApiJsonVideoModel,
+    isMagicApiKlingVideoModel,
+    isMagicApiMultipartVideoModel,
+    isMagicApiVeoVideoModel,
+    isMagicApiViduVideoModel,
+    isMagicApiWanImageToVideoModel,
+    isMagicApiWanVideoModel,
+    resolveMagicApiGrokResolution,
+    resolveMagicApiVideoPixelSize,
+    resolveMagicApiVideoSeconds,
+    supportsVideoAudioGeneration,
+} from '@/lib/video-generation-models';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     ApiRouteError,
@@ -47,7 +65,11 @@ export async function POST(request: NextRequest) {
 
         const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request);
 
-        const requestedModel = typeof model === 'string' && model.trim() ? model.trim() : 'veo3.1';
+        const requestedModel = typeof model === 'string' && model.trim()
+            ? model.trim()
+            : isMagicApiProvider(providerId)
+                ? 'sora-2'
+                : 'veo3.1';
         const selectedModel = resolveUpstreamVideoModel(requestedModel);
         const transport = getVideoGenerationTransport(requestedModel);
         const normalizedPrompt = typeof prompt === 'string' ? prompt : '';
@@ -109,10 +131,12 @@ export async function POST(request: NextRequest) {
                 prompt: normalizedPrompt,
                 aspectRatio: normalizedAspectRatio,
                 duration: normalizedDuration,
+                generationMode,
                 imageEntries: normalizedImageEntries,
                 videos: normalizedVideos,
                 audios: normalizedAudios,
                 resolution: normalizedResolution,
+                enableUpsample,
                 generateAudio,
                 watermark,
                 seed: normalizedSeed,
@@ -190,17 +214,19 @@ async function submitMagicApiVideoGeneration(params: {
     prompt: string;
     aspectRatio?: string;
     duration?: number;
+    generationMode: unknown;
     imageEntries: Array<{ image: string; imageType?: string }>;
     videos: string[];
     audios: string[];
     resolution?: '480p' | '720p' | '1080p';
+    enableUpsample: unknown;
     generateAudio: unknown;
     watermark: unknown;
     seed?: number;
     returnLastFrame: unknown;
     tools: Array<{ type: string }>;
 }) {
-    const body = buildMagicApiVideoBody(params);
+    const upstreamRequest = buildMagicApiVideoRequest(params);
     const targetUrl = `${params.baseUrl}/v1/videos`;
     let response: Response;
 
@@ -209,8 +235,8 @@ async function submitMagicApiVideoGeneration(params: {
             targetUrl,
             {
                 method: 'POST',
-                headers: createAiHeaders(params.apiKey, true),
-                body: JSON.stringify(body),
+                headers: createAiHeaders(params.apiKey, upstreamRequest.format === 'json'),
+                body: upstreamRequest.body,
             },
             { label: 'generate-video:magicapi', timeoutMs: AI_UPSTREAM_TIMEOUT_MS.submit },
         );
@@ -222,6 +248,15 @@ async function submitMagicApiVideoGeneration(params: {
     const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
 
     if (!response.ok) {
+        const fallbackModel = resolveMagicApiUnavailableModelFallback(params.selectedModel, data);
+        if (fallbackModel) {
+            console.warn(`[generate-video][magicapi] ${params.selectedModel} is unavailable for this channel; retrying with ${fallbackModel}.`);
+            return await submitMagicApiVideoGeneration({
+                ...params,
+                selectedModel: fallbackModel,
+            });
+        }
+
         console.error('[generate-video][magicapi] API error:', data);
         throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
     }
@@ -254,66 +289,164 @@ async function submitMagicApiVideoGeneration(params: {
     );
 }
 
-function buildMagicApiVideoBody(params: {
+function buildMagicApiVideoRequest(params: {
     selectedModel: string;
     prompt: string;
     aspectRatio?: string;
     duration?: number;
+    generationMode: unknown;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+    resolution?: '480p' | '720p' | '1080p';
+    enableUpsample: unknown;
+    generateAudio: unknown;
+    watermark: unknown;
+    seed?: number;
+    returnLastFrame: unknown;
+    tools: Array<{ type: string }>;
+}): { format: 'json' | 'multipart'; body: BodyInit } {
+    if (isMagicApiDoubaoUrlVideoModel(params.selectedModel)) {
+        return {
+            format: 'json',
+            body: JSON.stringify(buildMagicApiDoubaoVideoBody(params)),
+        };
+    }
+
+    if (isMagicApiJsonVideoModel(params.selectedModel)) {
+        return {
+            format: 'json',
+            body: JSON.stringify(buildMagicApiPluginJsonVideoBody(params)),
+        };
+    }
+
+    if (!isMagicApiMultipartVideoModel(params.selectedModel)) {
+        throw new ApiRouteError(`MagicAPI 暂不支持视频模型 ${params.selectedModel}`, 400);
+    }
+
+    return {
+        format: 'multipart',
+        body: buildMagicApiMultipartVideoBody(params),
+    };
+}
+
+function resolveMagicApiUnavailableModelFallback(model: string, payload: unknown): string | null {
+    if (!isMagicApiVeoVideoModel(model)) {
+        return null;
+    }
+
+    const errorCode = getNestedValue(payload, 'error', 'code');
+    const errorMessage = getApiErrorMessage(payload, '');
+    const normalizedError = `${typeof errorCode === 'string' ? errorCode : ''} ${errorMessage}`.toLowerCase();
+    const isUnavailable = normalizedError.includes('model_not_found')
+        || normalizedError.includes('channel not found')
+        || normalizedError.includes('available channel');
+
+    return isUnavailable ? 'sora-2' : null;
+}
+
+function buildMagicApiMultipartVideoBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    resolution?: '480p' | '720p' | '1080p';
+    enableUpsample?: unknown;
+    generateAudio?: unknown;
+}) {
+    if (isMagicApiDoubaoMultipartVideoModel(params.selectedModel)) {
+        return buildMagicApiDoubaoMultipartVideoBody(params);
+    }
+
+    const formData = new FormData();
+    const seconds = resolveMagicApiVideoSeconds(params.selectedModel, params.duration);
+
+    formData.append('model', params.selectedModel);
+    formData.append('prompt', params.prompt);
+    formData.append('seconds', String(seconds));
+
+    if (isMagicApiGrokVideoModel(params.selectedModel)) {
+        formData.append('aspect_ratio', params.aspectRatio || '16:9');
+        formData.append('size', resolveMagicApiGrokResolution(params.resolution));
+    } else {
+        formData.append('size', resolveMagicApiVideoPixelSize(params.aspectRatio));
+    }
+
+    if (typeof params.enableUpsample === 'boolean') {
+        formData.append('enable_upsample', String(params.enableUpsample));
+    }
+
+    if (supportsVideoAudioGeneration(params.selectedModel)) {
+        formData.append('metadata', JSON.stringify({
+            output_config: {
+                aspect_ratio: params.aspectRatio || '16:9',
+                audio_generation: params.generateAudio === true ? 'Enabled' : 'Disabled',
+            },
+        }));
+    }
+
+    appendMagicApiMultipartImages(formData, params.selectedModel, params.imageEntries, 'input_reference');
+    return formData;
+}
+
+function buildMagicApiDoubaoVideoBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    generationMode: unknown;
     imageEntries: Array<{ image: string; imageType?: string }>;
     videos: string[];
     audios: string[];
     resolution?: '480p' | '720p' | '1080p';
     generateAudio: unknown;
     watermark: unknown;
-    seed?: number;
-    returnLastFrame: unknown;
     tools: Array<{ type: string }>;
 }) {
+    const imageUrls = normalizeMagicApiDoubaoImageUrls(params.imageEntries);
     const body: Record<string, unknown> = {
         model: params.selectedModel,
         prompt: params.prompt,
+        duration: resolveMagicApiVideoSeconds(params.selectedModel, params.duration),
+        ratio: params.aspectRatio || '16:9',
+        resolution: params.resolution === '480p' ? '480p' : '720p',
+        watermark: typeof params.watermark === 'boolean' ? params.watermark : false,
     };
-    const images = normalizeMagicApiVideoImages(params.imageEntries);
-
-    if (params.aspectRatio) {
-        body.aspect_ratio = params.aspectRatio;
-        body.ratio = params.aspectRatio;
-    }
-
-    if (params.duration !== undefined) {
-        body.duration = params.duration;
-    }
-
-    if (images.length > 0) {
-        body.images = images;
-    }
-
-    if (params.videos.length > 0) {
-        body.videos = params.videos;
-    }
-
-    if (params.audios.length > 0) {
-        body.audios = params.audios;
-    }
-
-    if (params.resolution) {
-        body.resolution = params.resolution;
-    }
 
     if (typeof params.generateAudio === 'boolean') {
         body.generate_audio = params.generateAudio;
     }
 
-    if (typeof params.watermark === 'boolean') {
-        body.watermark = params.watermark;
+    const firstFrame = imageUrls.find((entry) => entry.imageType === 'first_frame');
+    const lastFrame = imageUrls.find((entry) => entry.imageType === 'last_frame');
+    const references = imageUrls.filter((entry) => entry.imageType === 'reference');
+    const fallbackFirstFrame = !firstFrame && references.length === 0 ? imageUrls[0] : undefined;
+    const effectiveFirstFrame = firstFrame ?? fallbackFirstFrame;
+
+    if (effectiveFirstFrame) {
+        body.first_frame_url = effectiveFirstFrame.image;
     }
 
-    if (params.seed !== undefined) {
-        body.seed = params.seed;
+    if (lastFrame && lastFrame.image !== effectiveFirstFrame?.image) {
+        body.last_frame_url = lastFrame.image;
     }
 
-    if (typeof params.returnLastFrame === 'boolean') {
-        body.return_last_frame = params.returnLastFrame;
+    if (references.length > 0) {
+        body.reference_image_urls = references.map((entry) => entry.image);
+    }
+
+    if (params.videos.length === 1) {
+        body.reference_video_url = params.videos[0];
+    } else if (params.videos.length > 1) {
+        body.reference_video_urls = params.videos;
+    }
+
+    if (params.audios.length > 0) {
+        if (imageUrls.length === 0 && params.videos.length === 0) {
+            throw new ApiRouteError('参考音频不能单独使用，至少还需要一条参考图或参考视频', 400);
+        }
+        body.audio_url = params.audios[0];
     }
 
     if (params.tools.length > 0) {
@@ -323,26 +456,184 @@ function buildMagicApiVideoBody(params: {
     return body;
 }
 
-function normalizeMagicApiVideoImages(imageEntries: Array<{ image: string; imageType?: string }>): string[] {
-    return imageEntries.map((entry) => {
+function buildMagicApiDoubaoMultipartVideoBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+}) {
+    const formData = new FormData();
+    const seconds = resolveMagicApiVideoSeconds(params.selectedModel, params.duration);
+    const firstFrame = params.imageEntries.find((entry) => entry.imageType === 'first_frame') ?? params.imageEntries[0];
+    const lastFrame = params.imageEntries.find((entry) => entry.imageType === 'last_frame')
+        ?? params.imageEntries.find((entry) => entry.image !== firstFrame?.image);
+
+    formData.append('model', params.selectedModel);
+    formData.append('prompt', params.prompt);
+    formData.append('seconds', String(seconds));
+    formData.append('size', params.aspectRatio || '16:9');
+
+    if (firstFrame) {
+        appendMagicApiMultipartImage(formData, 'first_frame_image', firstFrame.image, 0);
+    }
+
+    if (lastFrame && lastFrame.image !== firstFrame?.image) {
+        appendMagicApiMultipartImage(formData, 'last_frame_image', lastFrame.image, 1);
+    }
+
+    return formData;
+}
+
+function buildMagicApiPluginJsonVideoBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    generateAudio: unknown;
+}) {
+    const { model, size } = resolveMagicApiJsonModelAndSize(params.selectedModel, params.aspectRatio);
+    const seconds = resolveMagicApiVideoSeconds(params.selectedModel, params.duration);
+    const outputConfig: Record<string, unknown> = isMagicApiHailuoVideoModel(params.selectedModel)
+        ? { resolution: '720P' }
+        : {
+            aspect_ratio: params.aspectRatio || '16:9',
+            audio_generation: params.generateAudio === true ? 'Enabled' : 'Disabled',
+        };
+    const resolution = inferMagicApiResolutionFromSize(size);
+
+    if (resolution && !isMagicApiHailuoVideoModel(params.selectedModel)) {
+        outputConfig.resolution = resolution;
+    }
+
+    if (isMagicApiKlingVideoModel(params.selectedModel)) {
+        outputConfig.duration = seconds;
+    }
+
+    const body: Record<string, unknown> = {
+        model,
+        prompt: params.prompt,
+        seconds: String(seconds),
+        metadata: { output_config: outputConfig },
+    };
+
+    if (size && (isMagicApiWanVideoModel(params.selectedModel) || isMagicApiKlingVideoModel(params.selectedModel))) {
+        body.size = size;
+    }
+
+    const firstFrame = params.imageEntries.find((entry) => entry.imageType === 'first_frame') ?? params.imageEntries[0];
+    const lastFrame = params.imageEntries.find((entry) => entry.imageType === 'last_frame')
+        ?? params.imageEntries.find((entry) => entry.image !== firstFrame?.image);
+    const referenceImages = params.imageEntries.filter((entry) => entry.imageType === 'reference');
+
+    if (isMagicApiWanImageToVideoModel(params.selectedModel) && firstFrame) {
+        body.image = firstFrame.image;
+    } else if (isMagicApiViduVideoModel(params.selectedModel)) {
+        if (firstFrame) {
+            body.image = firstFrame.image;
+        }
+        if (lastFrame && lastFrame.image !== firstFrame?.image) {
+            body.metadata = {
+                ...(body.metadata as Record<string, unknown>),
+                last_frame_url: lastFrame.image,
+            };
+        }
+        if (referenceImages.length > 0) {
+            body.images = referenceImages.map((entry) => entry.image).slice(0, 3);
+        }
+    } else if (isMagicApiHailuoVideoModel(params.selectedModel) && firstFrame) {
+        body.image = firstFrame.image;
+    } else if (isMagicApiKlingVideoModel(params.selectedModel) && params.imageEntries.length > 0) {
+        const references = params.imageEntries.map((entry) => entry.image);
+        body.input_reference = references.length === 1 ? references[0] : references;
+    }
+
+    return body;
+}
+
+function resolveMagicApiJsonModelAndSize(model: string, aspectRatio?: string): { model: string; size: string } {
+    if (isMagicApiWanVideoModel(model) && model.includes(':')) {
+        const [upstreamModel, size] = model.split(':', 2);
+        return { model: upstreamModel || model, size: size || '' };
+    }
+
+    if (isMagicApiKlingVideoModel(model)) {
+        return { model, size: resolveMagicApiVideoPixelSize(aspectRatio) };
+    }
+
+    return { model, size: '' };
+}
+
+function inferMagicApiResolutionFromSize(size: string): string | undefined {
+    const normalized = size.toLowerCase();
+    if (normalized.includes('1920') || normalized.includes('1080')) return '1080P';
+    if (normalized.includes('1280') || normalized.includes('720')) return '720P';
+    if (normalized.includes('540')) return '540P';
+    return undefined;
+}
+
+function appendMagicApiMultipartImages(
+    formData: FormData,
+    model: string,
+    imageEntries: Array<{ image: string; imageType?: string }>,
+    fieldName: string,
+) {
+    const maxImages = getMaxImagesForVideoModel(model);
+    const images = imageEntries.slice(0, maxImages);
+
+    if (imageEntries.length > maxImages) {
+        throw new ApiRouteError(`参考图数量不能超过 ${maxImages} 张`, 400);
+    }
+
+    images.forEach((entry, index) => {
         const image = entry.image.trim();
         if (!image) {
-            return '';
+            return;
+        }
+
+        appendMagicApiMultipartImage(formData, fieldName, image, index);
+    });
+}
+
+function appendMagicApiMultipartImage(formData: FormData, fieldName: string, image: string, index: number) {
+    if (!isDataUrl(image)) {
+        formData.append(fieldName, image);
+        return;
+    }
+
+    const { bytes, mime } = decodeDataUrlBytes(image);
+    if (bytes.byteLength > MAX_VIDEO_REFERENCE_IMAGE_BYTES) {
+        throw new ApiRouteError(
+            `单张参考图不能超过 ${(MAX_VIDEO_REFERENCE_IMAGE_BYTES / 1024 / 1024).toFixed(0)}MB`,
+            413,
+        );
+    }
+
+    const extension = mime.includes('jpeg') ? 'jpg' : mime.split('/')[1]?.split(';')[0] || 'png';
+    const normalizedBytes = new Uint8Array(bytes.byteLength);
+    normalizedBytes.set(bytes);
+    const blob = new Blob([normalizedBytes.buffer], { type: mime });
+    formData.append(fieldName, blob, `reference-${index + 1}.${extension}`);
+}
+
+function normalizeMagicApiDoubaoImageUrls(imageEntries: Array<{ image: string; imageType?: string }>): Array<{ image: string; imageType?: string }> {
+    const normalized: Array<{ image: string; imageType?: string }> = [];
+
+    imageEntries.forEach((entry) => {
+        const image = entry.image.trim();
+        if (!image) {
+            return;
         }
 
         if (isDataUrl(image)) {
-            const base64 = extractDataUrlBase64(image);
-            if (estimateBase64Bytes(base64) > MAX_VIDEO_REFERENCE_IMAGE_BYTES) {
-                throw new ApiRouteError(
-                    `单张参考图不能超过 ${(MAX_VIDEO_REFERENCE_IMAGE_BYTES / 1024 / 1024).toFixed(0)}MB`,
-                    413,
-                );
-            }
-            return base64;
+            throw new ApiRouteError('MagicAPI 豆包视频参考图需要先上传为可访问 URL；请先使用图片素材库或上传服务生成链接。', 400);
         }
 
-        return image;
-    }).filter((image) => image.length > 0);
+        normalized.push({ image, imageType: entry.imageType });
+    });
+
+    return normalized;
 }
 
 function resolveUpstreamVideoModel(model: string): string {

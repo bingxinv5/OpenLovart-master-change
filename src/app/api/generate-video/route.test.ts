@@ -3,13 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
 
-function createRequest(body: Record<string, unknown>) {
+function createRequest(body: Record<string, unknown>, headers: Record<string, string> = {}) {
     return new NextRequest('http://localhost:3000/api/generate-video', {
         method: 'POST',
         headers: {
             'content-type': 'application/json',
             'x-ai-api-key': 'test-key',
             'x-ai-base-url': 'http://localhost:3001',
+            ...headers,
         },
         body: JSON.stringify(body),
     });
@@ -145,6 +146,216 @@ describe('generate-video route', () => {
         await expect(response.json()).resolves.toEqual({
             status: 'pending',
             taskId: 'task-pending-video-1',
+        });
+    });
+
+    it('submits MagicAPI Sora videos as multipart form data', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'video-sora-1', status: 'queued' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '电影感雨夜街头',
+            model: 'sora-2',
+            aspectRatio: '16:9',
+            duration: '10s',
+            images: [{ image: 'data:image/png;base64,QUFBQQ==', image_type: 'first_frame' }],
+        }, { 'x-ai-provider': 'magicapi' }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/videos');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+
+        const upstreamBody = init?.body as FormData;
+        expect(upstreamBody.get('model')).toBe('sora-2');
+        expect(upstreamBody.get('prompt')).toBe('电影感雨夜街头');
+        expect(upstreamBody.get('size')).toBe('1280x720');
+        expect(upstreamBody.get('seconds')).toBe('10');
+        expect(upstreamBody.get('input_reference')).toBeTruthy();
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'magicapi:video-sora-1',
+        });
+    });
+
+    it('submits MagicAPI Grok videos with fixed pro duration and resolution', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { task_id: 'video-grok-pro-1' } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '产品广告旋转镜头',
+            model: 'grok-video-3-pro',
+            aspectRatio: '2:3',
+            duration: '6s',
+            resolution: '720p',
+        }, { 'x-ai-provider': 'magicapi' }));
+
+        expect(response.status).toBe(200);
+        const [, init] = fetchSpy.mock.calls[0] ?? [];
+        const upstreamBody = init?.body as FormData;
+        expect(upstreamBody.get('model')).toBe('grok-video-3-pro');
+        expect(upstreamBody.get('aspect_ratio')).toBe('2:3');
+        expect(upstreamBody.get('seconds')).toBe('10');
+        expect(upstreamBody.get('size')).toBe('720P');
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'magicapi:video-grok-pro-1',
+        });
+    });
+
+    it('retries unavailable MagicAPI Veo models with Sora 2', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                error: {
+                    code: 'model_not_found',
+                    message: 'Failed to get available channel for model veo_3_1 under group default (distributor): channel not found',
+                },
+            }), {
+                status: 400,
+                headers: { 'content-type': 'application/json' },
+            }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'video-veo-fallback-1', status: 'queued' }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }));
+
+        const response = await POST(createRequest({
+            prompt: '一只老虎在跳舞',
+            model: 'veo_3_1',
+            aspectRatio: '16:9',
+            duration: '8s',
+        }, { 'x-ai-provider': 'magicapi' }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+        const firstBody = fetchSpy.mock.calls[0]?.[1]?.body as FormData;
+        const secondBody = fetchSpy.mock.calls[1]?.[1]?.body as FormData;
+        expect(firstBody.get('model')).toBe('veo_3_1');
+        expect(secondBody.get('model')).toBe('sora-2');
+        expect(secondBody.get('prompt')).toBe('一只老虎在跳舞');
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'magicapi:video-veo-fallback-1',
+        });
+    });
+
+    it('submits MagicAPI Wan models as JSON with upstream model and size split', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'video-wan-1', status: 'queued' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '雨夜街头电影镜头',
+            model: 'wan2.6-t2v:1920*1080',
+            aspectRatio: '16:9',
+            duration: '25s',
+        }, { 'x-ai-provider': 'magicapi' }));
+
+        expect(response.status).toBe(200);
+        const [, init] = fetchSpy.mock.calls[0] ?? [];
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+
+        const upstreamBody = JSON.parse(String(init?.body));
+        expect(upstreamBody).toMatchObject({
+            model: 'wan2.6-t2v',
+            prompt: '雨夜街头电影镜头',
+            size: '1920*1080',
+            seconds: '25',
+            metadata: {
+                output_config: {
+                    aspect_ratio: '16:9',
+                    audio_generation: 'Disabled',
+                    resolution: '1080P',
+                },
+            },
+        });
+    });
+
+    it('submits MagicAPI Doubao Seed 2.0 Pro models as URL-based JSON payloads', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'video-doubao-seed-pro-1', status: 'queued' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '角色从首帧走到尾帧',
+            model: 'doubao-seed-2-0-pro-260215',
+            aspectRatio: '9:16',
+            duration: '15s',
+            referenceImages: ['https://example.com/first-frame.png'],
+            generationMode: 'first-last-frame',
+            resolution: '720p',
+            generateAudio: true,
+        }, { 'x-ai-provider': 'magicapi' }));
+
+        expect(response.status).toBe(200);
+        const [, init] = fetchSpy.mock.calls[0] ?? [];
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+
+        const upstreamBody = JSON.parse(String(init?.body));
+        expect(upstreamBody).toMatchObject({
+            model: 'doubao-seed-2-0-pro-260215',
+            prompt: '角色从首帧走到尾帧',
+            duration: 15,
+            ratio: '9:16',
+            resolution: '720p',
+            generate_audio: true,
+            reference_image_urls: ['https://example.com/first-frame.png'],
+        });
+    });
+
+    it('submits MagicAPI Doubao videos as URL-based JSON payloads', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'dbv1_xxxxx', status: 'queued' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '使用参考素材生成广告视频',
+            model: 'doubao-seedance-2-0-260128',
+            aspectRatio: '4:3',
+            duration: '6s',
+            generationMode: 'omni-reference',
+            referenceImages: ['https://example.com/ref.png'],
+            videos: ['https://example.com/ref.mp4'],
+            audios: ['https://example.com/ref.mp3'],
+            resolution: '480p',
+            generateAudio: true,
+        }, { 'x-ai-provider': 'magicapi' }));
+
+        expect(response.status).toBe(200);
+        const [, init] = fetchSpy.mock.calls[0] ?? [];
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+
+        const upstreamBody = JSON.parse(String(init?.body));
+        expect(upstreamBody).toMatchObject({
+            model: 'doubao-seedance-2-0-260128',
+            prompt: '使用参考素材生成广告视频',
+            duration: 6,
+            ratio: '4:3',
+            resolution: '480p',
+            watermark: false,
+            generate_audio: true,
+            reference_image_urls: ['https://example.com/ref.png'],
+            reference_video_url: 'https://example.com/ref.mp4',
+            audio_url: 'https://example.com/ref.mp3',
         });
     });
 });

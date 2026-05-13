@@ -54,8 +54,15 @@ export async function GET(request: NextRequest) {
 
         const failReason = getNestedValue(data, 'fail_reason')
             || getNestedValue(data, 'data', 'fail_reason')
-            || getNestedValue(data, 'data', 'error');
-        const rawProgress = getNestedValue(data, 'progress') || getNestedValue(data, 'data', 'progress');
+            || getNestedValue(data, 'detail', 'pending_info', 'failure_reason')
+            || getNestedValue(data, 'detail', 'failure_reason')
+            || getNestedValue(data, 'error', 'message')
+            || getNestedValue(data, 'data', 'error', 'message')
+            || getNestedValue(data, 'data', 'error')
+            || getNestedValue(data, 'error');
+        const rawProgress = getNestedValue(data, 'detail', 'pending_info', 'progress_pct')
+            || getNestedValue(data, 'progress')
+            || getNestedValue(data, 'data', 'progress');
         const taskKind = inferGenerationTaskKind(data);
 
         if (status === 'success' || status === 'succeeded' || status === 'completed') {
@@ -146,7 +153,10 @@ function resolveVideoStatusEndpoint(baseUrl: string, taskId: string, transport: 
 }
 
 function resolveVideoStatusProgress(status: string, rawProgress: unknown): number {
-    const progressNum = parseTaskProgress(rawProgress);
+    const parsedProgress = parseTaskProgress(rawProgress);
+    const progressNum = parsedProgress > 0 && parsedProgress <= 1
+        ? Math.round(parsedProgress * 100)
+        : parsedProgress;
     if (status === 'not_start') {
         return 0;
     }

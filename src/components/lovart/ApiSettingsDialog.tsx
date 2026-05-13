@@ -21,9 +21,9 @@ import {
 } from '@/lib/upscale-service-settings';
 import {
     DEFAULT_WORKBENCH_SETTINGS,
-    VIDEO_DURATION_OPTIONS,
     getAutoSaveDirectoryHandle,
     getImageDefaultsForProvider,
+    getVideoDefaultsForProvider,
     getStorageEstimateInfo,
     getWorkbenchSettings,
     hasDirectoryPickerSupport,
@@ -31,8 +31,10 @@ import {
     requestPersistentStorage,
     saveWorkbenchSettings,
     setImageDefaultsForProvider,
+    setVideoDefaultsForProvider,
     type ImageGenerationDefaults,
     type StorageEstimateInfo,
+    type VideoGenerationDefaults,
     type WorkbenchSettings,
 } from '@/lib/workbench-settings';
 import {
@@ -41,6 +43,10 @@ import {
 } from '@/lib/image-generation-models';
 import {
     getImageModelOptionsForProvider,
+    getVideoAspectRatioOptions,
+    getVideoDurationOptions,
+    getVideoModelOptionsForProvider,
+    VIDEO_MODEL_LABELS,
     resolveImageGeneratorModelOptions,
     type ImageModel,
 } from './generator-model-options';
@@ -218,7 +224,11 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
 
     const currentProvider = AI_PROVIDER_OPTIONS.find((provider) => provider.id === apiProviderId) || AI_PROVIDER_OPTIONS[0];
     const activeImageDefaults = getImageDefaultsForProvider(settings, apiProviderId);
+    const activeVideoDefaults = getVideoDefaultsForProvider(settings, apiProviderId);
     const imageDefaultModelOptions = getImageModelOptionsForProvider(apiProviderId);
+    const videoDefaultModelOptions = getVideoModelOptionsForProvider(apiProviderId);
+    const videoDefaultAspectRatioOptions = getVideoAspectRatioOptions(activeVideoDefaults.model);
+    const videoDefaultDurationOptions = getVideoDurationOptions(activeVideoDefaults.model);
     const imageDefaultOptionState = resolveImageGeneratorModelOptions({
         providerId: apiProviderId,
         model: activeImageDefaults.model as ImageModel,
@@ -257,6 +267,26 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
         setSettings((prev) => {
             const currentImageDefaults = getImageDefaultsForProvider(prev, apiProviderId);
             return setImageDefaultsForProvider(prev, apiProviderId, updater(currentImageDefaults));
+        });
+    };
+
+    const updateActiveVideoDefaults = (updater: (current: VideoGenerationDefaults) => VideoGenerationDefaults) => {
+        setSettings((prev) => {
+            const currentVideoDefaults = getVideoDefaultsForProvider(prev, apiProviderId);
+            return setVideoDefaultsForProvider(prev, apiProviderId, updater(currentVideoDefaults));
+        });
+    };
+
+    const updateActiveVideoDefaultModel = (model: WorkbenchSettings['videoDefaults']['model']) => {
+        updateActiveVideoDefaults((current) => {
+            const aspectRatioOptions = getVideoAspectRatioOptions(model);
+            const durationOptions = getVideoDurationOptions(model);
+            return {
+                ...current,
+                model,
+                aspectRatio: aspectRatioOptions.includes(current.aspectRatio) ? current.aspectRatio : aspectRatioOptions[0],
+                duration: durationOptions.includes(current.duration) ? current.duration : durationOptions[0],
+            };
         });
     };
 
@@ -771,23 +801,22 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                             <SettingsSection title="视频生成默认值" description="新建视频生成器节点时默认带入模型、比例、时长与提示增强选项。">
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <LabeledField label="默认模型">
-                                        <select title="视频默认模型" data-testid="settings-video-model" className={selectClassName()} value={settings.videoDefaults.model} onChange={(event) => setSettings((prev) => ({ ...prev, videoDefaults: { ...prev.videoDefaults, model: event.target.value as WorkbenchSettings['videoDefaults']['model'] } }))}>
-                                            <option value="veo3.1">Veo 3.1</option>
-                                            <option value="veo3.1-fast">Veo 3.1 Fast</option>
-                                            <option value="veo3.1-components">Veo 3.1 Components</option>
-                                            <option value="doubao-seedance-2-0-260128">Doubao Seedance 2.0</option>
+                                        <select title="视频默认模型" data-testid="settings-video-model" className={selectClassName()} value={activeVideoDefaults.model} onChange={(event) => updateActiveVideoDefaultModel(event.target.value as WorkbenchSettings['videoDefaults']['model'])}>
+                                            {videoDefaultModelOptions.map((modelOption) => (
+                                                <option key={modelOption} value={modelOption}>{VIDEO_MODEL_LABELS[modelOption] || modelOption}</option>
+                                            ))}
                                         </select>
                                     </LabeledField>
                                     <LabeledField label="默认宽高比">
-                                        <select title="视频默认宽高比" data-testid="settings-video-aspect-ratio" className={selectClassName()} value={settings.videoDefaults.aspectRatio} onChange={(event) => setSettings((prev) => ({ ...prev, videoDefaults: { ...prev.videoDefaults, aspectRatio: event.target.value as WorkbenchSettings['videoDefaults']['aspectRatio'] } }))}>
-                                            {['16:9', '9:16', '1:1', '4:3', '3:4'].map((value) => (
+                                        <select title="视频默认宽高比" data-testid="settings-video-aspect-ratio" className={selectClassName()} value={activeVideoDefaults.aspectRatio} onChange={(event) => updateActiveVideoDefaults((current) => ({ ...current, aspectRatio: event.target.value as WorkbenchSettings['videoDefaults']['aspectRatio'] }))}>
+                                            {videoDefaultAspectRatioOptions.map((value) => (
                                                 <option key={value} value={value}>{value}</option>
                                             ))}
                                         </select>
                                     </LabeledField>
                                     <LabeledField label="默认时长">
-                                        <select title="视频默认时长" data-testid="settings-video-duration" className={selectClassName()} value={settings.videoDefaults.duration} onChange={(event) => setSettings((prev) => ({ ...prev, videoDefaults: { ...prev.videoDefaults, duration: event.target.value as WorkbenchSettings['videoDefaults']['duration'] } }))}>
-                                            {((settings.videoDefaults.model === 'doubao-seedance-2-0-260128' ? VIDEO_DURATION_OPTIONS : ['5s', '8s']) as WorkbenchSettings['videoDefaults']['duration'][]).map((value) => (
+                                        <select title="视频默认时长" data-testid="settings-video-duration" className={selectClassName()} value={activeVideoDefaults.duration} onChange={(event) => updateActiveVideoDefaults((current) => ({ ...current, duration: event.target.value as WorkbenchSettings['videoDefaults']['duration'] }))}>
+                                            {videoDefaultDurationOptions.map((value) => (
                                                 <option key={value} value={value}>{value}</option>
                                             ))}
                                         </select>
@@ -797,8 +826,8 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                             <div className="text-[13px] font-medium text-gray-800">增强提示词</div>
                                             <div className="mt-0.5 text-[11px] leading-4 text-gray-400">新建视频生成器时默认启用。</div>
                                         </div>
-                                        <button title="切换视频增强提示词" data-testid="settings-video-enhance-prompt" type="button" onClick={() => setSettings((prev) => ({ ...prev, videoDefaults: { ...prev.videoDefaults, enhancePrompt: !prev.videoDefaults.enhancePrompt } }))} className={`flex-none inline-flex h-6 w-10 items-center rounded-full p-0.5 transition ${settings.videoDefaults.enhancePrompt ? 'bg-gray-900' : 'bg-gray-200'}`}>
-                                            <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition ${settings.videoDefaults.enhancePrompt ? 'translate-x-4' : 'translate-x-0'}`} />
+                                        <button title="切换视频增强提示词" data-testid="settings-video-enhance-prompt" type="button" onClick={() => updateActiveVideoDefaults((current) => ({ ...current, enhancePrompt: !current.enhancePrompt }))} className={`flex-none inline-flex h-6 w-10 items-center rounded-full p-0.5 transition ${activeVideoDefaults.enhancePrompt ? 'bg-gray-900' : 'bg-gray-200'}`}>
+                                            <span className={`h-5 w-5 rounded-full bg-white shadow-sm transition ${activeVideoDefaults.enhancePrompt ? 'translate-x-4' : 'translate-x-0'}`} />
                                         </button>
                                     </div>
                                 </div>

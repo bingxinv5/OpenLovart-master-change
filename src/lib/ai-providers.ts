@@ -94,15 +94,20 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderDefinition> = {
       ],
       image: [
         'gemini-3-pro-image-preview',
-        'gemini-2.5-flash-image-preview',
         'gemini-3.1-flash-image-preview',
-        'doubao-seedream-4-5-251128',
         'doubao-seedream-5-0-260128',
         'grok-4-2-image',
         'gpt-image-2',
         'gpt-image-2-pro',
       ],
-      video: ['veo3.1', 'veo3.1-fast', 'veo3.1-components', 'doubao-seedance-2-0-260128'],
+      video: [
+        'sora-2',
+        'grok-video-3-pro',
+        'doubao-seed-2-0-pro-260215',
+        'veo_3_1',
+        'veo_3_1-fast',
+        'veo_3_1-components',
+      ],
     },
   },
 };
@@ -127,6 +132,10 @@ export function isMagicApiProvider(providerId: unknown): boolean {
 
 export function getProviderImageModels(providerId: unknown): string[] {
   return [...getAiProvider(providerId).models.image];
+}
+
+export function getProviderVideoModels(providerId: unknown): string[] {
+  return [...getAiProvider(providerId).models.video];
 }
 
 export function getProviderAllowedPublicPatterns(providerId: unknown): string[] {

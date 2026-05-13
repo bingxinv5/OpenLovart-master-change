@@ -15,9 +15,52 @@ import {
     resolveMagicApiOpenAiStyleImageSize,
     shouldUseDomesticImageBatching,
 } from '@/lib/image-generation-models';
-import { DEFAULT_AI_PROVIDER_ID, getProviderImageModels, isMagicApiProvider, type AiProviderId } from '@/lib/ai-providers';
+import { DEFAULT_AI_PROVIDER_ID, getProviderImageModels, getProviderVideoModels, isMagicApiProvider, type AiProviderId } from '@/lib/ai-providers';
 import type { ImageGenerationDefaults } from '@/lib/generation-defaults';
-import { VIDEO_DURATION_OPTIONS, type VideoDuration } from '@/lib/workbench-settings';
+import {
+    VIDEO_MODEL_OPTIONS,
+    VIDEO_MODEL_LABELS,
+    VIDEO_MODEL_DESC,
+    getMaxAudiosForVideoModel,
+    getMaxImagesForVideoModel,
+    getMaxVideosForVideoModel,
+    getVideoAddImageTitle,
+    getVideoAspectRatioOptions,
+    getVideoDurationOptions,
+    getVideoResolutionOptions,
+    isComponentsVideoModel,
+    isDomesticMultimodalVideoModel,
+    isVideoModel,
+    supportsVideoAudioGeneration,
+    type DomesticGenerationMode,
+    type VideoAspectRatio,
+    type VideoDuration,
+    type VideoModel,
+    type VideoResolution,
+} from '@/lib/video-generation-models';
+
+export {
+    VIDEO_MODEL_OPTIONS,
+    VIDEO_MODEL_LABELS,
+    VIDEO_MODEL_DESC,
+    getMaxAudiosForVideoModel,
+    getMaxImagesForVideoModel,
+    getMaxVideosForVideoModel,
+    getVideoAddImageTitle,
+    getVideoAspectRatioOptions,
+    getVideoDurationOptions,
+    getVideoResolutionOptions,
+    isComponentsVideoModel,
+    isDomesticMultimodalVideoModel,
+    supportsVideoAudioGeneration,
+};
+
+export type {
+    DomesticGenerationMode,
+    VideoAspectRatio,
+    VideoModel,
+    VideoResolution,
+};
 
 export const IMAGE_MODEL_OPTIONS = [
     'gemini-3.1-flash-image-preview',
@@ -26,8 +69,6 @@ export const IMAGE_MODEL_OPTIONS = [
     'grok-4.2-image',
     'doubao-seedream-5-0-260128',
     'gemini-3-pro-image-preview',
-    'gemini-2.5-flash-image-preview',
-    'doubao-seedream-4-5-251128',
     'grok-4-2-image',
     'gpt-image-2-pro',
 ] as const;
@@ -38,11 +79,7 @@ export type ImageSize = string;
 export type ImageQuality = ImageGenerationDefaults['quality'];
 export type GenerateCount = 1 | 2 | 3 | 4;
 
-export type VideoModel = 'veo3.1' | 'veo3.1-fast' | 'veo3.1-components' | 'doubao-seedance-2-0-260128';
-export type VideoAspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4';
 export type VideoDurationValue = VideoDuration;
-export type VideoResolution = '480p' | '720p';
-export type DomesticGenerationMode = 'first-last-frame' | 'omni-reference';
 
 export const IMAGE_MODEL_LABELS: Record<ImageModel, string> = {
     'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
@@ -51,8 +88,6 @@ export const IMAGE_MODEL_LABELS: Record<ImageModel, string> = {
     'grok-4.2-image': 'grok-4.2-image',
     'doubao-seedream-5-0-260128': 'doubao-seedream-5-0-260128',
     'gemini-3-pro-image-preview': 'gemini-3-pro-image-preview',
-    'gemini-2.5-flash-image-preview': 'gemini-2.5-flash-image-preview',
-    'doubao-seedream-4-5-251128': 'doubao-seedream-4-5-251128',
     'grok-4-2-image': 'grok-4-2-image',
     'gpt-image-2-pro': 'gpt-image-2-pro',
 };
@@ -153,78 +188,7 @@ export function resolveImageGeneratorModelOptions({
     };
 }
 
-export const VIDEO_MODEL_OPTIONS: VideoModel[] = ['veo3.1', 'veo3.1-fast', 'veo3.1-components', 'doubao-seedance-2-0-260128'];
-
-export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
-    'veo3.1': 'Veo 3.1',
-    'veo3.1-fast': 'Veo 3.1 Fast',
-    'veo3.1-components': 'Veo 3.1 Components',
-    'doubao-seedance-2-0-260128': 'Doubao Seedance 2.0',
-};
-
-export const VIDEO_MODEL_DESC: Record<VideoModel, string> = {
-    'veo3.1': '支持首帧/尾帧图片',
-    'veo3.1-fast': '支持首帧/尾帧图片，更便宜，质量低于 Veo 3.1',
-    'veo3.1-components': '支持1-3张参考图',
-    'doubao-seedance-2-0-260128': '国产多模态官方格式，支持首尾帧模式和全能参考模式',
-};
-
-export function isComponentsVideoModel(model: VideoModel): boolean {
-    return model === 'veo3.1-components';
-}
-
-export function isDomesticMultimodalVideoModel(model: VideoModel): boolean {
-    return model === 'doubao-seedance-2-0-260128';
-}
-
-export function getMaxImagesForVideoModel(model: VideoModel): number {
-    if (isComponentsVideoModel(model)) {
-        return 3;
-    }
-
-    if (isDomesticMultimodalVideoModel(model)) {
-        return 9;
-    }
-
-    return 2;
-}
-
-export function getVideoAspectRatioOptions(model: VideoModel): VideoAspectRatio[] {
-    if (isDomesticMultimodalVideoModel(model)) {
-        return ['16:9', '9:16', '1:1', '4:3', '3:4'];
-    }
-
-    return ['16:9', '9:16'];
-}
-
-export function getVideoDurationOptions(model: VideoModel): VideoDurationValue[] {
-    if (isDomesticMultimodalVideoModel(model)) {
-        return [...VIDEO_DURATION_OPTIONS];
-    }
-
-    return ['5s', '8s'];
-}
-
-export function getVideoAddImageTitle(model: VideoModel, domesticMode?: DomesticGenerationMode): string {
-    if (isComponentsVideoModel(model)) {
-        return '添加参考图 (1-3张)';
-    }
-
-    if (isDomesticMultimodalVideoModel(model)) {
-        return domesticMode === 'first-last-frame' ? '添加首尾帧图片' : '添加全能参考素材';
-    }
-
-    return '添加首帧/尾帧图片';
-}
-
-export function getMaxVideosForVideoModel(model: VideoModel): number {
-    return isDomesticMultimodalVideoModel(model) ? 3 : 0;
-}
-
-export function getMaxAudiosForVideoModel(model: VideoModel): number {
-    return isDomesticMultimodalVideoModel(model) ? 3 : 0;
-}
-
-export function getVideoResolutionOptions(model: VideoModel): VideoResolution[] {
-    return isDomesticMultimodalVideoModel(model) ? ['480p', '720p'] : ['720p'];
+export function getVideoModelOptionsForProvider(providerId: AiProviderId = DEFAULT_AI_PROVIDER_ID): VideoModel[] {
+    const models = getProviderVideoModels(providerId).filter(isVideoModel);
+    return models.length > 0 ? models : [...VIDEO_MODEL_OPTIONS];
 }
