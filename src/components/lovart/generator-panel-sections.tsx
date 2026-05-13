@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Film, Loader2, Search, Volume2, X, Zap } from 'lucide-react';
+import { Film, Loader2, Plus, Search, Volume2, X, Zap } from 'lucide-react';
 import { GeneratorStatusCard, type GeneratorStatusState } from './GeneratorStatusCard';
 import { WorkbenchImage } from './WorkbenchImage';
 
@@ -135,7 +135,7 @@ export function GeneratorReferenceStack({
                             className="canvas-reference-add-button flex h-7 w-7 items-center justify-center rounded-lg transition-colors"
                             title={addButtonTitle}
                         >
-                            {isAddBusy ? <Loader2 size={12} className="animate-spin" /> : <span className="text-[18px] leading-none">+</span>}
+                            {isAddBusy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={14} strokeWidth={2.25} className="shrink-0" />}
                         </button>
                     </div>
                 </div>
@@ -175,7 +175,7 @@ export function GeneratorReferenceStack({
                                     className="canvas-reference-add-button flex h-10 w-10 items-center justify-center rounded-xl transition-colors"
                                     title={addButtonTitle}
                                 >
-                                    <span className="text-[24px] leading-none">+</span>
+                                    <Plus size={18} strokeWidth={2.25} className="shrink-0" />
                                 </button>
                             </div>
                         )}
