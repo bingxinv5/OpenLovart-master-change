@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useUser } from '@/lib/mock-clerk';
