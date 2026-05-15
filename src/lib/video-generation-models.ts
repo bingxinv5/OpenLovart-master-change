@@ -14,6 +14,11 @@ export const VIDEO_MODEL_OPTIONS = [
   'veo_3_1',
   'veo_3_1-fast',
   'veo_3_1-components',
+  'jiekou-sora-2',
+  'jiekou-veo-3.1',
+  'sora-2_1280x720',
+  'ssora-2-pro_1280x720',
+  'sora-2-pro_1792x1024',
 ] as const;
 
 export type VideoModel = (typeof VIDEO_MODEL_OPTIONS)[number];
@@ -32,6 +37,11 @@ export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
   'veo_3_1': 'Veo 3.1 (GeekNow)',
   'veo_3_1-fast': 'Veo 3.1 Fast (GeekNow)',
   'veo_3_1-components': 'Veo 3.1 Components (GeekNow)',
+  'jiekou-sora-2': 'Sora 2',
+  'jiekou-veo-3.1': 'Veo 3.1',
+  'sora-2_1280x720': 'V-API Sora 2 1280x720',
+  'ssora-2-pro_1280x720': 'V-API Sora 2 Pro 1280x720',
+  'sora-2-pro_1792x1024': 'V-API Sora 2 Pro 1792x1024',
 };
 
 export const VIDEO_MODEL_DESC: Record<VideoModel, string> = {
@@ -45,6 +55,11 @@ export const VIDEO_MODEL_DESC: Record<VideoModel, string> = {
   'veo_3_1': 'GeekNow Veo 3.1（支持5s/8s、首尾帧图片、当前渠道可能不可用）',
   'veo_3_1-fast': 'GeekNow Veo 3.1 Fast（支持5s/8s、首尾帧图片、更快更便宜）',
   'veo_3_1-components': 'GeekNow Veo 3.1 Components（支持5s/8s、多张参考图模式）',
+  'jiekou-sora-2': 'JieKou AI Sora 2，支持文生视频和单图图生视频',
+  'jiekou-veo-3.1': 'JieKou AI Veo 3.1，支持文生视频和首尾帧图生视频',
+  'sora-2_1280x720': 'V-API Sora 2，固定 1280x720，支持文生视频和首帧参考',
+  'ssora-2-pro_1280x720': 'V-API Sora 2 Pro，固定 1280x720，支持文生视频和首帧参考',
+  'sora-2-pro_1792x1024': 'V-API Sora 2 Pro，固定 1792x1024，支持文生视频和首帧参考',
 };
 
 const ALL_VIDEO_MODELS = new Set<string>(VIDEO_MODEL_OPTIONS);
@@ -61,8 +76,26 @@ export function isDomesticMultimodalVideoModel(model: string): boolean {
   return model === 'doubao-seedance-2-0-260128' || model === 'doubao-seed-2-0-pro-260215';
 }
 
+export function isVApiSoraVideoModel(model: string): boolean {
+  return model === 'sora-2_1280x720'
+    || model === 'ssora-2-pro_1280x720'
+    || model === 'sora-2-pro_1792x1024';
+}
+
+export function resolveVApiSoraModelAndSize(model: string): { model: 'sora-2' | 'sora-2-pro'; size: '1280x720' | '1792x1024' } {
+  if (model === 'sora-2_1280x720') {
+    return { model: 'sora-2', size: '1280x720' };
+  }
+
+  if (model === 'sora-2-pro_1792x1024') {
+    return { model: 'sora-2-pro', size: '1792x1024' };
+  }
+
+  return { model: 'sora-2-pro', size: '1280x720' };
+}
+
 export function isMagicApiSoraVideoModel(model: string): boolean {
-  return model.startsWith('sora-');
+  return model.startsWith('sora-') && !isVApiSoraVideoModel(model);
 }
 
 export function isMagicApiVeoVideoModel(model: string): boolean {
@@ -75,6 +108,18 @@ export function isMagicApiVeoFirstLastFrameVideoModel(model: string): boolean {
 
 export function isMagicApiVeoComponentsVideoModel(model: string): boolean {
   return model === 'veo_3_1-components';
+}
+
+export function isJieKouSoraVideoModel(model: string): boolean {
+  return model === 'jiekou-sora-2';
+}
+
+export function isJieKouVeoVideoModel(model: string): boolean {
+  return model === 'jiekou-veo-3.1';
+}
+
+export function isJieKouVideoModel(model: string): boolean {
+  return isJieKouSoraVideoModel(model) || isJieKouVeoVideoModel(model);
 }
 
 export function isMagicApiGrokVideoModel(model: string): boolean {
@@ -124,6 +169,7 @@ export function supportsVideoAudioGeneration(model: string): boolean {
   return isDomesticMultimodalVideoModel(model)
     || isMagicApiSoraVideoModel(model)
     || isMagicApiVeoVideoModel(model)
+    || isJieKouVeoVideoModel(model)
     || isMagicApiWanVideoModel(model)
     || isMagicApiKlingVideoModel(model);
 }
@@ -136,6 +182,18 @@ export function isMagicApiMultipartVideoModel(model: string): boolean {
 }
 
 export function getMaxImagesForVideoModel(model: string): number {
+  if (isVApiSoraVideoModel(model)) {
+    return 1;
+  }
+
+  if (isJieKouSoraVideoModel(model)) {
+    return 1;
+  }
+
+  if (isJieKouVeoVideoModel(model)) {
+    return 2;
+  }
+
   if (isComponentsVideoModel(model)) {
     return 3;
   }
@@ -184,6 +242,14 @@ export function getMaxAudiosForVideoModel(model: string): number {
 }
 
 export function getVideoAspectRatioOptions(model: string): VideoAspectRatio[] {
+  if (isVApiSoraVideoModel(model)) {
+    return ['16:9'];
+  }
+
+  if (isJieKouVideoModel(model)) {
+    return ['16:9', '9:16'];
+  }
+
   if (isDomesticMultimodalVideoModel(model)) {
     return ['16:9', '9:16', '1:1', '4:3', '3:4'];
   }
@@ -200,6 +266,18 @@ export function getVideoAspectRatioOptions(model: string): VideoAspectRatio[] {
 }
 
 export function getVideoDurationOptions(model: string): VideoDuration[] {
+  if (isVApiSoraVideoModel(model)) {
+    return ['4s', '8s', '12s'];
+  }
+
+  if (isJieKouSoraVideoModel(model)) {
+    return ['4s', '8s', '12s'];
+  }
+
+  if (isJieKouVeoVideoModel(model)) {
+    return ['4s', '6s', '8s'];
+  }
+
   if (isDomesticMultimodalVideoModel(model)) {
     return ['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'];
   }
@@ -224,6 +302,14 @@ export function getVideoDurationOptions(model: string): VideoDuration[] {
 }
 
 export function getVideoResolutionOptions(model: string): VideoResolution[] {
+  if (isVApiSoraVideoModel(model)) {
+    return model === 'sora-2-pro_1792x1024' ? ['1080p'] : ['720p'];
+  }
+
+  if (isJieKouVideoModel(model)) {
+    return ['720p', '1080p'];
+  }
+
   if (isMagicApiGrokVideoModel(model)) {
     return ['720p', '1080p'];
   }
@@ -236,6 +322,18 @@ export function getVideoResolutionOptions(model: string): VideoResolution[] {
 }
 
 export function getVideoAddImageTitle(model: string, domesticMode?: DomesticGenerationMode): string {
+  if (isVApiSoraVideoModel(model)) {
+    return '添加首帧图片';
+  }
+
+  if (isJieKouSoraVideoModel(model)) {
+    return '添加首帧图片';
+  }
+
+  if (isJieKouVeoVideoModel(model)) {
+    return '添加首帧/尾帧图片';
+  }
+
   if (isComponentsVideoModel(model)) {
     return '添加参考图 (1-3张)';
   }
@@ -276,6 +374,14 @@ export function getVideoAddImageTitle(model: string, domesticMode?: DomesticGene
 }
 
 export function getDefaultVideoModelForProvider(providerId: AiProviderId): VideoModel {
+  if (providerId === 'vapi') {
+    return 'sora-2_1280x720';
+  }
+
+  if (providerId === 'jiekou') {
+    return 'jiekou-sora-2';
+  }
+
   return providerId === 'magicapi' ? 'sora-2' : 'veo3.1';
 }
 
@@ -287,6 +393,8 @@ export function getFixedVideoSeconds(model: string): number | undefined {
 export function getFallbackVideoSeconds(model: string): number {
   const fixed = getFixedVideoSeconds(model);
   if (fixed !== undefined) return fixed;
+  if (isVApiSoraVideoModel(model)) return 8;
+  if (isJieKouVideoModel(model)) return 8;
   if (isMagicApiVeoVideoModel(model)) return 8;
   if (isMagicApiSoraVideoModel(model)) return 10;
   if (isMagicApiDoubaoVideoModel(model)) return 5;

@@ -32,6 +32,19 @@ describe('video-generation-transport', () => {
         });
     });
 
+    it('routes and encodes V-API Sora task ids', () => {
+        expect(getVideoGenerationTransport('sora-2_1280x720')).toBe('vapi');
+        expect(getVideoGenerationTransport('ssora-2-pro_1280x720')).toBe('vapi');
+        expect(getVideoGenerationTransport('sora-2-pro_1792x1024')).toBe('vapi');
+
+        const encoded = encodeVideoTaskId('video_vapi_123', 'vapi');
+        expect(encoded).toBe('vapi:video_vapi_123');
+        expect(parseVideoTaskId(encoded)).toEqual({
+            transport: 'vapi',
+            upstreamTaskId: 'video_vapi_123',
+        });
+    });
+
     it('recognizes raw official task ids for manual recovery fallback', () => {
         expect(looksLikeDomesticOfficialTaskId('cgt-20260408182454-5dqsn')).toBe(true);
         expect(looksLikeDomesticOfficialTaskId('veo-task-123')).toBe(false);

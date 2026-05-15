@@ -7,6 +7,11 @@ import {
   getMagicApiGptImageSizeOptions,
   isOpenAiGptImageModel,
   isGeminiNativeImageModel,
+  isJieKouGptImageModel,
+  isJieKouImageAspectRatio,
+  resolveJieKouGptImageQuality,
+  resolveJieKouGptImageSize,
+  resolveJieKouStandardImageSize,
   resolveOpenAiGptImageQuality,
   isStandardImageSize,
   resolveMagicApiOpenAiStyleImageSize,
@@ -19,6 +24,7 @@ import {
   DEFAULT_AI_PROVIDER_ID,
   getProviderImageModels,
   getProviderVideoModels,
+  isJieKouProvider,
   isMagicApiProvider,
   normalizeAiProviderId,
   type AiProviderId,
@@ -51,10 +57,12 @@ export interface WorkbenchSettings {
 
 export const IMAGE_DEFAULT_MODEL_OPTIONS = [
   'gemini-3.1-flash-image-preview',
+  'nano-banana-pro',
   'nano-banana-2',
   'gpt-image-2',
   'grok-4.2-image',
   'doubao-seedream-5-0-260128',
+  'gemini-3-pro-image',
   'gemini-3-pro-image-preview',
   'grok-4-2-image',
   'gpt-image-2-pro',
@@ -91,6 +99,20 @@ export const DEFAULT_IMAGE_PROVIDER_DEFAULTS: Record<AiProviderId, ImageGenerati
     quality: 'auto',
     generateCount: 1,
   },
+  jiekou: {
+    model: 'gemini-3-pro-image',
+    aspectRatio: '1:1',
+    imageSize: '1K',
+    quality: 'auto',
+    generateCount: 1,
+  },
+  vapi: {
+    model: 'gemini-3.1-flash-image-preview',
+    aspectRatio: '1:1',
+    imageSize: '1K',
+    quality: 'auto',
+    generateCount: 1,
+  },
 };
 
 export const DEFAULT_VIDEO_PROVIDER_DEFAULTS: Record<AiProviderId, VideoGenerationDefaults> = {
@@ -104,6 +126,18 @@ export const DEFAULT_VIDEO_PROVIDER_DEFAULTS: Record<AiProviderId, VideoGenerati
     model: 'sora-2',
     aspectRatio: '16:9',
     duration: '10s',
+    enhancePrompt: false,
+  },
+  jiekou: {
+    model: 'jiekou-sora-2',
+    aspectRatio: '16:9',
+    duration: '8s',
+    enhancePrompt: true,
+  },
+  vapi: {
+    model: 'sora-2_1280x720',
+    aspectRatio: '16:9',
+    duration: '8s',
     enhancePrompt: false,
   },
 };
@@ -258,6 +292,18 @@ function resolveDefaultImageSize(
     return resolveMagicApiDefaultImageSize(model, rawImageSize, aspectRatio, fallbackImageSize);
   }
 
+  if (isJieKouProvider(providerId)) {
+    if (isJieKouGptImageModel(model)) {
+      return resolveJieKouGptImageSize(rawImageSize, aspectRatio);
+    }
+
+    if (isStandardImageSize(rawImageSize)) {
+      return rawImageSize;
+    }
+
+    return resolveJieKouStandardImageSize(fallbackImageSize);
+  }
+
   if (isOpenAiGptImageModel(model)) {
     return resolveOpenAiGptImageSize(rawImageSize, aspectRatio);
   }
@@ -289,6 +335,16 @@ function resolveDefaultAspectRatio(
       : '21:9';
   }
 
+  if (isJieKouProvider(providerId)) {
+    if (isJieKouImageAspectRatio(parsedAspectRatio)) {
+      return parsedAspectRatio;
+    }
+    if (isJieKouImageAspectRatio(fallbackAspectRatio)) {
+      return fallbackAspectRatio;
+    }
+    return '1:1';
+  }
+
   if (isOpenAiGptImageModel(model)) {
     return resolveOpenAiGptImageAspectRatio(imageSize, parsedAspectRatio);
   }
@@ -298,6 +354,10 @@ function resolveDefaultAspectRatio(
 
 function resolveDefaultQuality(providerId: AiProviderId, model: ImageDefaultModel, rawQuality: unknown): OpenAiGptImageQuality {
   if (isOpenAiGptImageModel(model)) {
+    if (isJieKouProvider(providerId)) {
+      return resolveJieKouGptImageQuality(rawQuality);
+    }
+
     return isMagicApiProvider(providerId) ? 'high' : resolveOpenAiGptImageQuality(rawQuality);
   }
 

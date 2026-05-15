@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { debugLog } from '@/lib/debug-log';
-import { isMagicApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isMagicApiProvider, isVApiProvider } from '@/lib/ai-providers';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     createAiHeaders,
@@ -29,7 +29,11 @@ export async function GET(request: NextRequest) {
         const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request);
 
         const { transport, upstreamTaskId } = parseVideoTaskId(taskId);
-        const preferredTransports: VideoGenerationTransport[] = transport === 'magicapi' || isMagicApiProvider(providerId)
+        const preferredTransports: VideoGenerationTransport[] = transport === 'vapi' || isVApiProvider(providerId)
+            ? ['vapi']
+            : transport === 'jiekou' || isJieKouProvider(providerId)
+            ? ['jiekou']
+            : transport === 'magicapi' || isMagicApiProvider(providerId)
             ? ['magicapi']
             : transport === 'domestic-official'
                 ? ['domestic-official']
@@ -45,27 +49,39 @@ export async function GET(request: NextRequest) {
 
         debugLog(`[video-status] transport=${resolvedTransport} response:`, JSON.stringify(data).substring(0, 500));
 
-        const rawStatus = getNestedValue(data, 'status') || getNestedValue(data, 'data', 'status');
+        const rawStatus = getNestedValue(data, 'status')
+            || getNestedValue(data, 'data', 'status')
+            || getNestedValue(data, 'task', 'status')
+            || getNestedValue(data, 'data', 'task', 'status');
         const status = typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : '';
 
         // Extract video URL — handle both direct string and nested object structures
         // e.g. { data: { output: "url" } } or { data: { output: { video_url: "url" } } }
-        const videoUrl = extractVideoUrl(data);
+        let videoUrl = extractVideoUrl(data);
 
         const failReason = getNestedValue(data, 'fail_reason')
             || getNestedValue(data, 'data', 'fail_reason')
             || getNestedValue(data, 'detail', 'pending_info', 'failure_reason')
             || getNestedValue(data, 'detail', 'failure_reason')
+            || getNestedValue(data, 'task', 'reason')
+            || getNestedValue(data, 'data', 'task', 'reason')
             || getNestedValue(data, 'error', 'message')
             || getNestedValue(data, 'data', 'error', 'message')
             || getNestedValue(data, 'data', 'error')
             || getNestedValue(data, 'error');
         const rawProgress = getNestedValue(data, 'detail', 'pending_info', 'progress_pct')
+            || getNestedValue(data, 'task', 'progress_percent')
+            || getNestedValue(data, 'data', 'task', 'progress_percent')
             || getNestedValue(data, 'progress')
             || getNestedValue(data, 'data', 'progress');
         const taskKind = inferGenerationTaskKind(data);
 
-        if (status === 'success' || status === 'succeeded' || status === 'completed') {
+        if (status === 'success' || status === 'succeeded' || status === 'completed' || status === 'task_status_succeed') {
+            if (!videoUrl && resolvedTransport === 'vapi') {
+                const contentData = await fetchVApiVideoContent({ apiKey, baseUrl, taskId: upstreamTaskId });
+                videoUrl = extractVideoUrl(contentData);
+            }
+
             if (!videoUrl) {
                 if (taskKind === 'image') {
                     return NextResponse.json({
@@ -87,7 +103,7 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        if (status === 'failure' || status === 'failed' || status === 'expired' || status === 'cancelled' || status === 'canceled') {
+        if (status === 'failure' || status === 'failed' || status === 'expired' || status === 'cancelled' || status === 'canceled' || status === 'task_status_failed') {
             return NextResponse.json({
                 status: 'failed',
                 error: typeof failReason === 'string' ? failReason : '视频生成失败',
@@ -141,6 +157,10 @@ async function fetchVideoStatusWithFallback(params: {
 }
 
 function resolveVideoStatusEndpoint(baseUrl: string, taskId: string, transport: VideoGenerationTransport): string {
+    if (transport === 'vapi') {
+        return `${baseUrl}/v1/videos/${encodeURIComponent(taskId)}`;
+    }
+
     if (transport === 'magicapi') {
         return `${baseUrl}/v1/videos/${encodeURIComponent(taskId)}`;
     }
@@ -149,7 +169,33 @@ function resolveVideoStatusEndpoint(baseUrl: string, taskId: string, transport: 
         return `${baseUrl}/seedance/v3/contents/generations/tasks/${encodeURIComponent(taskId)}`;
     }
 
+    if (transport === 'jiekou') {
+        return `${baseUrl}/v3/async/task-result?task_id=${encodeURIComponent(taskId)}`;
+    }
+
     return `${baseUrl}/v2/videos/generations/${encodeURIComponent(taskId)}`;
+}
+
+async function fetchVApiVideoContent(params: { apiKey: string; baseUrl: string; taskId: string }): Promise<Record<string, unknown>> {
+    const endpoint = `${params.baseUrl}/v1/videos/${encodeURIComponent(params.taskId)}/content`;
+    const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: createAiHeaders(params.apiKey),
+        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? AbortSignal.timeout(AI_UPSTREAM_TIMEOUT_MS.status)
+            : undefined,
+    });
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        throw new Error(getApiErrorMessage(data, `视频地址获取失败 (${response.status})`));
+    }
+
+    if (Object.keys(data).length > 0) {
+        return data;
+    }
+
+    return response.url && response.url !== endpoint ? { url: response.url } : {};
 }
 
 function resolveVideoStatusProgress(status: string, rawProgress: unknown): number {
@@ -161,11 +207,11 @@ function resolveVideoStatusProgress(status: string, rawProgress: unknown): numbe
         return 0;
     }
 
-    if (status === 'queued') {
+    if (status === 'queued' || status === 'task_status_queued') {
         return progressNum || 10;
     }
 
-    if (status === 'running' || status === 'in_progress' || status === 'processing') {
+    if (status === 'running' || status === 'in_progress' || status === 'processing' || status === 'task_status_processing') {
         return progressNum || 50;
     }
 

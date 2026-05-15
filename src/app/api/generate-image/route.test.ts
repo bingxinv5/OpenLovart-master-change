@@ -21,7 +21,7 @@ describe('generate-image route', () => {
         vi.restoreAllMocks();
     });
 
-    it('preserves taskId when upstream returns an immediate image result', async () => {
+    it('returns a local task when upstream returns an immediate image result', async () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         fetchSpy.mockResolvedValue(new Response(JSON.stringify({
             taskId: 'task-direct-image-1',
@@ -42,14 +42,14 @@ describe('generate-image route', () => {
 
         expect(response.status).toBe(200);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1/images/generations?async=true');
 
         const body = await response.json();
         expect(body).toMatchObject({
-            status: 'completed',
-            taskId: 'task-direct-image-1',
+            status: 'pending',
         });
-        expect(typeof body.imageUrl).toBe('string');
-        expect(body.imageUrl.length).toBeGreaterThan(0);
+        expect(body.taskId).toMatch(/^image-local:/);
+        expect(body.imageUrl).toBeUndefined();
     });
 
     it('accepts camelCase taskId when the upstream only returns a pending task', async () => {
@@ -70,11 +70,11 @@ describe('generate-image route', () => {
 
         expect(response.status).toBe(200);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1/images/generations?async=true');
 
-        await expect(response.json()).resolves.toEqual({
-            status: 'pending',
-            taskId: 'task-pending-image-1',
-        });
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^image-local:/);
     });
 
     it('routes gpt-image-2 reference-image requests through edits multipart', async () => {
@@ -115,10 +115,9 @@ describe('generate-image route', () => {
         expect(formData.get('response_format')).toBe('url');
         expect(formData.getAll('image')).toHaveLength(1);
 
-        await expect(response.json()).resolves.toEqual({
-            status: 'pending',
-            taskId: 'task-gpt-edits-1',
-        });
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^image-local:/);
     });
 
     it('passes gpt-image-2 auto size through generations without ratio compensation', async () => {
@@ -153,10 +152,9 @@ describe('generate-image route', () => {
         });
         expect(body.prompt).not.toContain('Composition requirements:');
 
-        await expect(response.json()).resolves.toEqual({
-            status: 'pending',
-            taskId: 'task-gpt-auto-1',
-        });
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^image-local:/);
     });
 
     it('routes MagicAPI Gemini image models through native generateContent', async () => {
@@ -256,9 +254,9 @@ describe('generate-image route', () => {
         expect(body.generationConfig.imageConfig).toEqual({ aspectRatio: '1:1', imageSize: '4K' });
 
         const payload = await response.json();
-        expect(payload.status).toBe('completed');
-        expect(payload.imageUrl).toContain('/api/proxy-download');
-        expect(payload.images).toHaveLength(1);
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^magicapi-local:/);
+        expect(payload.imageUrl).toBeUndefined();
     });
 
     it('extracts MagicAPI Gemini markdown image URLs from native text parts', async () => {
@@ -291,9 +289,191 @@ describe('generate-image route', () => {
 
         expect(response.status).toBe(200);
         const payload = await response.json();
-        expect(payload.status).toBe('completed');
-        expect(payload.imageUrl).toContain('/api/proxy-download');
-        expect(payload.images).toHaveLength(1);
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^magicapi-local:/);
+        expect(payload.imageUrl).toBeUndefined();
+    });
+
+    it('routes JieKou Gemini 3 Pro text-to-image requests through a local task bridge', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            image_urls: ['https://example.com/jiekou-gemini.png'],
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'JieKou Gemini 生图',
+            model: 'gemini-3-pro-image',
+            aspectRatio: '21:9',
+            imageSize: '4K',
+        }, {
+            'x-ai-provider': 'jiekou',
+        }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v3/gemini-3-pro-image-text-to-image');
+        expect(JSON.parse(String(init?.body))).toEqual({
+            prompt: 'JieKou Gemini 生图',
+            size: '4K',
+            aspect_ratio: '21:9',
+            output_format: 'image/png',
+        });
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^jiekou-local:/);
+    });
+
+    it('routes JieKou Nano Banana 2 image-to-image requests with size and quality mapping', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            images: ['https://example.com/jiekou-nano.png'],
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'JieKou Nano 图生图',
+            model: 'nano-banana-2',
+            aspectRatio: '16:9',
+            imageSize: '4K',
+            referenceImages: ['data:image/png;base64,aGVsbG8='],
+        }, {
+            'x-ai-provider': 'jiekou',
+        }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v3/nano-banana-2-i2i');
+        expect(JSON.parse(String(init?.body))).toEqual({
+            prompt: 'JieKou Nano 图生图',
+            image: 'aGVsbG8=',
+            size: '16x9',
+            quality: '4k',
+            response_format: 'url',
+        });
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^jiekou-local:/);
+    });
+
+    it('routes JieKou GPT Image 2 text-to-image requests with documented size and quality', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            images: ['https://example.com/jiekou-gpt.png'],
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'JieKou GPT 生图',
+            model: 'gpt-image-2',
+            aspectRatio: '9:16',
+            imageSize: '2160x3840',
+            quality: 'high',
+            generateCount: 2,
+        }, {
+            'x-ai-provider': 'jiekou',
+        }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v3/gpt-image-2-text-to-image');
+        expect(JSON.parse(String(init?.body))).toEqual({
+            prompt: 'JieKou GPT 生图',
+            n: 2,
+            size: '2160x3840',
+            quality: 'high',
+            background: 'auto',
+            output_format: 'png',
+        });
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^jiekou-local:/);
+    });
+
+    it('submits V-API nano-banana-pro text-to-image requests through image generations', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            data: [{ url: 'https://example.com/vapi-nano.png' }],
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'V-API Nano 生图',
+            model: 'nano-banana-pro',
+            aspectRatio: '16:9',
+            imageSize: '2K',
+            generateCount: 2,
+        }, {
+            'x-ai-provider': 'vapi',
+        }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/images/generations');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+
+        expect(JSON.parse(String(init?.body))).toEqual({
+            model: 'nano-banana-pro',
+            prompt: 'V-API Nano 生图',
+            response_format: 'url',
+            size: '2K',
+            aspect_ratio: '16:9',
+            n: 2,
+        });
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^vapi-local:/);
+        expect(payload.imageUrl).toBeUndefined();
+    });
+
+    it('submits V-API gpt-image-2 reference edits as multipart with a V-API task id', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            id: 'vapi-image-edit-1',
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'V-API GPT 图生图',
+            model: 'gpt-image-2',
+            aspectRatio: '16:9',
+            imageSize: '2048x1152',
+            quality: 'medium',
+            referenceImages: ['data:image/png;base64,aGVsbG8='],
+        }, {
+            'x-ai-provider': 'vapi',
+        }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/images/edits');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+
+        const formData = init?.body as FormData;
+        expect(formData.get('model')).toBe('gpt-image-2');
+        expect(formData.get('size')).toBe('2048x1152');
+        expect(formData.get('quality')).toBe('medium');
+        expect(formData.get('response_format')).toBe('url');
+        expect(String(formData.get('prompt'))).toContain('preserve the reference subject and style');
+        expect(formData.getAll('image')).toHaveLength(1);
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^vapi-local:/);
     });
 
     it('builds MagicAPI GPT image payloads with the GeekNow option profile', async () => {
@@ -319,7 +499,7 @@ describe('generate-image route', () => {
         }));
 
         expect(response.status).toBe(200);
-        expect(timeoutSpy).not.toHaveBeenCalled();
+        expect(timeoutSpy).toHaveBeenCalledWith(300000);
         const [url, init] = fetchSpy.mock.calls[0] ?? [];
         expect(url).toBe('http://localhost:3001/v1/images/generations');
         const body = JSON.parse(String(init?.body));
@@ -361,7 +541,7 @@ describe('generate-image route', () => {
         expect(payload.taskId).toMatch(/^magicapi-local:/);
     });
 
-    it('does not retry MagicAPI GPT image submissions after a long synchronous submit timeout', async () => {
+    it('returns a local task for MagicAPI GPT image submissions even when background submit times out', async () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         const timeoutError = new Error('The operation was aborted due to timeout');
         timeoutError.name = 'TimeoutError';
@@ -377,10 +557,10 @@ describe('generate-image route', () => {
         }));
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
-        expect(response.status).toBe(504);
+        expect(response.status).toBe(200);
         const payload = await response.json();
-        expect(payload.details).toContain('上游生成耗时过长');
-        expect(payload.details).toContain('已等待约 300 秒');
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^magicapi-local:/);
     });
 
     it('builds MagicAPI Doubao image payloads from the plugin aspect-ratio size map', async () => {
@@ -412,6 +592,10 @@ describe('generate-image route', () => {
             n: 1,
             size: '3024x1296',
         });
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^magicapi-local:/);
     });
 
     it('returns a local task for MagicAPI Doubao submissions when forceAsync is enabled', async () => {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { decodeDataUrlBytes, extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
 import { debugLog } from '@/lib/debug-log';
-import { isMagicApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isMagicApiProvider, isVApiProvider } from '@/lib/ai-providers';
 import { encodeVideoTaskId, getVideoGenerationTransport } from '@/lib/video-generation-transport';
 import {
     getMaxImagesForVideoModel,
@@ -16,9 +16,13 @@ import {
     isMagicApiViduVideoModel,
     isMagicApiWanImageToVideoModel,
     isMagicApiWanVideoModel,
+    isJieKouSoraVideoModel,
+    isJieKouVeoVideoModel,
+    isVApiSoraVideoModel,
     resolveMagicApiGrokResolution,
     resolveMagicApiVideoPixelSize,
     resolveMagicApiVideoSeconds,
+    resolveVApiSoraModelAndSize,
     supportsVideoAudioGeneration,
 } from '@/lib/video-generation-models';
 import {
@@ -67,6 +71,10 @@ export async function POST(request: NextRequest) {
 
         const requestedModel = typeof model === 'string' && model.trim()
             ? model.trim()
+            : isJieKouProvider(providerId)
+                ? 'jiekou-sora-2'
+            : isVApiProvider(providerId)
+                ? 'sora-2_1280x720'
             : isMagicApiProvider(providerId)
                 ? 'sora-2'
                 : 'veo3.1';
@@ -123,6 +131,19 @@ export async function POST(request: NextRequest) {
 
         debugLog(`[generate-video] model=${requestedModel}, upstreamModel=${selectedModel}, transport=${transport}, prompt="${normalizedPrompt.substring(0, 50)}...", images=${normalizedImageEntries.length}, videos=${normalizedVideos.length}, audios=${normalizedAudios.length}`);
 
+        if (isVApiProvider(providerId)) {
+            return await submitVApiVideoGeneration({
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt: normalizedPrompt,
+                duration: normalizedDuration,
+                imageEntries: normalizedImageEntries,
+                videos: normalizedVideos,
+                audios: normalizedAudios,
+            });
+        }
+
         if (isMagicApiProvider(providerId)) {
             return await submitMagicApiVideoGeneration({
                 apiKey,
@@ -142,6 +163,24 @@ export async function POST(request: NextRequest) {
                 seed: normalizedSeed,
                 returnLastFrame,
                 tools: normalizedTools,
+            });
+        }
+
+        if (isJieKouProvider(providerId)) {
+            return await submitJieKouVideoGeneration({
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt: normalizedPrompt,
+                aspectRatio: normalizedAspectRatio,
+                duration: normalizedDuration,
+                imageEntries: normalizedImageEntries,
+                videos: normalizedVideos,
+                audios: normalizedAudios,
+                resolution: normalizedResolution,
+                enhancePrompt,
+                generateAudio,
+                seed: normalizedSeed,
             });
         }
 
@@ -205,6 +244,120 @@ export async function POST(request: NextRequest) {
     } catch (error: unknown) {
         return handleApiRouteError(error, '视频生成失败', 'generate-video');
     }
+}
+
+async function submitVApiVideoGeneration(params: {
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+}) {
+    const upstreamRequest = buildVApiVideoRequest(params);
+    const targetUrl = `${params.baseUrl}/v1/videos`;
+    let response: Response;
+
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            {
+                method: 'POST',
+                headers: createAiHeaders(params.apiKey, upstreamRequest.format === 'json'),
+                body: upstreamRequest.body,
+            },
+            { label: 'generate-video:vapi', timeoutMs: AI_UPSTREAM_TIMEOUT_MS.submit },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-video][vapi] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(params.baseUrl, error);
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        console.error('[generate-video][vapi] API error:', data);
+        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+    }
+
+    debugLog('[generate-video][vapi] Full response:', JSON.stringify(data));
+
+    const rawTaskId = getNestedValue(data, 'id')
+        || getNestedValue(data, 'data', 'id')
+        || getNestedValue(data, 'task_id')
+        || getNestedValue(data, 'data', 'task_id')
+        || getNestedValue(data, 'taskId')
+        || getNestedValue(data, 'data', 'taskId');
+    const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0
+        ? encodeVideoTaskId(rawTaskId, 'vapi')
+        : null;
+    const videoUrl = extractVideoUrl(data);
+
+    if (videoUrl) {
+        return NextResponse.json({ status: 'completed', taskId, videoUrl });
+    }
+
+    if (taskId) {
+        return NextResponse.json({ taskId, status: 'pending' });
+    }
+
+    console.error('[generate-video][vapi] Could not extract task id from response:', JSON.stringify(data));
+    return NextResponse.json(
+        { error: '未获取到任务ID', details: `API 响应结构异常: ${JSON.stringify(data).substring(0, 500)}` },
+        { status: 502 },
+    );
+}
+
+function buildVApiVideoRequest(params: {
+    selectedModel: string;
+    prompt: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+}): { format: 'json' | 'multipart'; body: BodyInit } {
+    if (!isVApiSoraVideoModel(params.selectedModel)) {
+        throw new ApiRouteError('V-API 暂不支持该视频模型', 400);
+    }
+
+    if (params.videos.length > 0 || params.audios.length > 0) {
+        throw new ApiRouteError('V-API Sora 2 暂不支持参考视频或参考音频', 400);
+    }
+
+    if (params.imageEntries.length > 1) {
+        throw new ApiRouteError('V-API Sora 2 图生视频最多支持 1 张参考图', 400);
+    }
+
+    const { model, size } = resolveVApiSoraModelAndSize(params.selectedModel);
+    const seconds = resolveVApiSoraSeconds(params.duration);
+    const firstImage = params.imageEntries[0]?.image;
+
+    if (firstImage) {
+        const formData = new FormData();
+        formData.append('model', model);
+        formData.append('prompt', params.prompt.trim());
+        formData.append('seconds', seconds);
+        formData.append('size', size);
+        appendMagicApiMultipartImage(formData, 'input_reference', firstImage, 0);
+        return { format: 'multipart', body: formData };
+    }
+
+    return {
+        format: 'json',
+        body: JSON.stringify({
+            model,
+            prompt: params.prompt.trim(),
+            seconds,
+            size,
+        }),
+    };
+}
+
+function resolveVApiSoraSeconds(duration: number | undefined): '4' | '8' | '12' {
+    if (duration === 8) return '8';
+    if (duration === 12) return '12';
+    return '4';
 }
 
 async function submitMagicApiVideoGeneration(params: {
@@ -287,6 +440,205 @@ async function submitMagicApiVideoGeneration(params: {
         { error: '未获取到任务ID', details: `API 响应结构异常: ${JSON.stringify(data).substring(0, 500)}` },
         { status: 502 },
     );
+}
+
+async function submitJieKouVideoGeneration(params: {
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+    resolution?: '480p' | '720p' | '1080p';
+    enhancePrompt: unknown;
+    generateAudio: unknown;
+    seed?: number;
+}) {
+    const upstreamRequest = buildJieKouVideoRequest(params);
+    const targetUrl = `${params.baseUrl}${upstreamRequest.path}`;
+    let response: Response;
+
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            {
+                method: 'POST',
+                headers: createAiHeaders(params.apiKey, true),
+                body: JSON.stringify(upstreamRequest.body),
+            },
+            { label: 'generate-video:jiekou', timeoutMs: AI_UPSTREAM_TIMEOUT_MS.submit },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-video][jiekou] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(params.baseUrl, error);
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        console.error('[generate-video][jiekou] API error:', data);
+        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+    }
+
+    debugLog('[generate-video][jiekou] Full response:', JSON.stringify(data));
+
+    const rawTaskId = getNestedValue(data, 'data', 'task_id')
+        || getNestedValue(data, 'task_id')
+        || getNestedValue(data, 'data', 'id')
+        || getNestedValue(data, 'id')
+        || getNestedValue(data, 'data', 'taskId')
+        || getNestedValue(data, 'taskId');
+    const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0
+        ? encodeVideoTaskId(rawTaskId, 'jiekou')
+        : null;
+    const videoUrl = extractVideoUrl(data);
+
+    if (videoUrl) {
+        return NextResponse.json({ status: 'completed', taskId, videoUrl });
+    }
+
+    if (taskId) {
+        return NextResponse.json({ taskId, status: 'pending' });
+    }
+
+    console.error('[generate-video][jiekou] Could not extract task_id from response:', JSON.stringify(data));
+    return NextResponse.json(
+        { error: '未获取到任务ID', details: `API 响应结构异常: ${JSON.stringify(data).substring(0, 500)}` },
+        { status: 502 },
+    );
+}
+
+function buildJieKouVideoRequest(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+    resolution?: '480p' | '720p' | '1080p';
+    enhancePrompt: unknown;
+    generateAudio: unknown;
+    seed?: number;
+}): { path: string; body: Record<string, unknown> } {
+    if (params.videos.length > 0 || params.audios.length > 0) {
+        throw new ApiRouteError('JieKou Sora 2 / Veo 3.1 暂不支持参考视频或参考音频', 400);
+    }
+
+    const images = orderJieKouVideoImages(params.imageEntries).map(normalizeJieKouVideoImageInput);
+
+    if (isJieKouSoraVideoModel(params.selectedModel)) {
+        if (images.length > 1) {
+            throw new ApiRouteError('JieKou Sora 2 图生视频最多支持 1 张参考图', 400);
+        }
+
+        const professional = params.resolution === '1080p';
+        const body: Record<string, unknown> = {
+            prompt: params.prompt.trim(),
+            duration: resolveJieKouSoraDuration(params.duration),
+            professional,
+        };
+
+        if (images.length > 0) {
+            body.image = images[0];
+            body.resolution = params.resolution === '1080p' ? '1080p' : '720p';
+            return { path: '/v3/async/sora-2-img2video', body };
+        }
+
+        body.size = resolveJieKouSoraSize(params.aspectRatio, professional);
+        return { path: '/v3/async/sora-2-text2video', body };
+    }
+
+    if (isJieKouVeoVideoModel(params.selectedModel)) {
+        if (images.length > 2) {
+            throw new ApiRouteError('JieKou Veo 3.1 图生视频最多支持首帧和尾帧 2 张图片', 400);
+        }
+
+        const body: Record<string, unknown> = {
+            prompt: params.prompt.trim(),
+            aspect_ratio: params.aspectRatio === '9:16' ? '9:16' : '16:9',
+            duration_seconds: resolveJieKouVeoDuration(params.duration),
+            enhance_prompt: true,
+            generate_audio: typeof params.generateAudio === 'boolean' ? params.generateAudio : true,
+            resolution: params.resolution === '1080p' ? '1080p' : '720p',
+            sample_count: 1,
+        };
+
+        if (params.seed !== undefined && params.seed >= 0) {
+            body.seed = params.seed;
+        }
+
+        if (images.length > 0) {
+            body.image = images[0];
+            if (images[1]) {
+                body.last_image = images[1];
+            }
+            return { path: '/v3/async/veo-3.1-generate-img2video', body };
+        }
+
+        return { path: '/v3/async/veo-3.1-generate-text2video', body };
+    }
+
+    throw new ApiRouteError('JieKou AI 暂不支持该视频模型', 400);
+}
+
+function orderJieKouVideoImages(imageEntries: Array<{ image: string; imageType?: string }>): Array<{ image: string; imageType?: string }> {
+    if (imageEntries.length <= 1) {
+        return imageEntries;
+    }
+
+    const firstFrame = imageEntries.find((item) => item.imageType === 'first_frame') ?? imageEntries[0];
+    const lastFrame = imageEntries.find((item) => item.imageType === 'last_frame')
+        ?? imageEntries.find((item) => item !== firstFrame);
+
+    return lastFrame ? [firstFrame, lastFrame] : [firstFrame];
+}
+
+function normalizeJieKouVideoImageInput(entry: { image: string }): string {
+    const image = entry.image.trim();
+    if (!image) {
+        throw new ApiRouteError('参考图不能为空', 400);
+    }
+
+    if (!isDataUrl(image)) {
+        return image;
+    }
+
+    const base64 = extractDataUrlBase64(image);
+    if (estimateBase64Bytes(base64) > MAX_VIDEO_REFERENCE_IMAGE_BYTES) {
+        throw new ApiRouteError(
+            `单张参考图不能超过 ${(MAX_VIDEO_REFERENCE_IMAGE_BYTES / 1024 / 1024).toFixed(0)}MB`,
+            413,
+        );
+    }
+
+    return base64;
+}
+
+function resolveJieKouSoraDuration(duration: number | undefined): number {
+    if (duration === 8 || duration === 12) {
+        return duration;
+    }
+
+    return 4;
+}
+
+function resolveJieKouVeoDuration(duration: number | undefined): number {
+    if (duration === 4 || duration === 6 || duration === 8) {
+        return duration;
+    }
+
+    return 8;
+}
+
+function resolveJieKouSoraSize(aspectRatio: string | undefined, professional: boolean): string {
+    if (aspectRatio === '16:9') {
+        return professional ? '1792*1024' : '1280*720';
+    }
+
+    return professional ? '1024*1792' : '720*1280';
 }
 
 function buildMagicApiVideoRequest(params: {

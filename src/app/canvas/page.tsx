@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useUser } from '@/lib/mock-clerk';
@@ -420,7 +420,15 @@ function LovartCanvasContent() {
         showToast,
     });
 
-    const chunkSummary = useMemo(() => buildCanvasChunkManifest(elements), [elements]);
+    const chunkStructureSignature = useMemo(() => buildCanvasChunkStructureSignature(elements), [elements]);
+    const chunkSummary = useMemo(() => {
+        const cached = chunkSummaryReferenceCache.get(chunkStructureSignature);
+        if (cached) {
+            return cached;
+        }
+
+        return rememberReference(chunkSummaryReferenceCache, chunkStructureSignature, buildCanvasChunkManifest(elements));
+    }, [chunkStructureSignature, elements]);
     const chunkManifest: CanvasChunkManifestEntry[] = chunkSummary.manifest;
     const chunkStats: CanvasChunkStats = chunkSummary.stats;
     const hasRootChunk = useMemo(() => chunkManifest.some((chunk) => chunk.id === 'root'), [chunkManifest]);
@@ -479,6 +487,15 @@ function LovartCanvasContent() {
             viewportSize: viewport,
         });
     }, [chunkManifest, elementById, elementChunkIdById, elements, hasRootChunk, highlightedLayerIds, highlightedResultId, pan, scale, selectedIds, validChunkIdSet, validPinnedChunkIds]);
+    const activeChunkIdsSignature = useMemo(() => activeChunkSummary.activeChunkIds.join('\u0001'), [activeChunkSummary.activeChunkIds]);
+    const activeChunkIds = useMemo(() => {
+        const cached = activeChunkIdsReferenceCache.get(activeChunkIdsSignature);
+        if (cached) {
+            return cached;
+        }
+
+        return rememberReference(activeChunkIdsReferenceCache, activeChunkIdsSignature, activeChunkSummary.activeChunkIds);
+    }, [activeChunkIdsSignature, activeChunkSummary.activeChunkIds]);
 
     const chunkReleaseTimerRef = useRef<number | null>(null);
     useEffect(() => {
@@ -506,7 +523,7 @@ function LovartCanvasContent() {
                 return;
             }
 
-            const targetChunkIds = activeChunkSummary.activeChunkIds;
+            const targetChunkIds = activeChunkIds;
             const targetSet = new Set(targetChunkIds);
 
             setChunkResidency((prev) => {
@@ -550,26 +567,26 @@ function LovartCanvasContent() {
                 chunkReleaseTimerRef.current = null;
             }
         };
-    }, [activeChunkSummary.activeChunkIds, buildChunkResidencyState, chunkManifest.length, chunkMetaById, elements.length]);
+    }, [activeChunkIds, buildChunkResidencyState, chunkManifest.length, chunkMetaById, elements.length]);
 
     const canvasRuntimeElements = useMemo(() => {
         return buildCanvasRuntimeElements(
             elements,
             chunkManifest.length,
             chunkResidency.residentChunkIds,
-            activeChunkSummary.activeChunkIds,
+            activeChunkIds,
             elementChunkIdById,
         );
-    }, [activeChunkSummary.activeChunkIds, chunkManifest.length, chunkResidency.residentChunkIds, elementChunkIdById, elements]);
+    }, [activeChunkIds, chunkManifest.length, chunkResidency.residentChunkIds, elementChunkIdById, elements]);
 
     const chunkPanelEntries = useMemo(() => {
         return buildChunkPanelEntries(
             chunkManifest,
-            activeChunkSummary.activeChunkIds,
+            activeChunkIds,
             chunkResidency.residentChunkIds,
             validPinnedChunkIds,
         );
-    }, [activeChunkSummary.activeChunkIds, chunkManifest, chunkResidency.residentChunkIds, validPinnedChunkIds]);
+    }, [activeChunkIds, chunkManifest, chunkResidency.residentChunkIds, validPinnedChunkIds]);
 
     const handleTogglePinnedChunk = useCallback((chunkId: string) => {
         if (!validChunkIdSet.has(chunkId)) return;
@@ -2264,4 +2281,32 @@ export default function LovartCanvas() {
             <LovartCanvasContent />
         </Suspense>
     );
+}
+
+function buildCanvasChunkStructureSignature(elements: CanvasElement[]) {
+    return elements
+        .map((element) => [
+            element.id,
+            element.type ?? '',
+            element.parentFrameId ?? '',
+            element.frameName ?? '',
+            element.groupFrame ? '1' : '0',
+        ].join('\u0001'))
+        .join('\u0002');
+}
+
+const CHUNK_REFERENCE_CACHE_LIMIT = 80;
+const chunkSummaryReferenceCache = new Map<string, { manifest: CanvasChunkManifestEntry[]; stats: CanvasChunkStats }>();
+const activeChunkIdsReferenceCache = new Map<string, string[]>();
+
+function rememberReference<TKey, TValue>(cache: Map<TKey, TValue>, key: TKey, value: TValue) {
+    if (!cache.has(key) && cache.size >= CHUNK_REFERENCE_CACHE_LIMIT) {
+        const oldestKey = cache.keys().next().value;
+        if (oldestKey !== undefined) {
+            cache.delete(oldestKey);
+        }
+    }
+
+    cache.set(key, value);
+    return value;
 }

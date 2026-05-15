@@ -1,5 +1,4 @@
 import { ChevronDown, MousePointerClick, Settings2, Upload } from 'lucide-react';
-import { resolveOpenAiGptImageAspectRatio } from '@/lib/image-generation-models';
 import {
     describeImageSizeAspectRatio,
     IMAGE_QUALITY_LABELS,
@@ -138,10 +137,7 @@ export function ImageGeneratorSettingsPanel({
                                                 <button
                                                     key={size}
                                                     type="button"
-                                                    onClick={() => {
-                                                        onImageSizeChange(size);
-                                                        onAspectRatioChange(resolveOpenAiGptImageAspectRatio(size, aspectRatio));
-                                                    }}
+                                                    onClick={() => onImageSizeChange(size)}
                                                     className={`rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors ${imageSize === size ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                                                 >
                                                     <div>{size}</div>

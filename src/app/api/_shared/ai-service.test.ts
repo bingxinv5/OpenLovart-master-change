@@ -12,6 +12,7 @@ import { fetchRemoteAssetPrefix } from './cdn-cache';
 
 import {
   detectImageDimensions,
+  extractImageResult,
   extractVideoUrl,
   inferGenerationTaskKind,
   inspectImageResultDimensions,
@@ -36,6 +37,19 @@ describe('ai-service video extraction', () => {
 
     expect(extractVideoUrl(payload)).toBe('https://webstatic.aiproxy.vip/output/20260411/example.mp4');
     expect(inferGenerationTaskKind(payload)).toBe('video');
+  });
+
+  it('extracts JieKou image_urls and videos arrays', () => {
+    expect(extractImageResult({
+      image_urls: ['https://example.com/jiekou-image.png'],
+    })).toMatchObject({
+      imageUrl: 'https://example.com/jiekou-image.png',
+      images: ['https://example.com/jiekou-image.png'],
+    });
+
+    expect(extractVideoUrl({
+      videos: [{ video_url: 'https://example.com/jiekou-video.mp4' }],
+    })).toBe('https://example.com/jiekou-video.mp4');
   });
 
   it('detects png image dimensions from a buffer', () => {

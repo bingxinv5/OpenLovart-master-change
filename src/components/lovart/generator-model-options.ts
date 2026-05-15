@@ -8,14 +8,20 @@ import {
     MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS,
     getMagicApiGeminiImageSizeOptions,
     getMagicApiGptImageSizeOptions,
+    JIEKOU_GPT_IMAGE_SIZE_OPTIONS,
+    JIEKOU_IMAGE_ASPECT_RATIO_OPTIONS,
     isDomesticImageModel as isKnownDomesticImageModel,
     isGeminiNativeImageModel,
     isGrokImageModel as isKnownGrokImageModel,
+    isJieKouGptImageModel as isKnownJieKouGptImageModel,
+    isJieKouGeminiImageModel as isKnownJieKouGeminiImageModel,
+    isJieKouNanoBananaImageModel as isKnownJieKouNanoBananaImageModel,
     isOpenAiGptImageModel as isKnownOpenAiGptImageModel,
+    isVApiGeminiImageModel as isKnownVApiGeminiImageModel,
     resolveMagicApiOpenAiStyleImageSize,
     shouldUseDomesticImageBatching,
 } from '@/lib/image-generation-models';
-import { DEFAULT_AI_PROVIDER_ID, getProviderImageModels, getProviderVideoModels, isMagicApiProvider, type AiProviderId } from '@/lib/ai-providers';
+import { DEFAULT_AI_PROVIDER_ID, getProviderImageModels, getProviderVideoModels, isJieKouProvider, isMagicApiProvider, isVApiProvider, type AiProviderId } from '@/lib/ai-providers';
 import type { ImageGenerationDefaults } from '@/lib/generation-defaults';
 import {
     VIDEO_MODEL_OPTIONS,
@@ -64,6 +70,8 @@ export type {
 
 export const IMAGE_MODEL_OPTIONS = [
     'gemini-3.1-flash-image-preview',
+    'gemini-3-pro-image',
+    'nano-banana-pro',
     'nano-banana-2',
     'gpt-image-2',
     'grok-4.2-image',
@@ -83,6 +91,8 @@ export type VideoDurationValue = VideoDuration;
 
 export const IMAGE_MODEL_LABELS: Record<ImageModel, string> = {
     'gemini-3.1-flash-image-preview': 'gemini-3.1-flash-image-preview',
+    'gemini-3-pro-image': 'gemini-3-pro-image',
+    'nano-banana-pro': 'nano-banana-pro',
     'nano-banana-2': 'nano-banana-2',
     'gpt-image-2': 'gpt-image-2',
     'grok-4.2-image': 'grok-4.2-image',
@@ -134,21 +144,33 @@ export function resolveImageGeneratorModelOptions({
     providerId?: AiProviderId;
 }) {
     const isMagicApi = isMagicApiProvider(providerId);
+    const isJieKou = isJieKouProvider(providerId);
+    const isVApi = isVApiProvider(providerId);
     const maxReferenceImages = getMaxReferenceImagesForImageModel(model);
     const isGrokImageModel = isKnownGrokImageModel(model);
     const isOpenAiGptImageModel = isKnownOpenAiGptImageModel(model);
     const isGeminiImageModel = isGeminiNativeImageModel(model);
+    const isJieKouGeminiImageModel = isKnownJieKouGeminiImageModel(model);
+    const isJieKouNanoBananaImageModel = isKnownJieKouNanoBananaImageModel(model);
+    const isJieKouGptImageModel = isKnownJieKouGptImageModel(model);
+    const isVApiGeminiImageModel = isKnownVApiGeminiImageModel(model);
     const isDomesticImageModel = isKnownDomesticImageModel(model);
     const usesDomesticImageBatching = shouldUseDomesticImageBatching(model);
     const grokUsesReferenceAspectRatio = isGrokImageModel && referenceImageCount > 0;
-    const availableAspectRatios = isMagicApi && isOpenAiGptImageModel
+    const availableAspectRatios = isJieKou && (isJieKouGeminiImageModel || isJieKouNanoBananaImageModel || isJieKouGptImageModel)
+        ? [...JIEKOU_IMAGE_ASPECT_RATIO_OPTIONS]
+        : isMagicApi && isOpenAiGptImageModel
         ? [...MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS]
         : isMagicApi
         ? [...MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS]
         : isGrokImageModel
         ? GROK_IMAGE_ASPECT_RATIOS
         : STANDARD_IMAGE_ASPECT_RATIOS;
-    const availableImageSizes: ImageSize[] = isMagicApi && isOpenAiGptImageModel
+    const availableImageSizes: ImageSize[] = isJieKou && isJieKouGptImageModel
+        ? [...JIEKOU_GPT_IMAGE_SIZE_OPTIONS]
+        : isJieKou && (isJieKouGeminiImageModel || isJieKouNanoBananaImageModel)
+            ? [...STANDARD_IMAGE_SIZE_OPTIONS]
+        : isMagicApi && isOpenAiGptImageModel
         ? getMagicApiGptImageSizeOptions(model)
         : isMagicApi && isGeminiImageModel
             ? getMagicApiGeminiImageSizeOptions(model)
@@ -159,12 +181,20 @@ export function resolveImageGeneratorModelOptions({
         : isGrokImageModel
             ? GROK_IMAGE_SIZES
             : [...STANDARD_IMAGE_SIZE_OPTIONS];
-    const availableImageQualities: ImageQuality[] = isMagicApi && isOpenAiGptImageModel
+    const availableImageQualities: ImageQuality[] = isJieKou && isJieKouGptImageModel
+        ? ['low', 'medium', 'high']
+        : isJieKou
+            ? ['auto']
+        : isVApi && isVApiGeminiImageModel
+            ? ['auto']
+        : isMagicApi && isOpenAiGptImageModel
         ? ['high']
         : [...OPENAI_GPT_IMAGE_QUALITY_OPTIONS];
     const derivedOpenAiGptImageAspectRatio = describeOpenAiGptImageAspectRatio(imageSize, aspectRatio);
     const displayedAspectRatio = grokUsesReferenceAspectRatio
         ? '参考图比例'
+        : isJieKou && isJieKouGptImageModel
+            ? aspectRatio
         : isOpenAiGptImageModel
             ? derivedOpenAiGptImageAspectRatio
             : aspectRatio === 'auto'

@@ -1,6 +1,6 @@
 import { DEFAULT_AI_BASE_URL } from './network-policy';
 
-export type AiProviderId = 'bltcy' | 'magicapi';
+export type AiProviderId = 'bltcy' | 'magicapi' | 'jiekou' | 'vapi';
 
 export type AiProviderBaseUrlOption = {
   label: string;
@@ -110,12 +110,79 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderDefinition> = {
       ],
     },
   },
+  jiekou: {
+    id: 'jiekou',
+    label: 'JieKou AI',
+    description: '独立第三方接口 AI 平台，支持聊天、图片生成和 Sora 2 / Veo 3.1 视频生成。',
+    defaultBaseUrl: 'https://api.jiekou.ai',
+    allowedPublicPatterns: ['api.jiekou.ai'],
+    apiKeyEnv: 'JIEKOU_API_KEY',
+    baseUrlEnv: 'JIEKOU_API_BASE_URL',
+    capabilities: {
+      chat: true,
+      image: true,
+      video: true,
+    },
+    models: {
+      chat: [
+        'gemini-3.1-pro-preview',
+        'gemini-3-pro-preview',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6',
+        'gpt-5.4',
+        'gpt-5.4-pro',
+      ],
+      image: [
+        'gemini-3-pro-image',
+        'nano-banana-2',
+        'gpt-image-2',
+      ],
+      video: [
+        'jiekou-sora-2',
+        'jiekou-veo-3.1',
+      ],
+    },
+  },
+  vapi: {
+    id: 'vapi',
+    label: 'V-API',
+    description: '独立第三方 API 平台，支持聊天、图片生成和 Sora 2 视频生成。',
+    defaultBaseUrl: 'https://api.vveai.com',
+    allowedPublicPatterns: ['api.vveai.com'],
+    apiKeyEnv: 'VAPI_API_KEY',
+    baseUrlEnv: 'VAPI_API_BASE_URL',
+    capabilities: {
+      chat: true,
+      image: true,
+      video: true,
+    },
+    models: {
+      chat: [
+        'gemini-3.1-pro-preview',
+        'gemini-3-pro-preview',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6',
+        'gpt-5.4',
+        'gpt-5.4-pro',
+      ],
+      image: [
+        'gemini-3.1-flash-image-preview',
+        'nano-banana-pro',
+        'gpt-image-2',
+      ],
+      video: [
+        'sora-2_1280x720',
+        'ssora-2-pro_1280x720',
+        'sora-2-pro_1792x1024',
+      ],
+    },
+  },
 };
 
 export const AI_PROVIDER_OPTIONS = Object.values(AI_PROVIDERS);
 
 export function isAiProviderId(value: unknown): value is AiProviderId {
-  return value === 'bltcy' || value === 'magicapi';
+  return value === 'bltcy' || value === 'magicapi' || value === 'jiekou' || value === 'vapi';
 }
 
 export function normalizeAiProviderId(value: unknown): AiProviderId {
@@ -128,6 +195,14 @@ export function getAiProvider(providerId: unknown): AiProviderDefinition {
 
 export function isMagicApiProvider(providerId: unknown): boolean {
   return normalizeAiProviderId(providerId) === 'magicapi';
+}
+
+export function isJieKouProvider(providerId: unknown): boolean {
+  return normalizeAiProviderId(providerId) === 'jiekou';
+}
+
+export function isVApiProvider(providerId: unknown): boolean {
+  return normalizeAiProviderId(providerId) === 'vapi';
 }
 
 export function getProviderImageModels(providerId: unknown): string[] {

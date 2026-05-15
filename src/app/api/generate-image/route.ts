@@ -4,6 +4,7 @@ import { debugLog } from '@/lib/debug-log';
 import { fetchRemoteAsset, RemoteFetchError } from '../_shared/cdn-cache';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
+    ApiRouteError,
     createUpstreamConnectionError,
     extractImageResult,
     getNestedValue,
@@ -13,27 +14,42 @@ import {
     getErrorMessage,
     handleApiRouteError,
     parseJsonResponse,
-    proxyImageResultUrls,
-    resolveRequestOrigin,
     resolveAiServiceConfig,
 } from '../_shared/ai-service';
+import { createDefaultLocalImageJob } from '../_shared/default-image-tasks';
 import {
     createMagicApiLocalImageJob,
-    MAGICAPI_IMAGE_TASK_PREFIX,
 } from '../_shared/magicapi-image-jobs';
+import {
+    createJieKouLocalImageJob,
+    encodeJieKouImageTaskId,
+} from '../_shared/jiekou-image-tasks';
+import { createVApiLocalImageJob } from '../_shared/vapi-image-tasks';
 import {
     buildUpstreamImageGenerationBody,
     describeOpenAiGptImageAspectRatio,
     getMaxReferenceImagesForImageModel,
     getOpenAiGptImagePromptCompensation,
     isGeminiNativeImageModel,
+    isJieKouGeminiImageModel,
+    isJieKouGptImageModel,
+    isJieKouNanoBananaImageModel,
     isMagicApiGptImageOfficialSize,
     isOpenAiGptImageAutoSize,
     isOpenAiGptImageModel,
+    isVApiGeminiImageModel,
+    isVApiImageModel,
+    resolveJieKouGptImageQuality,
+    resolveJieKouGptImageSize,
+    resolveJieKouImageAspectRatio,
+    resolveJieKouNanoBananaQuality,
+    resolveJieKouNanoBananaSize,
+    resolveJieKouStandardImageSize,
     resolveMagicApiGeminiImageSize,
     resolveMagicApiOpenAiStyleImageSize,
+    resolveVApiGeminiImageSize,
 } from '@/lib/image-generation-models';
-import { isMagicApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isMagicApiProvider, isVApiProvider } from '@/lib/ai-providers';
 
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -46,7 +62,7 @@ type ImageResultShape = ReturnType<typeof extractImageResult>;
 
 export async function POST(request: NextRequest) {
     try {
-        const { prompt, model, aspectRatio, imageSize, quality, generateCount, referenceImages, referenceImage, forceAsync } = await request.json();
+        const { prompt, model, aspectRatio, imageSize, quality, generateCount, referenceImages, referenceImage } = await request.json();
 
         if (!prompt || typeof prompt !== 'string') {
             return NextResponse.json({ error: '请输入提示词' }, { status: 400 });
@@ -133,7 +149,6 @@ export async function POST(request: NextRequest) {
 
         if (isMagicApiProvider(providerId)) {
             return await submitMagicApiImageGeneration({
-                request,
                 apiKey,
                 baseUrl,
                 selectedModel,
@@ -141,85 +156,112 @@ export async function POST(request: NextRequest) {
                 aspectRatio,
                 imageSize,
                 normalizedImages,
-                forceAsync,
+            });
+        }
+
+        if (isJieKouProvider(providerId)) {
+            return await submitJieKouImageGeneration({
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt,
+                aspectRatio,
+                imageSize,
+                quality,
+                generateCount,
+                normalizedImages,
+            });
+        }
+
+        if (isVApiProvider(providerId)) {
+            return await submitVApiImageGeneration({
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt,
+                aspectRatio,
+                imageSize,
+                quality,
+                generateCount,
+                normalizedImages,
             });
         }
 
         const usesGptImageEdits = isOpenAiGptImageModel(selectedModel) && normalizedImages.length > 0;
-        const targetUrl = `${baseUrl}${usesGptImageEdits ? '/v1/images/edits' : '/v1/images/generations'}${forceAsync === true ? '?async=true' : ''}`;
-        let response: Response;
-
-        try {
-            response = await fetchWithRetry(
+        const targetUrl = `${baseUrl}${usesGptImageEdits ? '/v1/images/edits' : '/v1/images/generations'}?async=true`;
+        const localTaskId = createDefaultLocalImageJob(async () => {
+            const data = await fetchDefaultImageGenerationData({
                 targetUrl,
-                usesGptImageEdits
-                    ? {
-                        method: 'POST',
-                        headers: createAiHeaders(apiKey),
-                        body: buildGptImageEditsFormData(body, normalizedImages),
-                    }
-                    : {
-                        method: 'POST',
-                        headers: createAiHeaders(apiKey, true),
-                        body: JSON.stringify(body),
-                    },
-                { label: 'generate-image', timeoutMs: AI_UPSTREAM_TIMEOUT_MS.submit },
-            );
-        } catch (error: unknown) {
-            console.error('[generate-image] Upstream fetch failed after retries:', getErrorMessage(error));
-            throw createUpstreamConnectionError(baseUrl, error);
-        }
+                apiKey,
+                baseUrl,
+                selectedModel,
+                usesGptImageEdits,
+                requestBody: body,
+                normalizedImages,
+            });
 
-        const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
-
-        if (!response.ok) {
-            console.error('[generate-image] API error:', data);
-            const rawMsg = getApiErrorMessage(data, JSON.stringify(data));
-            // Translate common API error messages to Chinese
-            let errorMsg = rawMsg;
-            if (rawMsg.includes('could not generate an image')) {
-                errorMsg = '模型无法根据该提示词生成图片，请尝试更换提示词或参考图。';
-            } else if (rawMsg.includes('safety') || rawMsg.includes('blocked')) {
-                errorMsg = '内容被安全策略拦截，请修改提示词后重试。';
-            } else if (rawMsg.includes('rate limit') || rawMsg.includes('too many')) {
-                errorMsg = 'API 请求过于频繁，请稍后再试。';
-            } else if (rawMsg.includes('quota') || rawMsg.includes('insufficient')) {
-                errorMsg = 'API 额度不足，请检查账户余额。';
-            }
-            throw new Error(errorMsg);
-        }
-
-        debugLog('[generate-image] Response:', JSON.stringify(data).substring(0, 300));
-
-        // The API may return taskId in either snake_case or camelCase, and some
-        // models complete immediately while still returning a reusable taskId.
-        const rawTaskId = getNestedValue(data, 'data', 'task_id')
-            || getNestedValue(data, 'task_id')
-            || getNestedValue(data, 'data', 'taskId')
-            || getNestedValue(data, 'taskId');
-        const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0 ? rawTaskId : null;
-
-        // Some models may return results directly
-        const rawImageResult = extractImageResult(data);
-        const imageResult = proxyImageResultUrls(rawImageResult, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
-            filenamePrefix: 'lovart-generate-image',
+            return {
+                data,
+                upstreamTaskId: hasExtractableImageResult(data) ? null : extractDefaultImageTaskId(data),
+            };
         });
-        if (imageResult.imageUrl) {
-            return NextResponse.json({ status: 'completed', taskId, imageUrl: imageResult.imageUrl, images: imageResult.images });
-        }
-        if (imageResult.imageData) {
-            return NextResponse.json({ status: 'completed', taskId, imageData: imageResult.imageData, images: imageResult.images });
-        }
 
-        if (taskId) {
-            return NextResponse.json({ taskId, status: 'pending' });
-        }
-
-        return NextResponse.json({ taskId: null, status: 'unknown', raw: data });
+        return NextResponse.json({ taskId: localTaskId, status: 'pending' });
 
     } catch (error: unknown) {
         return handleApiRouteError(error, '图片生成失败', 'generate-image');
     }
+}
+
+async function fetchDefaultImageGenerationData(params: {
+    targetUrl: string;
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    usesGptImageEdits: boolean;
+    requestBody: Record<string, unknown>;
+    normalizedImages: NormalizedReferenceImage[];
+}): Promise<Record<string, unknown>> {
+    const { targetUrl, apiKey, baseUrl, selectedModel, usesGptImageEdits, requestBody, normalizedImages } = params;
+    const timeoutMs = isOpenAiGptImageModel(selectedModel) || usesGptImageEdits
+        ? AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit
+        : AI_UPSTREAM_TIMEOUT_MS.submit;
+    let response: Response;
+
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            usesGptImageEdits
+                ? {
+                    method: 'POST',
+                    headers: createAiHeaders(apiKey),
+                    body: buildGptImageEditsFormData(requestBody, normalizedImages),
+                }
+                : {
+                    method: 'POST',
+                    headers: createAiHeaders(apiKey, true),
+                    body: JSON.stringify(requestBody),
+                },
+            {
+                attempts: isOpenAiGptImageModel(selectedModel) ? 1 : undefined,
+                label: 'generate-image',
+                timeoutMs,
+            },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-image] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(baseUrl, error, { timeoutMs });
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+
+    if (!response.ok) {
+        console.error('[generate-image] API error:', data);
+        throw new Error(translateImageApiError(getApiErrorMessage(data, JSON.stringify(data))));
+    }
+
+    debugLog('[generate-image] Response:', JSON.stringify(data).substring(0, 300));
+    return data;
 }
 
 function estimateBase64Bytes(value: string): number {
@@ -228,6 +270,186 @@ function estimateBase64Bytes(value: string): number {
 
     const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0;
     return Math.floor((normalized.length * 3) / 4) - padding;
+}
+
+function extractDefaultImageTaskId(data: Record<string, unknown>): string | null {
+    return extractImageTaskId(data);
+}
+
+function extractVApiImageTaskId(data: Record<string, unknown>): string | null {
+    return extractImageTaskId(data);
+}
+
+function extractImageTaskId(data: Record<string, unknown>): string | null {
+    const rawTaskId = getNestedValue(data, 'data', 'task_id')
+        || getNestedValue(data, 'task_id')
+        || getNestedValue(data, 'data', 'taskId')
+        || getNestedValue(data, 'taskId')
+        || getNestedValue(data, 'data', 'id')
+        || getNestedValue(data, 'id');
+
+    return typeof rawTaskId === 'string' && rawTaskId.trim().length > 0 ? rawTaskId.trim() : null;
+}
+
+async function submitVApiImageGeneration(params: {
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    quality: unknown;
+    generateCount: unknown;
+    normalizedImages: NormalizedReferenceImage[];
+}) {
+    if (!isVApiImageModel(params.selectedModel)) {
+        throw new ApiRouteError('V-API 暂不支持该图片模型', 400);
+    }
+
+    const hasReferenceImages = params.normalizedImages.length > 0;
+    const targetUrl = `${params.baseUrl}${hasReferenceImages ? '/v1/images/edits' : '/v1/images/generations'}`;
+    const requestBody = buildVApiImageGenerationBody(params);
+    const init: RequestInit = hasReferenceImages
+        ? {
+            method: 'POST',
+            headers: createAiHeaders(params.apiKey),
+            body: buildVApiImageEditsFormData(requestBody, params.normalizedImages),
+        }
+        : {
+            method: 'POST',
+            headers: createAiHeaders(params.apiKey, true),
+            body: JSON.stringify(requestBody),
+        };
+
+    const localTaskId = createVApiLocalImageJob(async () => {
+        const data = await fetchVApiImageGenerationData({
+            targetUrl,
+            init,
+            baseUrl: params.baseUrl,
+            selectedModel: params.selectedModel,
+            hasReferenceImages,
+        });
+
+        return {
+            data,
+            upstreamTaskId: hasExtractableImageResult(data) ? null : extractVApiImageTaskId(data),
+        };
+    });
+
+    return NextResponse.json({ taskId: localTaskId, status: 'pending' });
+}
+
+async function fetchVApiImageGenerationData(params: {
+    targetUrl: string;
+    init: RequestInit;
+    baseUrl: string;
+    selectedModel: string;
+    hasReferenceImages: boolean;
+}): Promise<Record<string, unknown>> {
+    const { targetUrl, init, baseUrl, selectedModel, hasReferenceImages } = params;
+    const timeoutMs = isOpenAiGptImageModel(selectedModel) || hasReferenceImages
+        ? AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit
+        : AI_UPSTREAM_TIMEOUT_MS.submit;
+
+    let response: Response;
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            init,
+            {
+                attempts: isOpenAiGptImageModel(selectedModel) ? 1 : undefined,
+                label: 'generate-image:vapi',
+                timeoutMs,
+            },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-image][vapi] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(baseUrl, error, { timeoutMs });
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        console.error('[generate-image][vapi] API error:', data);
+        throw new Error(translateImageApiError(getApiErrorMessage(data, JSON.stringify(data))));
+    }
+
+    return data;
+}
+
+function buildVApiImageGenerationBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    quality: unknown;
+    generateCount: unknown;
+    normalizedImages?: NormalizedReferenceImage[];
+}): Record<string, unknown> {
+    const normalizedCount = normalizeVApiImageGenerateCount(params.generateCount);
+
+    if (isVApiGeminiImageModel(params.selectedModel)) {
+        const body: Record<string, unknown> = {
+            model: params.selectedModel,
+            prompt: params.prompt.trim(),
+            response_format: 'url',
+            size: resolveVApiGeminiImageSize(params.imageSize),
+        };
+
+        if (typeof params.aspectRatio === 'string' && params.aspectRatio.trim() && params.aspectRatio !== 'auto') {
+            body.aspect_ratio = params.aspectRatio.trim();
+        }
+
+        if (normalizedCount && normalizedCount > 1) {
+            body.n = normalizedCount;
+        }
+
+        return body;
+    }
+
+    return buildUpstreamImageGenerationBody({
+        model: params.selectedModel,
+        prompt: params.prompt,
+        aspectRatio: typeof params.aspectRatio === 'string' ? params.aspectRatio : undefined,
+        imageSize: typeof params.imageSize === 'string' ? params.imageSize : undefined,
+        quality: typeof params.quality === 'string' ? params.quality : undefined,
+        generateCount: normalizedCount,
+        referenceImages: params.normalizedImages?.map((image) => image.base64),
+        responseFormat: 'url',
+    });
+}
+
+function buildVApiImageEditsFormData(
+    body: Record<string, unknown>,
+    referenceImages: NormalizedReferenceImage[],
+): FormData {
+    const formData = new FormData();
+
+    appendFormDataString(formData, 'model', body.model);
+    appendFormDataString(formData, 'prompt', body.prompt);
+    appendFormDataString(formData, 'size', body.size);
+    appendFormDataString(formData, 'quality', body.quality);
+    appendFormDataString(formData, 'response_format', body.response_format);
+    appendFormDataString(formData, 'aspect_ratio', body.aspect_ratio);
+    if (typeof body.n === 'number') {
+        formData.append('n', String(body.n));
+    }
+
+    referenceImages.forEach((image, index) => {
+        const buffer = Buffer.from(image.base64, 'base64');
+        const blob = new Blob([buffer], { type: image.mime || 'image/png' });
+        formData.append('image', blob, `reference-${index + 1}${getImageExtensionFromMime(image.mime)}`);
+    });
+
+    return formData;
+}
+
+function normalizeVApiImageGenerateCount(value: unknown): number | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return undefined;
+    }
+
+    const normalized = Math.trunc(value);
+    return normalized >= 1 && normalized <= 10 ? normalized : undefined;
 }
 
 function buildGptImageEditsFormData(
@@ -251,8 +473,181 @@ function buildGptImageEditsFormData(
     return formData;
 }
 
+async function submitJieKouImageGeneration(params: {
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    quality: unknown;
+    generateCount: unknown;
+    normalizedImages: NormalizedReferenceImage[];
+}) {
+    const {
+        apiKey,
+        baseUrl,
+        selectedModel,
+        prompt,
+        aspectRatio,
+        imageSize,
+        quality,
+        generateCount,
+        normalizedImages,
+    } = params;
+    const { path, body } = buildJieKouImageRequest({
+        selectedModel,
+        prompt,
+        aspectRatio,
+        imageSize,
+        quality,
+        generateCount,
+        normalizedImages,
+    });
+    const targetUrl = `${baseUrl}${path}`;
+
+    const localTaskId = createJieKouLocalImageJob(async () => {
+        const data = await fetchJieKouImageGenerationData({
+            targetUrl,
+            apiKey,
+            baseUrl,
+            requestBody: body,
+        });
+        const rawTaskId = extractJieKouImageTaskId(data);
+
+        return {
+            data,
+            upstreamTaskId: hasExtractableImageResult(data) ? null : rawTaskId,
+        };
+    });
+
+    return NextResponse.json({ taskId: localTaskId, status: 'pending' });
+}
+
+async function fetchJieKouImageGenerationData(params: {
+    targetUrl: string;
+    apiKey: string;
+    baseUrl: string;
+    requestBody: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+    const { targetUrl, apiKey, baseUrl, requestBody } = params;
+    let response: Response;
+
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            {
+                method: 'POST',
+                headers: createAiHeaders(apiKey, true),
+                body: JSON.stringify(requestBody),
+            },
+            {
+                attempts: 1,
+                label: 'generate-image:jiekou',
+                timeoutMs: AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit,
+            },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-image][jiekou] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(baseUrl, error, { timeoutMs: AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit });
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        console.error('[generate-image][jiekou] API error:', data);
+        throw new Error(translateImageApiError(getApiErrorMessage(data, JSON.stringify(data))));
+    }
+
+    return data;
+}
+
+function extractJieKouImageTaskId(data: Record<string, unknown>): string | null {
+    const rawTaskId = getNestedValue(data, 'data', 'task_id')
+        || getNestedValue(data, 'task_id')
+        || getNestedValue(data, 'data', 'taskId')
+        || getNestedValue(data, 'taskId')
+        || getNestedValue(data, 'id');
+
+    return typeof rawTaskId === 'string' && rawTaskId.trim().length > 0
+        ? encodeJieKouImageTaskId(rawTaskId)
+        : null;
+}
+
+function buildJieKouImageRequest(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    quality: unknown;
+    generateCount: unknown;
+    normalizedImages: NormalizedReferenceImage[];
+}): { path: string; body: Record<string, unknown> } {
+    const { selectedModel, prompt, aspectRatio, imageSize, quality, generateCount, normalizedImages } = params;
+    const referenceImageBase64s = normalizedImages.map((image) => image.base64);
+    const hasReferenceImages = referenceImageBase64s.length > 0;
+    const normalizedPrompt = prompt.trim();
+    const normalizedCount = generateCount === 2 || generateCount === 3 || generateCount === 4 ? generateCount : 1;
+
+    if (isJieKouGeminiImageModel(selectedModel)) {
+        const body: Record<string, unknown> = {
+            prompt: normalizedPrompt,
+            size: resolveJieKouStandardImageSize(imageSize),
+            aspect_ratio: resolveJieKouImageAspectRatio(aspectRatio),
+            output_format: 'image/png',
+        };
+
+        if (hasReferenceImages) {
+            body.image_base64s = referenceImageBase64s;
+        }
+
+        return {
+            path: hasReferenceImages ? '/v3/gemini-3-pro-image-edit' : '/v3/gemini-3-pro-image-text-to-image',
+            body,
+        };
+    }
+
+    if (isJieKouNanoBananaImageModel(selectedModel)) {
+        const body: Record<string, unknown> = {
+            prompt: normalizedPrompt,
+            size: resolveJieKouNanoBananaSize(aspectRatio),
+            quality: resolveJieKouNanoBananaQuality(imageSize),
+            response_format: 'url',
+        };
+
+        if (hasReferenceImages) {
+            body.image = referenceImageBase64s.length === 1 ? referenceImageBase64s[0] : referenceImageBase64s;
+        }
+
+        return {
+            path: hasReferenceImages ? '/v3/nano-banana-2-i2i' : '/v3/nano-banana-2-t2i',
+            body,
+        };
+    }
+
+    if (isJieKouGptImageModel(selectedModel)) {
+        const body: Record<string, unknown> = {
+            prompt: normalizedPrompt,
+            n: normalizedCount,
+            size: resolveJieKouGptImageSize(imageSize, aspectRatio),
+            quality: resolveJieKouGptImageQuality(quality),
+            background: 'auto',
+            output_format: 'png',
+        };
+
+        if (hasReferenceImages) {
+            body.image = referenceImageBase64s.length === 1 ? referenceImageBase64s[0] : referenceImageBase64s;
+        }
+
+        return {
+            path: hasReferenceImages ? '/v3/gpt-image-2-edit' : '/v3/gpt-image-2-text-to-image',
+            body,
+        };
+    }
+
+    throw new ApiRouteError('JieKou AI 暂不支持该图片模型', 400);
+}
+
 async function submitMagicApiImageGeneration(params: {
-    request: NextRequest;
     apiKey: string;
     baseUrl: string;
     selectedModel: string;
@@ -260,10 +655,8 @@ async function submitMagicApiImageGeneration(params: {
     aspectRatio: unknown;
     imageSize: unknown;
     normalizedImages: NormalizedReferenceImage[];
-    forceAsync: unknown;
 }) {
     const {
-        request,
         apiKey,
         baseUrl,
         selectedModel,
@@ -271,10 +664,8 @@ async function submitMagicApiImageGeneration(params: {
         aspectRatio,
         imageSize,
         normalizedImages,
-        forceAsync,
     } = params;
     const isGeminiNative = isGeminiNativeImageModel(selectedModel);
-    const shouldUseAsyncTask = forceAsync === true;
     const targetUrl = isGeminiNative
         ? `${baseUrl}/v1beta/models/${encodeURIComponent(selectedModel)}:generateContent`
         : `${baseUrl}/v1/images/generations`;
@@ -287,45 +678,28 @@ async function submitMagicApiImageGeneration(params: {
             imageSize,
             normalizedImages,
         });
-    const submitTimeoutMs = isOpenAiGptImageModel(selectedModel) && !shouldUseAsyncTask
+    const submitTimeoutMs = isOpenAiGptImageModel(selectedModel)
         ? AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit
         : AI_UPSTREAM_TIMEOUT_MS.submit;
 
-    if (shouldUseAsyncTask) {
-        const localTaskId = createMagicApiLocalImageJob(async () => {
-            const data = await fetchMagicApiImageGenerationData({
-                targetUrl,
-                apiKey,
-                baseUrl,
-                requestBody,
-                attempts: 1,
-            });
-            const normalizedData = normalizeMagicApiLocalImageResultData(data, isGeminiNative);
-
-            return {
-                data: normalizedData,
-                upstreamTaskId: hasExtractableImageResult(normalizedData) ? null : extractMagicApiImageTaskId(normalizedData),
-            };
+    const localTaskId = createMagicApiLocalImageJob(async () => {
+        const data = await fetchMagicApiImageGenerationData({
+            targetUrl,
+            apiKey,
+            baseUrl,
+            requestBody,
+            timeoutMs: submitTimeoutMs,
+            attempts: isOpenAiGptImageModel(selectedModel) ? 1 : undefined,
         });
+        const normalizedData = normalizeMagicApiLocalImageResultData(data, isGeminiNative);
 
-        return NextResponse.json({ taskId: localTaskId, status: 'pending' });
-    }
-
-    const data = await fetchMagicApiImageGenerationData({
-        targetUrl,
-        apiKey,
-        baseUrl,
-        requestBody,
-        timeoutMs: submitTimeoutMs,
-        attempts: isOpenAiGptImageModel(selectedModel) ? 1 : undefined,
+        return {
+            data: normalizedData,
+            upstreamTaskId: hasExtractableImageResult(normalizedData) ? null : extractMagicApiImageTaskId(normalizedData),
+        };
     });
 
-    return buildMagicApiImageGenerationResponse({
-        request,
-        selectedModel,
-        isGeminiNative,
-        data,
-    });
+    return NextResponse.json({ taskId: localTaskId, status: 'pending' });
 }
 
 async function fetchMagicApiImageGenerationData(params: {
@@ -401,37 +775,6 @@ function normalizeMagicApiLocalImageResultData(data: Record<string, unknown>, is
     };
 }
 
-function buildMagicApiImageGenerationResponse(params: {
-    request: NextRequest;
-    selectedModel: string;
-    isGeminiNative: boolean;
-    data: Record<string, unknown>;
-}) {
-    const { request, selectedModel, isGeminiNative, data } = params;
-    const rawTaskId = extractMagicApiImageTaskId(data);
-    const taskId = rawTaskId ? encodeMagicApiImageTaskId(rawTaskId) : null;
-
-    const rawImageResult = isGeminiNative
-        ? mergeImageResults(extractGeminiNativeImageResult(data), extractImageResult(data))
-        : extractImageResult(data);
-    const imageResult = proxyImageResultUrls(rawImageResult, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
-        filenamePrefix: 'lovart-generate-image-magicapi',
-    });
-
-    if (imageResult.imageUrl) {
-        return NextResponse.json({ status: 'completed', taskId, imageUrl: imageResult.imageUrl, images: imageResult.images });
-    }
-    if (imageResult.imageData) {
-        return NextResponse.json({ status: 'completed', taskId, imageData: imageResult.imageData, images: imageResult.images });
-    }
-
-    if (taskId) {
-        return NextResponse.json({ taskId, status: 'pending' });
-    }
-
-    return NextResponse.json({ taskId: null, status: 'unknown', raw: data });
-}
-
 function buildMagicApiGeminiImageBody(params: {
     selectedModel: string;
     prompt: string;
@@ -504,13 +847,6 @@ function buildMagicApiOpenAiStyleImageBody(params: {
     }
 
     return body;
-}
-
-function encodeMagicApiImageTaskId(taskId: string): string {
-    const normalized = taskId.trim();
-    return normalized.startsWith(MAGICAPI_IMAGE_TASK_PREFIX)
-        ? normalized
-        : `${MAGICAPI_IMAGE_TASK_PREFIX}${normalized}`;
 }
 
 function extractGeminiNativeImageResult(payload: unknown): ImageResultShape {

@@ -167,6 +167,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     });
     const promptDraftRef = useRef(prompt);
     const persistedPromptRef = useRef(currentElement?.savedPrompt || '');
+    const previousImageDefaultsRef = useRef(imageDefaults);
     const legacyReferenceMigratedRef = useRef(false);
     const isPromptComposingRef = useRef(false);
     const dismissedCanvasReferenceSourceIdsRef = useRef<Set<string>>(new Set());
@@ -389,6 +390,14 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
     }, [syncPromptMentionQuery]);
 
+    const handleImageSizeChange = useCallback((nextImageSize: ImageSize) => {
+        setImageSize(nextImageSize);
+
+        if (isOpenAiGptImageModel) {
+            setAspectRatio(resolveOpenAiGptImageAspectRatio(nextImageSize, aspectRatio) as AspectRatio);
+        }
+    }, [aspectRatio, isOpenAiGptImageModel]);
+
     const flushPromptToElement = useCallback((nextPrompt?: string) => {
         const promptToPersist = nextPrompt ?? promptDraftRef.current;
         if (persistedPromptRef.current === promptToPersist) {
@@ -557,6 +566,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     // Sync with workbench settings changes (reactive via useImageGenerationDefaults)
     useEffect(() => {
+        const defaultsChanged = previousImageDefaultsRef.current !== imageDefaults;
+        previousImageDefaultsRef.current = imageDefaults;
+        if (!defaultsChanged) {
+            return;
+        }
+
         if (!currentElement?.selectedModel) {
             setModel(imageDefaults.model);
         }
@@ -1160,7 +1175,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onToggleModelMenu={() => { const next = !showModelMenu; closeAllMenus(); setShowModelMenu(next); }}
                 onModelChange={(nextModel) => { setModel(nextModel); setShowModelMenu(false); }}
                 onToggleSettings={() => { const next = !showSettingsPanel; closeAllMenus(); setShowSettingsPanel(next); }}
-                onImageSizeChange={setImageSize}
+                onImageSizeChange={handleImageSizeChange}
                 onAspectRatioChange={setAspectRatio}
                 onQualityChange={setQuality}
                 onGenerateCountChange={setGenerateCount}

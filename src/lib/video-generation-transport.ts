@@ -1,13 +1,25 @@
-export type VideoGenerationTransport = 'standard' | 'domestic-official' | 'magicapi';
+import { isVApiSoraVideoModel } from './video-generation-models';
+
+export type VideoGenerationTransport = 'standard' | 'domestic-official' | 'magicapi' | 'jiekou' | 'vapi';
 
 const DOMESTIC_OFFICIAL_TASK_PREFIX = 'domestic-official:';
 const MAGICAPI_TASK_PREFIX = 'magicapi:';
+const JIEKOU_TASK_PREFIX = 'jiekou:';
+const VAPI_TASK_PREFIX = 'vapi:';
 
 export function getVideoGenerationTransport(model: string | null | undefined): VideoGenerationTransport {
     const normalized = typeof model === 'string' ? model.trim().toLowerCase() : '';
 
     if (normalized.startsWith('doubao-seedance') || normalized.startsWith('sdols')) {
         return 'domestic-official';
+    }
+
+    if (normalized.startsWith('jiekou-')) {
+        return 'jiekou';
+    }
+
+    if (isVApiSoraVideoModel(normalized)) {
+        return 'vapi';
     }
 
     return 'standard';
@@ -23,6 +35,18 @@ export function encodeVideoTaskId(taskId: string, transport: VideoGenerationTran
         return normalized.startsWith(MAGICAPI_TASK_PREFIX)
             ? normalized
             : `${MAGICAPI_TASK_PREFIX}${normalized}`;
+    }
+
+    if (transport === 'jiekou') {
+        return normalized.startsWith(JIEKOU_TASK_PREFIX)
+            ? normalized
+            : `${JIEKOU_TASK_PREFIX}${normalized}`;
+    }
+
+    if (transport === 'vapi') {
+        return normalized.startsWith(VAPI_TASK_PREFIX)
+            ? normalized
+            : `${VAPI_TASK_PREFIX}${normalized}`;
     }
 
     return normalized.startsWith(DOMESTIC_OFFICIAL_TASK_PREFIX)
@@ -46,6 +70,20 @@ export function parseVideoTaskId(taskId: string | null | undefined): {
         return {
             transport: 'magicapi',
             upstreamTaskId: normalized.slice(MAGICAPI_TASK_PREFIX.length),
+        };
+    }
+
+    if (normalized.startsWith(JIEKOU_TASK_PREFIX)) {
+        return {
+            transport: 'jiekou',
+            upstreamTaskId: normalized.slice(JIEKOU_TASK_PREFIX.length),
+        };
+    }
+
+    if (normalized.startsWith(VAPI_TASK_PREFIX)) {
+        return {
+            transport: 'vapi',
+            upstreamTaskId: normalized.slice(VAPI_TASK_PREFIX.length),
         };
     }
 

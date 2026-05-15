@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { normalizeDataUrlToBase64 } from '@/lib/data-url';
+import { isJieKouProvider } from '@/lib/ai-providers';
 import {
     createUpstreamConnectionError,
     createAiHeaders,
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
             return Response.json({ error: '请提供聊天消息' }, { status: 400 });
         }
 
-        const { apiKey, baseUrl } = resolveAiServiceConfig(request);
+        const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request);
 
         const selectedModel = model || 'gemini-3.1-pro-preview';
         const useStream = stream !== false; // default to streaming
@@ -90,7 +91,9 @@ export async function POST(request: NextRequest) {
 
         console.log(`[ai-chat] model=${selectedModel}, messages=${apiMessages.length}, stream=${useStream}`);
 
-        const targetUrl = `${baseUrl}/v1/chat/completions`;
+        const targetUrl = isJieKouProvider(providerId)
+            ? `${baseUrl}/openai/v1/chat/completions`
+            : `${baseUrl}/v1/chat/completions`;
         let response: Response;
 
         try {

@@ -81,6 +81,15 @@ describe('generation-defaults adapter', () => {
         expect(defaults.generateCount).toBe(1);
     });
 
+    it('can resolve V-API image defaults explicitly by provider', () => {
+        const defaults = getImageGenerationDefaults('vapi');
+
+        expect(defaults.model).toBe('gemini-3.1-flash-image-preview');
+        expect(defaults.imageSize).toBe('1K');
+        expect(defaults.aspectRatio).toBe('1:1');
+        expect(defaults.generateCount).toBe(1);
+    });
+
     // ── Video request resolver ──────────────────────────────
 
     it('resolveVideoRequest fills missing fields from defaults', () => {
@@ -142,6 +151,15 @@ describe('generation-defaults adapter', () => {
         expect(defaults.model).toBe('sora-2');
         expect(defaults.aspectRatio).toBe('16:9');
         expect(defaults.duration).toBe('10s');
+        expect(defaults.enhancePrompt).toBe(false);
+    });
+
+    it('can resolve V-API video defaults explicitly by provider', () => {
+        const defaults = getVideoGenerationDefaults('vapi');
+
+        expect(defaults.model).toBe('sora-2_1280x720');
+        expect(defaults.aspectRatio).toBe('16:9');
+        expect(defaults.duration).toBe('8s');
         expect(defaults.enhancePrompt).toBe(false);
     });
 });

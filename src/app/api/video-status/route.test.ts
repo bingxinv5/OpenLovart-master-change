@@ -85,4 +85,98 @@ describe('video-status route', () => {
             error: 'content rejected',
         });
     });
+
+    it('queries JieKou prefixed video tasks and extracts videos array URLs', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            task: {
+                task_id: 'jk-video-1',
+                status: 'TASK_STATUS_SUCCEED',
+            },
+            videos: [
+                { video_url: 'https://example.com/jiekou-video.mp4' },
+            ],
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await GET(createRequest('jiekou:jk-video-1'));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v3/async/task-result?task_id=jk-video-1');
+        await expect(response.json()).resolves.toEqual({
+            status: 'completed',
+            videoUrl: 'https://example.com/jiekou-video.mp4',
+        });
+    });
+
+    it('maps JieKou processing progress and failure reason fields', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                task: {
+                    status: 'TASK_STATUS_PROCESSING',
+                    progress_percent: 37,
+                },
+            }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                task: {
+                    status: 'TASK_STATUS_FAILED',
+                    reason: 'render failed',
+                },
+            }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }));
+
+        const processing = await GET(createRequest('jiekou:jk-video-processing'));
+        expect(processing.status).toBe(200);
+        await expect(processing.json()).resolves.toEqual({
+            status: 'processing',
+            progress: 37,
+        });
+
+        const failed = await GET(createRequest('jiekou:jk-video-failed'));
+        expect(failed.status).toBe(200);
+        await expect(failed.json()).resolves.toEqual({
+            status: 'failed',
+            error: 'render failed',
+        });
+    });
+
+    it('queries V-API video status and falls back to content URL lookup', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                id: 'video_vapi_1',
+                object: 'video',
+                status: 'completed',
+                progress: 100,
+            }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                url: 'https://example.com/vapi-video.mp4',
+            }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }));
+
+        const response = await GET(createRequest('vapi:video_vapi_1'));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1/videos/video_vapi_1');
+        expect(fetchSpy.mock.calls[1]?.[0]).toBe('http://localhost:3001/v1/videos/video_vapi_1/content');
+        await expect(response.json()).resolves.toEqual({
+            status: 'completed',
+            videoUrl: 'https://example.com/vapi-video.mp4',
+        });
+    });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_WORKBENCH_SETTINGS,
   getImageDefaultsForProvider,
+  getVideoDefaultsForProvider,
   normalizeWorkbenchSettings,
   setImageDefaultsForProvider,
 } from './workbench-settings';
@@ -62,6 +63,32 @@ describe('workbench-settings', () => {
       imageSize: '2K',
       quality: 'auto',
       generateCount: 1,
+    });
+    expect(getImageDefaultsForProvider(normalized, 'jiekou')).toEqual({
+      model: 'gemini-3-pro-image',
+      aspectRatio: '1:1',
+      imageSize: '1K',
+      quality: 'auto',
+      generateCount: 1,
+    });
+    expect(getImageDefaultsForProvider(normalized, 'vapi')).toEqual({
+      model: 'gemini-3.1-flash-image-preview',
+      aspectRatio: '1:1',
+      imageSize: '1K',
+      quality: 'auto',
+      generateCount: 1,
+    });
+    expect(getVideoDefaultsForProvider(normalized, 'jiekou')).toEqual({
+      model: 'jiekou-sora-2',
+      aspectRatio: '16:9',
+      duration: '8s',
+      enhancePrompt: true,
+    });
+    expect(getVideoDefaultsForProvider(normalized, 'vapi')).toEqual({
+      model: 'sora-2_1280x720',
+      aspectRatio: '16:9',
+      duration: '8s',
+      enhancePrompt: false,
     });
   });
 
@@ -209,5 +236,27 @@ describe('workbench-settings', () => {
     expect(normalized.imageDefaults.imageSize).toBe('auto');
     expect(normalized.imageDefaults.aspectRatio).toBe('auto');
     expect(normalized.imageDefaults.quality).toBe('high');
+  });
+
+  it('preserves JieKou GPT image defaults with documented size and quality options', () => {
+    const normalized = normalizeWorkbenchSettings({
+      imageProviderDefaults: {
+        jiekou: {
+          model: 'gpt-image-2',
+          aspectRatio: '9:16',
+          imageSize: '2160x3840',
+          quality: 'high',
+          generateCount: 2,
+        },
+      },
+    });
+
+    expect(getImageDefaultsForProvider(normalized, 'jiekou')).toEqual({
+      model: 'gpt-image-2',
+      aspectRatio: '9:16',
+      imageSize: '2160x3840',
+      quality: 'high',
+      generateCount: 2,
+    });
   });
 });

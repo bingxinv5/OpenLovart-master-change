@@ -287,6 +287,7 @@ export function extractImageResult(payload: unknown): {
 
     visit(record.data);
     visit(record.images);
+    visit(record.image_urls);
     visit(record.output);
     visit(record.result);
     visit(record.results);
@@ -297,9 +298,11 @@ export function extractImageResult(payload: unknown): {
   visit(getNestedValue(payload, 'data', 'output', 'data'));
   visit(getNestedValue(payload, 'data', 'output'));
   visit(getNestedValue(payload, 'data', 'images'));
+  visit(getNestedValue(payload, 'data', 'image_urls'));
   visit(getNestedValue(payload, 'data', 'result'));
   visit(getNestedValue(payload, 'output'));
   visit(getNestedValue(payload, 'images'));
+  visit(getNestedValue(payload, 'image_urls'));
   visit(getNestedValue(payload, 'result'));
   visit(payload);
 
@@ -578,6 +581,10 @@ export function inferGenerationTaskKind(payload: unknown): 'image' | 'video' | n
 }
 
 export function extractVideoUrl(payload: unknown): string | null {
+  if (typeof payload === 'string' && payload.trim().length > 0) {
+    return payload.trim();
+  }
+
   const rawOutput = getNestedValue(payload, 'data', 'output');
 
   if (typeof rawOutput === 'string' && rawOutput.length > 0) {
@@ -633,6 +640,9 @@ export function extractVideoUrl(payload: unknown): string | null {
     getNestedValue(payload, 'content'),
     getNestedValue(payload, 'data', 'content'),
     getNestedValue(payload, 'data', 'data', 'content'),
+    getNestedValue(payload, 'videos'),
+    getNestedValue(payload, 'data', 'videos'),
+    getNestedValue(payload, 'task', 'videos'),
   ];
 
   for (const candidate of contentCandidates) {

@@ -15,12 +15,15 @@ import {
   getMagicApiGptImageSizeOptions,
   getMaxReferenceImagesForImageModel,
   isMagicApiGptImageOfficialSize,
+  isVApiGeminiImageModel,
+  isVApiImageModel,
   resolveMagicApiOpenAiStyleImageSize,
   normalizeOpenAiGptImagePixelSize,
   resolveMagicApiGeminiImageSize,
   resolveOpenAiGptImageAspectRatio,
   resolveOpenAiGptImagePixelSize,
   resolveOpenAiGptImageSize,
+  resolveVApiGeminiImageSize,
 } from './image-generation-models';
 
 describe('image-generation-models', () => {
@@ -37,6 +40,15 @@ describe('image-generation-models', () => {
 
   it('keeps gpt-image-2 on the default reference image budget until capability is verified', () => {
     expect(getMaxReferenceImagesForImageModel('gpt-image-2')).toBe(DEFAULT_MAX_REFERENCE_IMAGES);
+  });
+
+  it('recognizes V-API image models and keeps nano-banana-pro on the documented edit budget', () => {
+    expect(isVApiGeminiImageModel('gemini-3.1-flash-image-preview')).toBe(true);
+    expect(isVApiGeminiImageModel('nano-banana-pro')).toBe(true);
+    expect(isVApiImageModel('gpt-image-2')).toBe(true);
+    expect(getMaxReferenceImagesForImageModel('nano-banana-pro')).toBe(DEFAULT_MAX_REFERENCE_IMAGES);
+    expect(resolveVApiGeminiImageSize('4K')).toBe('4K');
+    expect(resolveVApiGeminiImageSize('0.5K')).toBe('1K');
   });
 
   it('exposes MagicAPI model-specific image size options', () => {
@@ -118,6 +130,8 @@ describe('image-generation-models', () => {
 
   it('passes through valid explicit gpt-image-2 pixel sizes and remaps invalid legacy ratios', () => {
     expect(resolveOpenAiGptImagePixelSize('2048x1152', '16:9')).toBe('2048x1152');
+    expect(resolveOpenAiGptImageSize('3840x2160', '16:9')).toBe('3840x2160');
+    expect(resolveOpenAiGptImageSize('2160x3840', '9:16')).toBe('2160x3840');
     expect(resolveOpenAiGptImagePixelSize(' 1536 x 864 ', '16:9')).toBe('1536x864');
     expect(resolveOpenAiGptImagePixelSize('1672x942', '16:9')).toBe('2048x1152');
     expect(resolveOpenAiGptImagePixelSize(undefined, '1:1')).toBe('1024x1024');
@@ -134,7 +148,9 @@ describe('image-generation-models', () => {
   it('derives gpt-image-2 aspect ratios from explicit pixel sizes', () => {
     expect(resolveOpenAiGptImageAspectRatio('1024x1024')).toBe('1:1');
     expect(resolveOpenAiGptImageAspectRatio('2048x1152')).toBe('16:9');
+    expect(resolveOpenAiGptImageAspectRatio('3840x2160', '21:9')).toBe('16:9');
     expect(resolveOpenAiGptImageAspectRatio('1152x2048')).toBe('9:16');
+    expect(resolveOpenAiGptImageAspectRatio('2160x3840', '16:9')).toBe('9:16');
     expect(resolveOpenAiGptImageAspectRatio('2560x1712')).toBe('3:2');
     expect(resolveOpenAiGptImageAspectRatio('1712x2560')).toBe('2:3');
     expect(resolveOpenAiGptImageAspectRatio('2240x960')).toBe('21:9');

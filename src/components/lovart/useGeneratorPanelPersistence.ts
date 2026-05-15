@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { ElementChangeHandler } from './generator-panel-shared';
 import { serializeReferenceImages, usePersistGeneratorValue } from './generator-panel-hooks';
 import type {
@@ -33,11 +34,53 @@ export function useImageGeneratorPanelPersistence({
     referenceImages: Array<File | string>;
     onElementChange?: ElementChangeHandler;
 }) {
-    usePersistGeneratorValue({ elementId, key: 'selectedModel', value: model, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedAspectRatio', value: aspectRatio, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedGenerateCount', value: generateCount, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedImageSize', value: imageSize, onElementChange, skipInitial: true });
-    usePersistGeneratorValue({ elementId, key: 'selectedImageQuality', value: quality, onElementChange, skipInitial: true });
+    const hasMountedRef = useRef(false);
+    const lastElementIdRef = useRef(elementId);
+    const lastSettingsRef = useRef({ model, aspectRatio, generateCount, imageSize, quality });
+
+    useEffect(() => {
+        const nextSettings = { model, aspectRatio, generateCount, imageSize, quality };
+
+        if (lastElementIdRef.current !== elementId) {
+            lastElementIdRef.current = elementId;
+            hasMountedRef.current = false;
+            lastSettingsRef.current = nextSettings;
+        }
+
+        if (!hasMountedRef.current) {
+            hasMountedRef.current = true;
+            lastSettingsRef.current = nextSettings;
+            return;
+        }
+
+        const previousSettings = lastSettingsRef.current;
+        const patch: Record<string, unknown> = {};
+
+        if (!Object.is(previousSettings.model, model)) {
+            patch.selectedModel = model;
+        }
+        if (!Object.is(previousSettings.aspectRatio, aspectRatio)) {
+            patch.selectedAspectRatio = aspectRatio;
+        }
+        if (!Object.is(previousSettings.generateCount, generateCount)) {
+            patch.selectedGenerateCount = generateCount;
+        }
+        if (!Object.is(previousSettings.imageSize, imageSize)) {
+            patch.selectedImageSize = imageSize;
+        }
+        if (!Object.is(previousSettings.quality, quality)) {
+            patch.selectedImageQuality = quality;
+        }
+
+        lastSettingsRef.current = nextSettings;
+
+        if (Object.keys(patch).length === 0) {
+            return;
+        }
+
+        onElementChange?.(elementId, patch);
+    }, [aspectRatio, elementId, generateCount, imageSize, model, onElementChange, quality]);
+
     usePersistGeneratorValue({
         elementId,
         key: 'savedReferenceImages',

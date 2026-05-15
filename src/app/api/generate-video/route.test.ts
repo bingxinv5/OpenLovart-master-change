@@ -149,6 +149,80 @@ describe('generate-video route', () => {
         });
     });
 
+    it('submits JieKou Sora 2 text-to-video requests to the async endpoint', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ task_id: 'jk-sora-1' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'JieKou Sora 横版视频',
+            model: 'jiekou-sora-2',
+            aspectRatio: '16:9',
+            duration: '12s',
+            resolution: '720p',
+        }, { 'x-ai-provider': 'jiekou' }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v3/async/sora-2-text2video');
+        expect(JSON.parse(String(init?.body))).toEqual({
+            prompt: 'JieKou Sora 横版视频',
+            duration: 12,
+            professional: false,
+            size: '1280*720',
+        });
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'jiekou:jk-sora-1',
+        });
+    });
+
+    it('submits JieKou Veo 3.1 image-to-video requests with first and last frames', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ task_id: 'jk-veo-1' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'JieKou Veo 首尾帧视频',
+            model: 'jiekou-veo-3.1',
+            aspectRatio: '9:16',
+            duration: '6s',
+            resolution: '1080p',
+            generateAudio: false,
+            seed: 123,
+            images: [
+                { image: 'data:image/png;base64,QUFBQQ==', image_type: 'first_frame' },
+                { image: 'data:image/png;base64,QkJCQg==', image_type: 'last_frame' },
+            ],
+        }, { 'x-ai-provider': 'jiekou' }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v3/async/veo-3.1-generate-img2video');
+        expect(JSON.parse(String(init?.body))).toEqual({
+            prompt: 'JieKou Veo 首尾帧视频',
+            aspect_ratio: '9:16',
+            duration_seconds: 6,
+            enhance_prompt: true,
+            generate_audio: false,
+            resolution: '1080p',
+            sample_count: 1,
+            seed: 123,
+            image: 'QUFBQQ==',
+            last_image: 'QkJCQg==',
+        });
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'jiekou:jk-veo-1',
+        });
+    });
+
     it('submits MagicAPI Sora videos as multipart form data', async () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'video-sora-1', status: 'queued' }), {
@@ -181,6 +255,68 @@ describe('generate-video route', () => {
         await expect(response.json()).resolves.toEqual({
             status: 'pending',
             taskId: 'magicapi:video-sora-1',
+        });
+    });
+
+    it('submits V-API Sora Pro text-to-video requests as JSON with fixed size mapping', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'video_vapi_text_1', status: 'queued' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'V-API Sora Pro 横版视频',
+            model: 'ssora-2-pro_1280x720',
+            duration: '12s',
+        }, { 'x-ai-provider': 'vapi' }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/videos');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+        expect(JSON.parse(String(init?.body))).toEqual({
+            model: 'sora-2-pro',
+            prompt: 'V-API Sora Pro 横版视频',
+            seconds: '12',
+            size: '1280x720',
+        });
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'vapi:video_vapi_text_1',
+        });
+    });
+
+    it('submits V-API Sora image-to-video requests as multipart input_reference', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'video_vapi_image_1', status: 'queued' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'V-API Sora 首帧视频',
+            model: 'sora-2-pro_1792x1024',
+            duration: '8s',
+            images: [{ image: 'data:image/png;base64,QUFBQQ==', image_type: 'first_frame' }],
+        }, { 'x-ai-provider': 'vapi' }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/videos');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+
+        const upstreamBody = init?.body as FormData;
+        expect(upstreamBody.get('model')).toBe('sora-2-pro');
+        expect(upstreamBody.get('prompt')).toBe('V-API Sora 首帧视频');
+        expect(upstreamBody.get('seconds')).toBe('8');
+        expect(upstreamBody.get('size')).toBe('1792x1024');
+        expect(upstreamBody.get('input_reference')).toBeTruthy();
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'vapi:video_vapi_image_1',
         });
     });
 
