@@ -76,12 +76,6 @@ export const MAGICAPI_GPT_IMAGE_2_SIZE_OPTIONS = [
   '1152x2048',
   '2240x960',
   '960x2240',
-  '2880x2880',
-  '3840x2880',
-  '3840x2560',
-  '2560x3840',
-  '3840x2160',
-  '2160x3840',
 ] as const;
 export const MAGICAPI_GPT_IMAGE_2_PRO_SIZE_OPTIONS = [
   '2048x2048',

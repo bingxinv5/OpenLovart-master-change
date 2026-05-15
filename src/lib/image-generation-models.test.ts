@@ -82,12 +82,6 @@ describe('image-generation-models', () => {
       '1152x2048',
       '2240x960',
       '960x2240',
-      '2880x2880',
-      '3840x2880',
-      '3840x2560',
-      '2560x3840',
-      '3840x2160',
-      '2160x3840',
     ]);
     expect(getMagicApiGptImageSizeOptions('gpt-image-2-pro')).toEqual([
       '2048x2048',
