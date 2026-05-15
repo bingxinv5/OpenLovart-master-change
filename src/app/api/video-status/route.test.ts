@@ -179,4 +179,35 @@ describe('video-status route', () => {
             videoUrl: 'https://example.com/vapi-video.mp4',
         });
     });
+
+    it('queries MKEAI video status and falls back to content URL lookup', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                id: 'video_mkeai_1',
+                object: 'video',
+                status: 'completed',
+                progress: 100,
+            }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                url: 'https://example.com/mkeai-video.mp4',
+            }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }));
+
+        const response = await GET(createRequest('mkeai:video_mkeai_1'));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1/videos/video_mkeai_1');
+        expect(fetchSpy.mock.calls[1]?.[0]).toBe('http://localhost:3001/v1/videos/video_mkeai_1/content');
+        await expect(response.json()).resolves.toEqual({
+            status: 'completed',
+            videoUrl: 'https://example.com/mkeai-video.mp4',
+        });
+    });
 });

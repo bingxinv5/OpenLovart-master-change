@@ -451,6 +451,18 @@ export function isVApiImageModel(model: unknown): model is string {
   return isVApiGeminiImageModel(model) || isOpenAiGptImageModel(model);
 }
 
+export function isMkeaiGeminiImageModel(model: unknown): model is string {
+  return model === 'gemini-3.1-flash-image-preview' || model === 'gemini-3-pro-image-preview';
+}
+
+export function isMkeaiGptImageModel(model: unknown): model is string {
+  return model === 'gpt-image-2';
+}
+
+export function isMkeaiImageModel(model: unknown): model is string {
+  return isMkeaiGeminiImageModel(model) || isMkeaiGptImageModel(model);
+}
+
 export function isSelectableOpenAiGptImageAspectRatio(
   aspectRatio: unknown,
 ): aspectRatio is (typeof OPENAI_GPT_IMAGE_SELECTABLE_ASPECT_RATIOS)[number] {

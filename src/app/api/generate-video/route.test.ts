@@ -320,6 +320,44 @@ describe('generate-video route', () => {
         });
     });
 
+    it('submits MKEAI Sora 2 requests as documented multipart form data', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            id: 'video_mkeai_1',
+            object: 'video',
+            status: 'queued',
+            progress: 0,
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'MKEAI Sora 竖版首帧视频',
+            model: 'mkeai-sora-2',
+            aspectRatio: '9:16',
+            duration: '12s',
+            images: [{ image: 'data:image/png;base64,QUFBQQ==', image_type: 'first_frame' }],
+        }, { 'x-ai-provider': 'mkeai' }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/videos');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+
+        const upstreamBody = init?.body as FormData;
+        expect(upstreamBody.get('model')).toBe('sora-2');
+        expect(upstreamBody.get('prompt')).toBe('MKEAI Sora 竖版首帧视频');
+        expect(upstreamBody.get('seconds')).toBe('12');
+        expect(upstreamBody.get('size')).toBe('720x1280');
+        expect(upstreamBody.get('input_reference')).toBeTruthy();
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'mkeai:video_mkeai_1',
+        });
+    });
+
     it('submits MagicAPI Grok videos with fixed pro duration and resolution', async () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { task_id: 'video-grok-pro-1' } }), {

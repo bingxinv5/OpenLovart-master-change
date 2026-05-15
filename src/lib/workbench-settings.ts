@@ -113,6 +113,13 @@ export const DEFAULT_IMAGE_PROVIDER_DEFAULTS: Record<AiProviderId, ImageGenerati
     quality: 'auto',
     generateCount: 1,
   },
+  mkeai: {
+    model: 'gemini-3.1-flash-image-preview',
+    aspectRatio: '1:1',
+    imageSize: '1K',
+    quality: 'auto',
+    generateCount: 1,
+  },
 };
 
 export const DEFAULT_VIDEO_PROVIDER_DEFAULTS: Record<AiProviderId, VideoGenerationDefaults> = {
@@ -136,6 +143,12 @@ export const DEFAULT_VIDEO_PROVIDER_DEFAULTS: Record<AiProviderId, VideoGenerati
   },
   vapi: {
     model: 'sora-2_1280x720',
+    aspectRatio: '16:9',
+    duration: '8s',
+    enhancePrompt: false,
+  },
+  mkeai: {
+    model: 'mkeai-sora-2',
     aspectRatio: '16:9',
     duration: '8s',
     enhancePrompt: false,

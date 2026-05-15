@@ -291,6 +291,8 @@ export function extractImageResult(payload: unknown): {
     visit(record.output);
     visit(record.result);
     visit(record.results);
+    visit(record.task_result);
+    visit(record.task_results);
   };
 
   visit(getNestedValue(payload, 'data', 'data', 'data'));

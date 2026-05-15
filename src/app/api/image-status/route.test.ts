@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultLocalImageJob } from '../_shared/default-image-tasks';
 import { createJieKouLocalImageJob } from '../_shared/jiekou-image-tasks';
 import { createMagicApiLocalImageJob } from '../_shared/magicapi-image-jobs';
+import { createMkeaiLocalImageJob } from '../_shared/mkeai-image-tasks';
 import { createVApiLocalImageJob } from '../_shared/vapi-image-tasks';
 import { GET } from './route';
 
@@ -124,6 +125,26 @@ describe('image-status route', () => {
         const taskId = createVApiLocalImageJob(async () => ({
             data: {
                 data: [{ url: 'https://example.com/vapi-local-result.png' }],
+            },
+        }));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const response = await GET(createRequest(taskId));
+
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.status).toBe('completed');
+        expect(body.imageUrl).toContain('/api/proxy-download');
+    });
+
+    it('returns completed results from local MKEAI bridge tasks', async () => {
+        const taskId = createMkeaiLocalImageJob(async () => ({
+            data: {
+                data: {
+                    task_status: 'SUCCESS',
+                    task_result: ['https://example.com/mkeai-local-result.png'],
+                },
             },
         }));
         await Promise.resolve();
@@ -367,6 +388,31 @@ describe('image-status route', () => {
         expect(response.status).toBe(200);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1/images/tasks/vapi-image-1');
+
+        const body = await response.json();
+        expect(body.status).toBe('completed');
+        expect(body.imageUrl).toContain('/api/proxy-download');
+        expect(body.images).toHaveLength(1);
+    });
+
+    it('polls completed MKEAI image tasks through the documented task endpoint', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            data: {
+                progress: '100%',
+                task_status: 'SUCCESS',
+                task_result: ['https://example.com/mkeai-image.png'],
+            },
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await GET(createRequest('mkeai:mkeai-image-1'));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1/task/mkeai-image-1');
 
         const body = await response.json();
         expect(body.status).toBe('completed');

@@ -1,11 +1,12 @@
-import { isVApiSoraVideoModel } from './video-generation-models';
+import { isMkeaiSoraVideoModel, isVApiSoraVideoModel } from './video-generation-models';
 
-export type VideoGenerationTransport = 'standard' | 'domestic-official' | 'magicapi' | 'jiekou' | 'vapi';
+export type VideoGenerationTransport = 'standard' | 'domestic-official' | 'magicapi' | 'jiekou' | 'vapi' | 'mkeai';
 
 const DOMESTIC_OFFICIAL_TASK_PREFIX = 'domestic-official:';
 const MAGICAPI_TASK_PREFIX = 'magicapi:';
 const JIEKOU_TASK_PREFIX = 'jiekou:';
 const VAPI_TASK_PREFIX = 'vapi:';
+const MKEAI_TASK_PREFIX = 'mkeai:';
 
 export function getVideoGenerationTransport(model: string | null | undefined): VideoGenerationTransport {
     const normalized = typeof model === 'string' ? model.trim().toLowerCase() : '';
@@ -20,6 +21,10 @@ export function getVideoGenerationTransport(model: string | null | undefined): V
 
     if (isVApiSoraVideoModel(normalized)) {
         return 'vapi';
+    }
+
+    if (isMkeaiSoraVideoModel(normalized)) {
+        return 'mkeai';
     }
 
     return 'standard';
@@ -47,6 +52,12 @@ export function encodeVideoTaskId(taskId: string, transport: VideoGenerationTran
         return normalized.startsWith(VAPI_TASK_PREFIX)
             ? normalized
             : `${VAPI_TASK_PREFIX}${normalized}`;
+    }
+
+    if (transport === 'mkeai') {
+        return normalized.startsWith(MKEAI_TASK_PREFIX)
+            ? normalized
+            : `${MKEAI_TASK_PREFIX}${normalized}`;
     }
 
     return normalized.startsWith(DOMESTIC_OFFICIAL_TASK_PREFIX)
@@ -84,6 +95,13 @@ export function parseVideoTaskId(taskId: string | null | undefined): {
         return {
             transport: 'vapi',
             upstreamTaskId: normalized.slice(VAPI_TASK_PREFIX.length),
+        };
+    }
+
+    if (normalized.startsWith(MKEAI_TASK_PREFIX)) {
+        return {
+            transport: 'mkeai',
+            upstreamTaskId: normalized.slice(MKEAI_TASK_PREFIX.length),
         };
     }
 

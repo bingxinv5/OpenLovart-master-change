@@ -78,6 +78,13 @@ describe('workbench-settings', () => {
       quality: 'auto',
       generateCount: 1,
     });
+    expect(getImageDefaultsForProvider(normalized, 'mkeai')).toEqual({
+      model: 'gemini-3.1-flash-image-preview',
+      aspectRatio: '1:1',
+      imageSize: '1K',
+      quality: 'auto',
+      generateCount: 1,
+    });
     expect(getVideoDefaultsForProvider(normalized, 'jiekou')).toEqual({
       model: 'jiekou-sora-2',
       aspectRatio: '16:9',
@@ -86,6 +93,12 @@ describe('workbench-settings', () => {
     });
     expect(getVideoDefaultsForProvider(normalized, 'vapi')).toEqual({
       model: 'sora-2_1280x720',
+      aspectRatio: '16:9',
+      duration: '8s',
+      enhancePrompt: false,
+    });
+    expect(getVideoDefaultsForProvider(normalized, 'mkeai')).toEqual({
+      model: 'mkeai-sora-2',
       aspectRatio: '16:9',
       duration: '8s',
       enhancePrompt: false,

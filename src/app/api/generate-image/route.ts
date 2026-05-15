@@ -25,6 +25,7 @@ import {
     encodeJieKouImageTaskId,
 } from '../_shared/jiekou-image-tasks';
 import { createVApiLocalImageJob } from '../_shared/vapi-image-tasks';
+import { createMkeaiLocalImageJob } from '../_shared/mkeai-image-tasks';
 import {
     buildUpstreamImageGenerationBody,
     describeOpenAiGptImageAspectRatio,
@@ -35,6 +36,8 @@ import {
     isJieKouGptImageModel,
     isJieKouNanoBananaImageModel,
     isMagicApiGptImageOfficialSize,
+    isMkeaiGeminiImageModel,
+    isMkeaiImageModel,
     isOpenAiGptImageAutoSize,
     isOpenAiGptImageModel,
     isVApiGeminiImageModel,
@@ -49,7 +52,7 @@ import {
     resolveMagicApiOpenAiStyleImageSize,
     resolveVApiGeminiImageSize,
 } from '@/lib/image-generation-models';
-import { isJieKouProvider, isMagicApiProvider, isVApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
 
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -187,6 +190,20 @@ export async function POST(request: NextRequest) {
             });
         }
 
+        if (isMkeaiProvider(providerId)) {
+            return await submitMkeaiImageGeneration({
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt,
+                aspectRatio,
+                imageSize,
+                quality,
+                generateCount,
+                normalizedImages,
+            });
+        }
+
         const usesGptImageEdits = isOpenAiGptImageModel(selectedModel) && normalizedImages.length > 0;
         const targetUrl = `${baseUrl}${usesGptImageEdits ? '/v1/images/edits' : '/v1/images/generations'}?async=true`;
         const localTaskId = createDefaultLocalImageJob(async () => {
@@ -280,6 +297,10 @@ function extractVApiImageTaskId(data: Record<string, unknown>): string | null {
     return extractImageTaskId(data);
 }
 
+function extractMkeaiImageTaskId(data: Record<string, unknown>): string | null {
+    return extractImageTaskId(data);
+}
+
 function extractImageTaskId(data: Record<string, unknown>): string | null {
     const rawTaskId = getNestedValue(data, 'data', 'task_id')
         || getNestedValue(data, 'task_id')
@@ -289,6 +310,144 @@ function extractImageTaskId(data: Record<string, unknown>): string | null {
         || getNestedValue(data, 'id');
 
     return typeof rawTaskId === 'string' && rawTaskId.trim().length > 0 ? rawTaskId.trim() : null;
+}
+
+async function submitMkeaiImageGeneration(params: {
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    quality: unknown;
+    generateCount: unknown;
+    normalizedImages: NormalizedReferenceImage[];
+}) {
+    if (!isMkeaiImageModel(params.selectedModel)) {
+        throw new ApiRouteError('MKEAI 暂不支持该图片模型', 400);
+    }
+
+    const hasReferenceImages = params.normalizedImages.length > 0;
+    const targetUrl = `${params.baseUrl}${hasReferenceImages ? '/v1/images/edits' : '/v1/images/generations'}?async=true`;
+    const requestBody = buildMkeaiImageGenerationBody(params);
+    const init: RequestInit = hasReferenceImages
+        ? {
+            method: 'POST',
+            headers: createAiHeaders(params.apiKey),
+            body: buildMkeaiImageEditsFormData(requestBody, params.normalizedImages),
+        }
+        : {
+            method: 'POST',
+            headers: createAiHeaders(params.apiKey, true),
+            body: JSON.stringify(requestBody),
+        };
+
+    const localTaskId = createMkeaiLocalImageJob(async () => {
+        const data = await fetchMkeaiImageGenerationData({
+            targetUrl,
+            init,
+            baseUrl: params.baseUrl,
+            selectedModel: params.selectedModel,
+            hasReferenceImages,
+        });
+        const upstreamTaskId = extractMkeaiImageTaskId(data);
+        if (!upstreamTaskId) {
+            throw new Error('MKEAI 图片生成未返回 task_id，无法按异步任务查询结果');
+        }
+
+        return {
+            data,
+            upstreamTaskId,
+        };
+    });
+
+    return NextResponse.json({ taskId: localTaskId, status: 'pending' });
+}
+
+async function fetchMkeaiImageGenerationData(params: {
+    targetUrl: string;
+    init: RequestInit;
+    baseUrl: string;
+    selectedModel: string;
+    hasReferenceImages: boolean;
+}): Promise<Record<string, unknown>> {
+    const { targetUrl, init, baseUrl, selectedModel, hasReferenceImages } = params;
+    const timeoutMs = isOpenAiGptImageModel(selectedModel) || hasReferenceImages
+        ? AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit
+        : AI_UPSTREAM_TIMEOUT_MS.submit;
+
+    let response: Response;
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            init,
+            {
+                attempts: isOpenAiGptImageModel(selectedModel) ? 1 : undefined,
+                label: 'generate-image:mkeai',
+                timeoutMs,
+            },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-image][mkeai] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(baseUrl, error, { timeoutMs });
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        console.error('[generate-image][mkeai] API error:', data);
+        throw new Error(translateImageApiError(getApiErrorMessage(data, JSON.stringify(data))));
+    }
+
+    return data;
+}
+
+function buildMkeaiImageGenerationBody(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio: unknown;
+    imageSize: unknown;
+    quality: unknown;
+    generateCount: unknown;
+    normalizedImages?: NormalizedReferenceImage[];
+}): Record<string, unknown> {
+    const normalizedCount = normalizeVApiImageGenerateCount(params.generateCount);
+
+    if (isMkeaiGeminiImageModel(params.selectedModel)) {
+        const body: Record<string, unknown> = {
+            model: params.selectedModel,
+            prompt: params.prompt.trim(),
+            response_format: 'url',
+            size: resolveVApiGeminiImageSize(params.imageSize),
+        };
+
+        if (typeof params.aspectRatio === 'string' && params.aspectRatio.trim() && params.aspectRatio !== 'auto') {
+            body.aspect_ratio = params.aspectRatio.trim();
+        }
+
+        if (normalizedCount && normalizedCount > 1) {
+            body.n = normalizedCount;
+        }
+
+        return body;
+    }
+
+    return buildUpstreamImageGenerationBody({
+        model: params.selectedModel,
+        prompt: params.prompt,
+        aspectRatio: typeof params.aspectRatio === 'string' ? params.aspectRatio : undefined,
+        imageSize: typeof params.imageSize === 'string' ? params.imageSize : undefined,
+        quality: typeof params.quality === 'string' ? params.quality : undefined,
+        generateCount: normalizedCount,
+        referenceImages: params.normalizedImages?.map((image) => image.base64),
+        responseFormat: 'url',
+    });
+}
+
+function buildMkeaiImageEditsFormData(
+    body: Record<string, unknown>,
+    referenceImages: NormalizedReferenceImage[],
+): FormData {
+    return buildVApiImageEditsFormData(body, referenceImages);
 }
 
 async function submitVApiImageGeneration(params: {

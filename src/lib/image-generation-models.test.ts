@@ -14,6 +14,9 @@ import {
   getMagicApiGeminiImageSizeOptions,
   getMagicApiGptImageSizeOptions,
   getMaxReferenceImagesForImageModel,
+  isMkeaiGeminiImageModel,
+  isMkeaiGptImageModel,
+  isMkeaiImageModel,
   isMagicApiGptImageOfficialSize,
   isVApiGeminiImageModel,
   isVApiImageModel,
@@ -49,6 +52,13 @@ describe('image-generation-models', () => {
     expect(getMaxReferenceImagesForImageModel('nano-banana-pro')).toBe(DEFAULT_MAX_REFERENCE_IMAGES);
     expect(resolveVApiGeminiImageSize('4K')).toBe('4K');
     expect(resolveVApiGeminiImageSize('0.5K')).toBe('1K');
+  });
+
+  it('recognizes MKEAI image models independently from other providers', () => {
+    expect(isMkeaiGeminiImageModel('gemini-3.1-flash-image-preview')).toBe(true);
+    expect(isMkeaiGeminiImageModel('gemini-3-pro-image-preview')).toBe(true);
+    expect(isMkeaiGptImageModel('gpt-image-2')).toBe(true);
+    expect(isMkeaiImageModel('gpt-image-2-pro')).toBe(false);
   });
 
   it('exposes MagicAPI model-specific image size options', () => {

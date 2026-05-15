@@ -230,6 +230,15 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             setModel(models[0] || 'gemini-3.1-flash-image-preview');
         }
     }, [model, models]);
+    const generatorModelOptions = useMemo(() => resolveImageGeneratorModelOptions({
+        model,
+        imageSize,
+        aspectRatio,
+        quality,
+        generateCount,
+        referenceImageCount: referenceImages.length,
+        providerId: apiProviderId,
+    }), [apiProviderId, aspectRatio, generateCount, imageSize, model, quality, referenceImages.length]);
     const {
         maxReferenceImages,
         isGrokImageModel,
@@ -241,15 +250,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         availableImageQualities,
         displayedAspectRatio,
         settingsSummary,
-    } = resolveImageGeneratorModelOptions({
-        model,
-        imageSize,
-        aspectRatio,
-        quality,
-        generateCount,
-        referenceImageCount: referenceImages.length,
-        providerId: apiProviderId,
-    });
+    } = generatorModelOptions;
     const fallbackStandardImageSize = isStandardImageSize(imageDefaults.imageSize) ? imageDefaults.imageSize : '4K';
 
     useEffect(() => {

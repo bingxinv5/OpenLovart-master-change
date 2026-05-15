@@ -10,6 +10,7 @@ import {
     getMagicApiGptImageSizeOptions,
     JIEKOU_GPT_IMAGE_SIZE_OPTIONS,
     JIEKOU_IMAGE_ASPECT_RATIO_OPTIONS,
+    OPENAI_GPT_IMAGE_SELECTABLE_ASPECT_RATIOS,
     isDomesticImageModel as isKnownDomesticImageModel,
     isGeminiNativeImageModel,
     isGrokImageModel as isKnownGrokImageModel,
@@ -157,10 +158,12 @@ export function resolveImageGeneratorModelOptions({
     const isDomesticImageModel = isKnownDomesticImageModel(model);
     const usesDomesticImageBatching = shouldUseDomesticImageBatching(model);
     const grokUsesReferenceAspectRatio = isGrokImageModel && referenceImageCount > 0;
-    const availableAspectRatios = isJieKou && (isJieKouGeminiImageModel || isJieKouNanoBananaImageModel || isJieKouGptImageModel)
+    const availableAspectRatios: ImageAspectRatio[] = isJieKou && (isJieKouGeminiImageModel || isJieKouNanoBananaImageModel || isJieKouGptImageModel)
         ? [...JIEKOU_IMAGE_ASPECT_RATIO_OPTIONS]
         : isMagicApi && isOpenAiGptImageModel
         ? [...MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS]
+        : isOpenAiGptImageModel
+        ? ['auto', ...OPENAI_GPT_IMAGE_SELECTABLE_ASPECT_RATIOS]
         : isMagicApi
         ? [...MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS]
         : isGrokImageModel

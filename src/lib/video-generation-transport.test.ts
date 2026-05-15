@@ -45,6 +45,17 @@ describe('video-generation-transport', () => {
         });
     });
 
+    it('routes and encodes MKEAI Sora task ids', () => {
+        expect(getVideoGenerationTransport('mkeai-sora-2')).toBe('mkeai');
+
+        const encoded = encodeVideoTaskId('video_mkeai_123', 'mkeai');
+        expect(encoded).toBe('mkeai:video_mkeai_123');
+        expect(parseVideoTaskId(encoded)).toEqual({
+            transport: 'mkeai',
+            upstreamTaskId: 'video_mkeai_123',
+        });
+    });
+
     it('recognizes raw official task ids for manual recovery fallback', () => {
         expect(looksLikeDomesticOfficialTaskId('cgt-20260408182454-5dqsn')).toBe(true);
         expect(looksLikeDomesticOfficialTaskId('veo-task-123')).toBe(false);

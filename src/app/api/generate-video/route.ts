@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { decodeDataUrlBytes, extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
 import { debugLog } from '@/lib/debug-log';
-import { isJieKouProvider, isMagicApiProvider, isVApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
 import { encodeVideoTaskId, getVideoGenerationTransport } from '@/lib/video-generation-transport';
 import {
     getMaxImagesForVideoModel,
@@ -18,10 +18,12 @@ import {
     isMagicApiWanVideoModel,
     isJieKouSoraVideoModel,
     isJieKouVeoVideoModel,
+    isMkeaiSoraVideoModel,
     isVApiSoraVideoModel,
     resolveMagicApiGrokResolution,
     resolveMagicApiVideoPixelSize,
     resolveMagicApiVideoSeconds,
+    resolveMkeaiSoraModelAndSize,
     resolveVApiSoraModelAndSize,
     supportsVideoAudioGeneration,
 } from '@/lib/video-generation-models';
@@ -73,6 +75,8 @@ export async function POST(request: NextRequest) {
             ? model.trim()
             : isJieKouProvider(providerId)
                 ? 'jiekou-sora-2'
+            : isMkeaiProvider(providerId)
+                ? 'mkeai-sora-2'
             : isVApiProvider(providerId)
                 ? 'sora-2_1280x720'
             : isMagicApiProvider(providerId)
@@ -137,6 +141,20 @@ export async function POST(request: NextRequest) {
                 baseUrl,
                 selectedModel,
                 prompt: normalizedPrompt,
+                duration: normalizedDuration,
+                imageEntries: normalizedImageEntries,
+                videos: normalizedVideos,
+                audios: normalizedAudios,
+            });
+        }
+
+        if (isMkeaiProvider(providerId)) {
+            return await submitMkeaiVideoGeneration({
+                apiKey,
+                baseUrl,
+                selectedModel,
+                prompt: normalizedPrompt,
+                aspectRatio: normalizedAspectRatio,
                 duration: normalizedDuration,
                 imageEntries: normalizedImageEntries,
                 videos: normalizedVideos,
@@ -244,6 +262,114 @@ export async function POST(request: NextRequest) {
     } catch (error: unknown) {
         return handleApiRouteError(error, '视频生成失败', 'generate-video');
     }
+}
+
+async function submitMkeaiVideoGeneration(params: {
+    apiKey: string;
+    baseUrl: string;
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+}) {
+    const upstreamRequest = buildMkeaiVideoRequest(params);
+    const targetUrl = `${params.baseUrl}/v1/videos`;
+    let response: Response;
+
+    try {
+        response = await fetchWithRetry(
+            targetUrl,
+            {
+                method: 'POST',
+                headers: createAiHeaders(params.apiKey),
+                body: upstreamRequest.body,
+            },
+            { label: 'generate-video:mkeai', timeoutMs: AI_UPSTREAM_TIMEOUT_MS.submit },
+        );
+    } catch (error: unknown) {
+        console.error('[generate-video][mkeai] Upstream fetch failed after retries:', getErrorMessage(error));
+        throw createUpstreamConnectionError(params.baseUrl, error);
+    }
+
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    if (!response.ok) {
+        console.error('[generate-video][mkeai] API error:', data);
+        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+    }
+
+    debugLog('[generate-video][mkeai] Full response:', JSON.stringify(data));
+
+    const rawTaskId = getNestedValue(data, 'id')
+        || getNestedValue(data, 'data', 'id')
+        || getNestedValue(data, 'task_id')
+        || getNestedValue(data, 'data', 'task_id')
+        || getNestedValue(data, 'taskId')
+        || getNestedValue(data, 'data', 'taskId');
+    const taskId = typeof rawTaskId === 'string' && rawTaskId.length > 0
+        ? encodeVideoTaskId(rawTaskId, 'mkeai')
+        : null;
+    const videoUrl = extractVideoUrl(data);
+
+    if (videoUrl) {
+        return NextResponse.json({ status: 'completed', taskId, videoUrl });
+    }
+
+    if (taskId) {
+        return NextResponse.json({ taskId, status: 'pending' });
+    }
+
+    console.error('[generate-video][mkeai] Could not extract task id from response:', JSON.stringify(data));
+    return NextResponse.json(
+        { error: '未获取到任务ID', details: `API 响应结构异常: ${JSON.stringify(data).substring(0, 500)}` },
+        { status: 502 },
+    );
+}
+
+function buildMkeaiVideoRequest(params: {
+    selectedModel: string;
+    prompt: string;
+    aspectRatio?: string;
+    duration?: number;
+    imageEntries: Array<{ image: string; imageType?: string }>;
+    videos: string[];
+    audios: string[];
+}): { format: 'multipart'; body: BodyInit } {
+    if (!isMkeaiSoraVideoModel(params.selectedModel)) {
+        throw new ApiRouteError('MKEAI 暂不支持该视频模型', 400);
+    }
+
+    if (params.videos.length > 0 || params.audios.length > 0) {
+        throw new ApiRouteError('MKEAI Sora 2 暂不支持参考视频或参考音频', 400);
+    }
+
+    if (params.imageEntries.length > 1) {
+        throw new ApiRouteError('MKEAI Sora 2 图生视频最多支持 1 张参考图', 400);
+    }
+
+    const { model, size } = resolveMkeaiSoraModelAndSize(params.selectedModel, params.aspectRatio);
+    const seconds = resolveMkeaiSoraSeconds(params.duration);
+    const formData = new FormData();
+
+    formData.append('model', model);
+    formData.append('prompt', params.prompt.trim());
+    formData.append('seconds', seconds);
+    formData.append('size', size);
+
+    const firstImage = params.imageEntries[0]?.image;
+    if (firstImage) {
+        appendMagicApiMultipartImage(formData, 'input_reference', firstImage, 0);
+    }
+
+    return { format: 'multipart', body: formData };
+}
+
+function resolveMkeaiSoraSeconds(duration: number | undefined): '4' | '8' | '12' {
+    if (duration === 8) return '8';
+    if (duration === 12) return '12';
+    return '4';
 }
 
 async function submitVApiVideoGeneration(params: {

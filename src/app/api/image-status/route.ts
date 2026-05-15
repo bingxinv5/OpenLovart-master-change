@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { debugLog } from '@/lib/debug-log';
-import { DEFAULT_AI_PROVIDER_ID, isJieKouProvider, isMagicApiProvider, isVApiProvider } from '@/lib/ai-providers';
+import { DEFAULT_AI_PROVIDER_ID, isJieKouProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
 import {
     getDefaultLocalImageJob,
     isDefaultLocalImageTaskId,
@@ -23,6 +23,12 @@ import {
     isVApiLocalImageTaskId,
     stripVApiImageTaskPrefix,
 } from '../_shared/vapi-image-tasks';
+import {
+    getMkeaiLocalImageJob,
+    isMkeaiImageTaskId,
+    isMkeaiLocalImageTaskId,
+    stripMkeaiImageTaskPrefix,
+} from '../_shared/mkeai-image-tasks';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     createAiHeaders,
@@ -48,6 +54,7 @@ export async function GET(request: NextRequest) {
         const magicApiLocalJob = isMagicApiLocalImageTaskId(taskId) ? getMagicApiLocalImageJob(taskId) : null;
         const jieKouLocalJob = isJieKouLocalImageTaskId(taskId) ? getJieKouLocalImageJob(taskId) : null;
         const vApiLocalJob = isVApiLocalImageTaskId(taskId) ? getVApiLocalImageJob(taskId) : null;
+        const mkeaiLocalJob = isMkeaiLocalImageTaskId(taskId) ? getMkeaiLocalImageJob(taskId) : null;
         const defaultLocalJob = isDefaultLocalImageTaskId(taskId) ? getDefaultLocalImageJob(taskId) : null;
         if (isMagicApiLocalImageTaskId(taskId) && !magicApiLocalJob) {
             return NextResponse.json({
@@ -67,6 +74,12 @@ export async function GET(request: NextRequest) {
                 error: '本地 V-API 图片任务已失效，请重新发起生成。',
             });
         }
+        if (isMkeaiLocalImageTaskId(taskId) && !mkeaiLocalJob) {
+            return NextResponse.json({
+                status: 'failed',
+                error: '本地 MKEAI 图片任务已失效，请重新发起生成。',
+            });
+        }
         if (isDefaultLocalImageTaskId(taskId) && !defaultLocalJob) {
             return NextResponse.json({
                 status: 'failed',
@@ -78,6 +91,7 @@ export async function GET(request: NextRequest) {
             magicApiLocalJob?.status === 'submitting'
             || jieKouLocalJob?.status === 'submitting'
             || vApiLocalJob?.status === 'submitting'
+            || mkeaiLocalJob?.status === 'submitting'
             || defaultLocalJob?.status === 'submitting'
         ) {
             return NextResponse.json({ status: 'processing', progress: 1 });
@@ -92,6 +106,9 @@ export async function GET(request: NextRequest) {
         if (vApiLocalJob?.status === 'failed') {
             return NextResponse.json({ status: 'failed', error: vApiLocalJob.error });
         }
+        if (mkeaiLocalJob?.status === 'failed') {
+            return NextResponse.json({ status: 'failed', error: mkeaiLocalJob.error });
+        }
         if (defaultLocalJob?.status === 'failed') {
             return NextResponse.json({ status: 'failed', error: defaultLocalJob.error });
         }
@@ -105,6 +122,9 @@ export async function GET(request: NextRequest) {
         if (vApiLocalJob?.status === 'completed') {
             return buildCompletedImageStatusResponse(vApiLocalJob.data, request);
         }
+        if (mkeaiLocalJob?.status === 'completed') {
+            return buildCompletedImageStatusResponse(mkeaiLocalJob.data, request);
+        }
         if (defaultLocalJob?.status === 'completed') {
             return buildCompletedImageStatusResponse(defaultLocalJob.data, request);
         }
@@ -112,26 +132,32 @@ export async function GET(request: NextRequest) {
         const shouldResolveMagicApi = !!magicApiLocalJob || isMagicApiPlatformImageTaskId(taskId);
         const shouldResolveJieKou = !!jieKouLocalJob || isJieKouImageTaskId(taskId);
         const shouldResolveVApi = !!vApiLocalJob || isVApiImageTaskId(taskId);
+        const shouldResolveMkeai = !!mkeaiLocalJob || isMkeaiImageTaskId(taskId);
         const shouldResolveDefault = !!defaultLocalJob;
         const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request, {
-            providerId: shouldResolveMagicApi ? 'magicapi' : shouldResolveJieKou ? 'jiekou' : shouldResolveVApi ? 'vapi' : shouldResolveDefault ? DEFAULT_AI_PROVIDER_ID : undefined,
+            providerId: shouldResolveMagicApi ? 'magicapi' : shouldResolveJieKou ? 'jiekou' : shouldResolveVApi ? 'vapi' : shouldResolveMkeai ? 'mkeai' : shouldResolveDefault ? DEFAULT_AI_PROVIDER_ID : undefined,
         });
         const isMagicApiTask = shouldResolveMagicApi || isMagicApiProvider(providerId);
         const isJieKouTask = shouldResolveJieKou || isJieKouProvider(providerId);
         const isVApiTask = shouldResolveVApi || isVApiProvider(providerId);
+        const isMkeaiTask = shouldResolveMkeai || isMkeaiProvider(providerId);
         const upstreamTaskId = magicApiLocalJob?.status === 'upstream'
             ? magicApiLocalJob.upstreamTaskId
             : jieKouLocalJob?.status === 'upstream'
                 ? jieKouLocalJob.upstreamTaskId
                 : vApiLocalJob?.status === 'upstream'
                     ? vApiLocalJob.upstreamTaskId
-                    : defaultLocalJob?.status === 'upstream'
-                        ? defaultLocalJob.upstreamTaskId
-                        : isJieKouTask
-                            ? stripJieKouImageTaskPrefix(taskId)
-                            : isVApiTask
-                                ? stripVApiImageTaskPrefix(taskId)
-                                : stripMagicApiImageTaskPrefix(taskId);
+                    : mkeaiLocalJob?.status === 'upstream'
+                        ? mkeaiLocalJob.upstreamTaskId
+                        : defaultLocalJob?.status === 'upstream'
+                            ? defaultLocalJob.upstreamTaskId
+                            : isJieKouTask
+                                ? stripJieKouImageTaskPrefix(taskId)
+                                : isVApiTask
+                                    ? stripVApiImageTaskPrefix(taskId)
+                                    : isMkeaiTask
+                                        ? stripMkeaiImageTaskPrefix(taskId)
+                                        : stripMagicApiImageTaskPrefix(taskId);
 
         const { response, data } = isJieKouTask
             ? await fetchJieKouImageStatus({ apiKey, baseUrl, taskId: upstreamTaskId })
@@ -139,7 +165,9 @@ export async function GET(request: NextRequest) {
                 ? await fetchMagicApiImageStatus({ apiKey, baseUrl, taskId: upstreamTaskId })
                 : isVApiTask
                     ? await fetchVApiImageStatus({ apiKey, baseUrl, taskId: upstreamTaskId })
-                : await fetchDefaultImageStatus({ apiKey, baseUrl, taskId: upstreamTaskId });
+                    : isMkeaiTask
+                        ? await fetchMkeaiImageStatus({ apiKey, baseUrl, taskId: upstreamTaskId })
+                        : await fetchDefaultImageStatus({ apiKey, baseUrl, taskId: upstreamTaskId });
 
         if (!response.ok) {
             console.error('[image-status] API error:', data);
@@ -158,6 +186,8 @@ export async function GET(request: NextRequest) {
         // The API may return status at root level or nested in data
         const rawStatus = getNestedValue(data, 'status')
             || getNestedValue(data, 'data', 'status')
+            || getNestedValue(data, 'task_status')
+            || getNestedValue(data, 'data', 'task_status')
             || getNestedValue(data, 'task', 'status')
             || getNestedValue(data, 'data', 'task', 'status');
         const status = typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : '';
@@ -211,6 +241,18 @@ async function fetchDefaultImageStatus(params: { apiKey: string; baseUrl: string
 
 async function fetchVApiImageStatus(params: { apiKey: string; baseUrl: string; taskId: string }) {
     const response = await fetch(`${params.baseUrl}/v1/images/tasks/${encodeURIComponent(params.taskId)}`, {
+        method: 'GET',
+        headers: createAiHeaders(params.apiKey),
+        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? AbortSignal.timeout(AI_UPSTREAM_TIMEOUT_MS.status)
+            : undefined,
+    });
+    const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
+    return { response, data };
+}
+
+async function fetchMkeaiImageStatus(params: { apiKey: string; baseUrl: string; taskId: string }) {
+    const response = await fetch(`${params.baseUrl}/v1/task/${encodeURIComponent(params.taskId)}`, {
         method: 'GET',
         headers: createAiHeaders(params.apiKey),
         signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'

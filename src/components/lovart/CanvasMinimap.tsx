@@ -116,6 +116,8 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
     const isDraggingRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const rafRef = useRef(0);
+    const hoverRafRef = useRef(0);
+    const pendingHoverPosRef = useRef<{ x: number; y: number } | null>(null);
     const palette = MINIMAP_PALETTES[canvasTheme];
     const minimapPositionCss = useMemo(
         () => `.canvas-minimap-position { right: ${(rightOffset ?? 0) + 4}px; }`,
@@ -354,13 +356,50 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
         navigateTo(e.clientX, e.clientY);
     }, [navigateTo]);
 
+    const scheduleHoverPos = useCallback((nextPos: { x: number; y: number }) => {
+        pendingHoverPosRef.current = nextPos;
+        if (hoverRafRef.current) {
+            return;
+        }
+
+        hoverRafRef.current = requestAnimationFrame(() => {
+            hoverRafRef.current = 0;
+            const pending = pendingHoverPosRef.current;
+            pendingHoverPosRef.current = null;
+            if (!pending) {
+                return;
+            }
+
+            setHoverPos((current) => {
+                if (current && current.x === pending.x && current.y === pending.y) {
+                    return current;
+                }
+                return pending;
+            });
+        });
+    }, []);
+
+    const clearHoverPos = useCallback(() => {
+        pendingHoverPosRef.current = null;
+        if (hoverRafRef.current) {
+            cancelAnimationFrame(hoverRafRef.current);
+            hoverRafRef.current = 0;
+        }
+        setHoverPos((current) => current === null ? current : null);
+    }, []);
+
     const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
-        setHoverPos({ x: (e.clientX - rect.left) * (MINIMAP_W / rect.width), y: (e.clientY - rect.top) * (MINIMAP_H / rect.height) });
+        if (rect.width > 0 && rect.height > 0) {
+            scheduleHoverPos({
+                x: Math.round((e.clientX - rect.left) * (MINIMAP_W / rect.width)),
+                y: Math.round((e.clientY - rect.top) * (MINIMAP_H / rect.height)),
+            });
+        }
         if (isDraggingRef.current) { e.stopPropagation(); e.preventDefault(); navigateTo(e.clientX, e.clientY); }
-    }, [navigateTo]);
+    }, [navigateTo, scheduleHoverPos]);
 
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -382,6 +421,12 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
         window.addEventListener('mousemove', move);
         return () => window.removeEventListener('mousemove', move);
     }, [navigateTo]);
+
+    useEffect(() => () => {
+        if (hoverRafRef.current) {
+            cancelAnimationFrame(hoverRafRef.current);
+        }
+    }, []);
 
     /* ── Fit All ── */
     const fitAll = useCallback(() => {
@@ -438,7 +483,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
             className="canvas-minimap-position absolute bottom-4 z-[25] select-none group/map flex flex-col items-end transition-all duration-300"
             onMouseDown={e => e.stopPropagation()}
             onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => { setHovered(false); setHoverPos(null); }}
+            onMouseLeave={() => { setHovered((current) => current ? false : current); clearHoverPos(); }}
         >
             {/* ── Map canvas ── */}
             <div

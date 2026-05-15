@@ -1,6 +1,6 @@
 import { DEFAULT_AI_BASE_URL } from './network-policy';
 
-export type AiProviderId = 'bltcy' | 'magicapi' | 'jiekou' | 'vapi';
+export type AiProviderId = 'bltcy' | 'magicapi' | 'jiekou' | 'vapi' | 'mkeai';
 
 export type AiProviderBaseUrlOption = {
   label: string;
@@ -177,12 +177,44 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderDefinition> = {
       ],
     },
   },
+  mkeai: {
+    id: 'mkeai',
+    label: 'MKEAI',
+    description: '独立第三方 API 平台，支持聊天、图片生成和 Sora 2 视频生成。',
+    defaultBaseUrl: 'https://api.mkeai.com',
+    allowedPublicPatterns: ['api.mkeai.com'],
+    apiKeyEnv: 'MKEAI_API_KEY',
+    baseUrlEnv: 'MKEAI_API_BASE_URL',
+    capabilities: {
+      chat: true,
+      image: true,
+      video: true,
+    },
+    models: {
+      chat: [
+        'gemini-3.1-pro-preview',
+        'gemini-3-pro-preview',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6',
+        'gpt-5.4',
+        'gpt-5.4-pro',
+      ],
+      image: [
+        'gemini-3.1-flash-image-preview',
+        'gemini-3-pro-image-preview',
+        'gpt-image-2',
+      ],
+      video: [
+        'mkeai-sora-2',
+      ],
+    },
+  },
 };
 
 export const AI_PROVIDER_OPTIONS = Object.values(AI_PROVIDERS);
 
 export function isAiProviderId(value: unknown): value is AiProviderId {
-  return value === 'bltcy' || value === 'magicapi' || value === 'jiekou' || value === 'vapi';
+  return value === 'bltcy' || value === 'magicapi' || value === 'jiekou' || value === 'vapi' || value === 'mkeai';
 }
 
 export function normalizeAiProviderId(value: unknown): AiProviderId {
@@ -203,6 +235,10 @@ export function isJieKouProvider(providerId: unknown): boolean {
 
 export function isVApiProvider(providerId: unknown): boolean {
   return normalizeAiProviderId(providerId) === 'vapi';
+}
+
+export function isMkeaiProvider(providerId: unknown): boolean {
+  return normalizeAiProviderId(providerId) === 'mkeai';
 }
 
 export function getProviderImageModels(providerId: unknown): string[] {

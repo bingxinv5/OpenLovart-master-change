@@ -16,6 +16,7 @@ export const VIDEO_MODEL_OPTIONS = [
   'veo_3_1-components',
   'jiekou-sora-2',
   'jiekou-veo-3.1',
+  'mkeai-sora-2',
   'sora-2_1280x720',
   'ssora-2-pro_1280x720',
   'sora-2-pro_1792x1024',
@@ -39,6 +40,7 @@ export const VIDEO_MODEL_LABELS: Record<VideoModel, string> = {
   'veo_3_1-components': 'Veo 3.1 Components (GeekNow)',
   'jiekou-sora-2': 'Sora 2',
   'jiekou-veo-3.1': 'Veo 3.1',
+  'mkeai-sora-2': 'MKEAI Sora 2',
   'sora-2_1280x720': 'V-API Sora 2 1280x720',
   'ssora-2-pro_1280x720': 'V-API Sora 2 Pro 1280x720',
   'sora-2-pro_1792x1024': 'V-API Sora 2 Pro 1792x1024',
@@ -57,6 +59,7 @@ export const VIDEO_MODEL_DESC: Record<VideoModel, string> = {
   'veo_3_1-components': 'GeekNow Veo 3.1 Components（支持5s/8s、多张参考图模式）',
   'jiekou-sora-2': 'JieKou AI Sora 2，支持文生视频和单图图生视频',
   'jiekou-veo-3.1': 'JieKou AI Veo 3.1，支持文生视频和首尾帧图生视频',
+  'mkeai-sora-2': 'MKEAI Sora 2，支持文生视频和首帧参考',
   'sora-2_1280x720': 'V-API Sora 2，固定 1280x720，支持文生视频和首帧参考',
   'ssora-2-pro_1280x720': 'V-API Sora 2 Pro，固定 1280x720，支持文生视频和首帧参考',
   'sora-2-pro_1792x1024': 'V-API Sora 2 Pro，固定 1792x1024，支持文生视频和首帧参考',
@@ -82,6 +85,18 @@ export function isVApiSoraVideoModel(model: string): boolean {
     || model === 'sora-2-pro_1792x1024';
 }
 
+export function isMkeaiSoraVideoModel(model: string): boolean {
+  return model === 'mkeai-sora-2';
+}
+
+export function resolveMkeaiSoraModelAndSize(model: string, aspectRatio?: string): { model: 'sora-2'; size: '720x1280' | '1280x720' } {
+  if (!isMkeaiSoraVideoModel(model)) {
+    return { model: 'sora-2', size: '1280x720' };
+  }
+
+  return { model: 'sora-2', size: aspectRatio === '9:16' ? '720x1280' : '1280x720' };
+}
+
 export function resolveVApiSoraModelAndSize(model: string): { model: 'sora-2' | 'sora-2-pro'; size: '1280x720' | '1792x1024' } {
   if (model === 'sora-2_1280x720') {
     return { model: 'sora-2', size: '1280x720' };
@@ -95,7 +110,7 @@ export function resolveVApiSoraModelAndSize(model: string): { model: 'sora-2' | 
 }
 
 export function isMagicApiSoraVideoModel(model: string): boolean {
-  return model.startsWith('sora-') && !isVApiSoraVideoModel(model);
+  return model.startsWith('sora-') && !isVApiSoraVideoModel(model) && !isMkeaiSoraVideoModel(model);
 }
 
 export function isMagicApiVeoVideoModel(model: string): boolean {
@@ -182,6 +197,10 @@ export function isMagicApiMultipartVideoModel(model: string): boolean {
 }
 
 export function getMaxImagesForVideoModel(model: string): number {
+  if (isMkeaiSoraVideoModel(model)) {
+    return 1;
+  }
+
   if (isVApiSoraVideoModel(model)) {
     return 1;
   }
@@ -242,6 +261,10 @@ export function getMaxAudiosForVideoModel(model: string): number {
 }
 
 export function getVideoAspectRatioOptions(model: string): VideoAspectRatio[] {
+  if (isMkeaiSoraVideoModel(model)) {
+    return ['16:9', '9:16'];
+  }
+
   if (isVApiSoraVideoModel(model)) {
     return ['16:9'];
   }
@@ -266,6 +289,10 @@ export function getVideoAspectRatioOptions(model: string): VideoAspectRatio[] {
 }
 
 export function getVideoDurationOptions(model: string): VideoDuration[] {
+  if (isMkeaiSoraVideoModel(model)) {
+    return ['4s', '8s', '12s'];
+  }
+
   if (isVApiSoraVideoModel(model)) {
     return ['4s', '8s', '12s'];
   }
@@ -302,6 +329,10 @@ export function getVideoDurationOptions(model: string): VideoDuration[] {
 }
 
 export function getVideoResolutionOptions(model: string): VideoResolution[] {
+  if (isMkeaiSoraVideoModel(model)) {
+    return ['720p'];
+  }
+
   if (isVApiSoraVideoModel(model)) {
     return model === 'sora-2-pro_1792x1024' ? ['1080p'] : ['720p'];
   }
@@ -322,6 +353,10 @@ export function getVideoResolutionOptions(model: string): VideoResolution[] {
 }
 
 export function getVideoAddImageTitle(model: string, domesticMode?: DomesticGenerationMode): string {
+  if (isMkeaiSoraVideoModel(model)) {
+    return '添加首帧图片';
+  }
+
   if (isVApiSoraVideoModel(model)) {
     return '添加首帧图片';
   }
@@ -374,6 +409,10 @@ export function getVideoAddImageTitle(model: string, domesticMode?: DomesticGene
 }
 
 export function getDefaultVideoModelForProvider(providerId: AiProviderId): VideoModel {
+  if (providerId === 'mkeai') {
+    return 'mkeai-sora-2';
+  }
+
   if (providerId === 'vapi') {
     return 'sora-2_1280x720';
   }
@@ -393,6 +432,7 @@ export function getFixedVideoSeconds(model: string): number | undefined {
 export function getFallbackVideoSeconds(model: string): number {
   const fixed = getFixedVideoSeconds(model);
   if (fixed !== undefined) return fixed;
+  if (isMkeaiSoraVideoModel(model)) return 8;
   if (isVApiSoraVideoModel(model)) return 8;
   if (isJieKouVideoModel(model)) return 8;
   if (isMagicApiVeoVideoModel(model)) return 8;

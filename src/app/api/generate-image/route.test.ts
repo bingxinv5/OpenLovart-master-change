@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
+import { GET as GET_IMAGE_STATUS } from '../image-status/route';
 
 function createRequest(body: Record<string, unknown>, headers: Record<string, string> = {}) {
     return new NextRequest('http://localhost:3000/api/generate-image', {
@@ -474,6 +475,118 @@ describe('generate-image route', () => {
         const payload = await response.json();
         expect(payload.status).toBe('pending');
         expect(payload.taskId).toMatch(/^vapi-local:/);
+    });
+
+    it('submits MKEAI Gemini image requests through async image generations', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            data: { task_id: 'mkeai-image-1' },
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'MKEAI Gemini 生图',
+            model: 'gemini-3-pro-image-preview',
+            aspectRatio: '9:16',
+            imageSize: '4K',
+            generateCount: 2,
+        }, {
+            'x-ai-provider': 'mkeai',
+        }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/images/generations?async=true');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+
+        expect(JSON.parse(String(init?.body))).toEqual({
+            model: 'gemini-3-pro-image-preview',
+            prompt: 'MKEAI Gemini 生图',
+            response_format: 'url',
+            size: '4K',
+            aspect_ratio: '9:16',
+            n: 2,
+        });
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^mkeai-local:/);
+    });
+
+    it('submits MKEAI gpt-image-2 edits as multipart with an MKEAI task id', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            task_id: 'mkeai-gpt-edit-1',
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'MKEAI GPT 图生图',
+            model: 'gpt-image-2',
+            aspectRatio: '16:9',
+            imageSize: '2048x1152',
+            quality: 'high',
+            referenceImages: ['data:image/png;base64,aGVsbG8='],
+        }, {
+            'x-ai-provider': 'mkeai',
+        }));
+
+        expect(response.status).toBe(200);
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/v1/images/edits?async=true');
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+
+        const formData = init?.body as FormData;
+        expect(formData.get('model')).toBe('gpt-image-2');
+        expect(formData.get('size')).toBe('2048x1152');
+        expect(formData.get('quality')).toBe('high');
+        expect(formData.get('response_format')).toBe('url');
+        expect(formData.getAll('image')).toHaveLength(1);
+
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^mkeai-local:/);
+    });
+
+    it('requires MKEAI image submissions to return task_id instead of accepting sync image results', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            data: [{ url: 'https://example.com/sync-mkeai-image.png' }],
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'MKEAI 同步兜底检查',
+            model: 'gemini-3.1-flash-image-preview',
+        }, {
+            'x-ai-provider': 'mkeai',
+        }));
+
+        expect(response.status).toBe(200);
+        const payload = await response.json();
+        expect(payload.status).toBe('pending');
+        expect(payload.taskId).toMatch(/^mkeai-local:/);
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const statusResponse = await GET_IMAGE_STATUS(new NextRequest(`http://localhost:3000/api/image-status?taskId=${encodeURIComponent(payload.taskId)}`, {
+            headers: {
+                'x-ai-api-key': 'test-key',
+                'x-ai-base-url': 'http://localhost:3001',
+                'x-ai-provider': 'mkeai',
+            },
+        }));
+        expect(statusResponse.status).toBe(200);
+        await expect(statusResponse.json()).resolves.toEqual({
+            status: 'failed',
+            error: 'MKEAI 图片生成未返回 task_id，无法按异步任务查询结果',
+        });
     });
 
     it('builds MagicAPI GPT image payloads with the GeekNow option profile', async () => {

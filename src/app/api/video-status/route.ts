@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { debugLog } from '@/lib/debug-log';
-import { isJieKouProvider, isMagicApiProvider, isVApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     createAiHeaders,
@@ -26,10 +26,20 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: '缺少 taskId 参数' }, { status: 400 });
         }
 
-        const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request);
-
         const { transport, upstreamTaskId } = parseVideoTaskId(taskId);
-        const preferredTransports: VideoGenerationTransport[] = transport === 'vapi' || isVApiProvider(providerId)
+        const forcedProviderId = transport === 'mkeai'
+            ? 'mkeai'
+            : transport === 'vapi'
+                ? 'vapi'
+                : transport === 'jiekou'
+                    ? 'jiekou'
+                    : transport === 'magicapi'
+                        ? 'magicapi'
+                        : undefined;
+        const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request, { providerId: forcedProviderId });
+        const preferredTransports: VideoGenerationTransport[] = transport === 'mkeai' || isMkeaiProvider(providerId)
+            ? ['mkeai']
+            : transport === 'vapi' || isVApiProvider(providerId)
             ? ['vapi']
             : transport === 'jiekou' || isJieKouProvider(providerId)
             ? ['jiekou']
@@ -77,8 +87,8 @@ export async function GET(request: NextRequest) {
         const taskKind = inferGenerationTaskKind(data);
 
         if (status === 'success' || status === 'succeeded' || status === 'completed' || status === 'task_status_succeed') {
-            if (!videoUrl && resolvedTransport === 'vapi') {
-                const contentData = await fetchVApiVideoContent({ apiKey, baseUrl, taskId: upstreamTaskId });
+            if (!videoUrl && (resolvedTransport === 'vapi' || resolvedTransport === 'mkeai')) {
+                const contentData = await fetchOpenAiCompatibleVideoContent({ apiKey, baseUrl, taskId: upstreamTaskId });
                 videoUrl = extractVideoUrl(contentData);
             }
 
@@ -157,6 +167,10 @@ async function fetchVideoStatusWithFallback(params: {
 }
 
 function resolveVideoStatusEndpoint(baseUrl: string, taskId: string, transport: VideoGenerationTransport): string {
+    if (transport === 'mkeai') {
+        return `${baseUrl}/v1/videos/${encodeURIComponent(taskId)}`;
+    }
+
     if (transport === 'vapi') {
         return `${baseUrl}/v1/videos/${encodeURIComponent(taskId)}`;
     }
@@ -176,7 +190,7 @@ function resolveVideoStatusEndpoint(baseUrl: string, taskId: string, transport: 
     return `${baseUrl}/v2/videos/generations/${encodeURIComponent(taskId)}`;
 }
 
-async function fetchVApiVideoContent(params: { apiKey: string; baseUrl: string; taskId: string }): Promise<Record<string, unknown>> {
+async function fetchOpenAiCompatibleVideoContent(params: { apiKey: string; baseUrl: string; taskId: string }): Promise<Record<string, unknown>> {
     const endpoint = `${params.baseUrl}/v1/videos/${encodeURIComponent(params.taskId)}/content`;
     const response = await fetch(endpoint, {
         method: 'GET',

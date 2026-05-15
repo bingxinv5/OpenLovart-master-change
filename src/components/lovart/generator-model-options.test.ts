@@ -24,9 +24,32 @@ describe('generator model options', () => {
         });
 
         expect(options.isOpenAiGptImageModel).toBe(true);
+        expect(options.availableAspectRatios).toEqual(['auto', '1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '4:5', '5:4', '21:9', '9:21']);
         expect(options.availableImageQualities).toEqual(['auto', 'low', 'medium', 'high']);
         expect(options.displayedAspectRatio).toBe('3:2');
         expect(options.settingsSummary).toBe('1536x1024 · 高 · 3:2 · ×2');
+    });
+
+    it('keeps MKEAI gpt-image-2 auto and 9:21 ratios available to avoid option normalization loops', () => {
+        expect(getImageModelOptionsForProvider('mkeai')).toEqual([
+            'gemini-3.1-flash-image-preview',
+            'gemini-3-pro-image-preview',
+            'gpt-image-2',
+        ]);
+
+        const options = resolveImageGeneratorModelOptions({
+            providerId: 'mkeai',
+            model: 'gpt-image-2',
+            imageSize: '960x2240',
+            aspectRatio: '9:21',
+            quality: 'auto',
+            generateCount: 1,
+            referenceImageCount: 0,
+        });
+
+        expect(options.availableAspectRatios).toContain('auto');
+        expect(options.availableAspectRatios).toContain('9:21');
+        expect(options.displayedAspectRatio).toBe('9:21');
     });
 
     it('uses reference-image aspect ratio wording for Grok image references', () => {
