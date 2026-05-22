@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
-import { getCachedVideoThumbnailDataUrl, hasVideoSourceFailed, markVideoSourceFailed, markVideoSourceLoaded } from '@/lib/video-load-state';
+import { getCachedVideoThumbnailDataUrl, markVideoSourceLoaded } from '@/lib/video-load-state';
 import { resolveVideoPlaybackSource } from '@/lib/video-playback-source';
 import { renderPathPoints } from './canvas-ui-utils';
 import type { CanvasElement } from './canvas-types';
@@ -80,20 +80,13 @@ export function ImageGeneratingElementRenderer({ el }: { el: CanvasElement }) {
 function CanvasVideoPreview({ src }: { src: string }) {
     const [posterDataUrl, setPosterDataUrl] = useState<string | null>(null);
     const [isFrameReady, setIsFrameReady] = useState(false);
-    const [hasLoadError, setHasLoadError] = useState(() => hasVideoSourceFailed(src));
+    const [failedSrc, setFailedSrc] = useState<string | null>(null);
+    const hasLoadError = failedSrc === src;
 
     useEffect(() => {
         let cancelled = false;
         setPosterDataUrl(null);
         setIsFrameReady(false);
-        setHasLoadError(hasVideoSourceFailed(src));
-
-        if (hasVideoSourceFailed(src)) {
-            return () => {
-                cancelled = true;
-            };
-        }
-
         void getCachedVideoThumbnailDataUrl(src, { maxWidth: 960, quality: 0.86, seekTime: 0.1 }).then((thumbnail) => {
             if (!cancelled) setPosterDataUrl(thumbnail);
         });
@@ -124,16 +117,15 @@ function CanvasVideoPreview({ src }: { src: string }) {
                 className="pointer-events-none h-full w-full object-cover"
                 onLoadedMetadata={() => {
                     markVideoSourceLoaded(src);
-                    setHasLoadError(false);
+                    setFailedSrc(null);
                 }}
                 onLoadedData={() => {
                     markVideoSourceLoaded(src);
                     setIsFrameReady(true);
-                    setHasLoadError(false);
+                    setFailedSrc(null);
                 }}
                 onError={() => {
-                    markVideoSourceFailed(src);
-                    setHasLoadError(true);
+                    setFailedSrc(src);
                     setIsFrameReady(false);
                 }}
             />
