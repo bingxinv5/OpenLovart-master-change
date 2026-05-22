@@ -15,8 +15,8 @@ import { materializePromptMentions } from './generator-mention-view-model';
 describe('generator reference view model', () => {
     it('builds image reference preview items', () => {
         expect(buildImageReferencePreviewItems(['image-a', 'image-b'])).toEqual([
-            { id: 'reference-image-0', kind: 'image', title: '参考图 1', subtitle: '参考图 1', previewImage: 'image-a' },
-            { id: 'reference-image-1', kind: 'image', title: '参考图 2', subtitle: '参考图 2', previewImage: 'image-b' },
+            { id: 'reference-image-0', kind: 'image', title: '图1', subtitle: '图1', previewImage: 'image-a' },
+            { id: 'reference-image-1', kind: 'image', title: '图2', subtitle: '图2', previewImage: 'image-b' },
         ]);
     });
 
@@ -42,13 +42,13 @@ describe('generator reference view model', () => {
         });
 
         expect(mentions.map((mention) => ({ id: mention.id, token: mention.token, replacement: mention.replacement }))).toEqual([
-            { id: 'first', token: '@参考图1', replacement: '第1张参考图(首帧)' },
+            { id: 'first', token: '@图1', replacement: '第1张参考图(首帧)' },
             { id: 'video', token: '@视频1', replacement: '参考视频1(片段)' },
             { id: 'audio', token: '@音频1', replacement: '参考音频1(旁白)' },
         ]);
     });
 
-    it('materializes video @参考图 mentions in first-last-frame mode', () => {
+    it('materializes video @图 mentions in first-last-frame mode', () => {
         const mentions = buildVideoPromptMentions({
             useFrameLabels: true,
             frameImages: [
@@ -59,7 +59,7 @@ describe('generator reference view model', () => {
             referenceAudios: [],
         });
 
-        expect(materializePromptMentions('让 @参考图1 平滑过渡到 @参考图2', mentions))
+        expect(materializePromptMentions('让 @图1 平滑过渡到 @图2', mentions))
             .toBe('让 第1张参考图(首帧) 平滑过渡到 第2张参考图(尾帧)');
     });
 
@@ -74,7 +74,7 @@ describe('generator reference view model', () => {
             referenceAudios: [{ id: 'audio-a', url: 'asset://audio-a', name: '旁白', kind: 'audio' }],
         });
 
-        expect(materializePromptMentions('@参考图1 保持角色，@参考图2 保持场景，参考 @视频1 和 @音频1', mentions))
+        expect(materializePromptMentions('@图1 保持角色，@图2 保持场景，参考 @视频1 和 @音频1', mentions))
             .toBe('第1张参考图 保持角色，第2张参考图 保持场景，参考 参考视频1(动作) 和 参考音频1(旁白)');
     });
 

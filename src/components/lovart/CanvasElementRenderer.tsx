@@ -189,6 +189,7 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
     }) {
         const h = handlersRef.current!;
         const [isHovered, setIsHovered] = useState(false);
+        const hadDragPreviewOffsetRef = React.useRef(false);
         const isLocked = !!(el.locked || (el.type === 'frame' && el.frameLocked));
         const storyboardStatus = getStoryboardStatus(el);
         const storyboardChips = buildStoryboardMetaChips(el);
@@ -200,6 +201,12 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
             && isSelected
             && !isNotPickable
             && (storyboardStatus.hasAny || (renderSize.width * scale >= 108 && renderSize.height * scale >= 84));
+        const isGeneratorBoundsAnimatedElement = el.type === 'image-generator' || el.type === 'video-generator' || el.type === 'storyboard-planner';
+        const isCommittingDragPreview = !dragPreviewOffset && hadDragPreviewOffsetRef.current;
+        const shouldAnimateGeneratorBounds = isGeneratorBoundsAnimatedElement && !dragPreviewOffset && !isCommittingDragPreview;
+        React.useEffect(() => {
+            hadDragPreviewOffsetRef.current = !!dragPreviewOffset;
+        });
         const elementPositionClassName = buildFloatingPanelPositionClassName('canvas-element-position', el.id);
         const elementPositionCss = `
 .${elementPositionClassName} {
@@ -210,6 +217,15 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
     z-index: ${Number.isFinite(zIndex) ? zIndex : 'auto'};
     transform: ${dragPreviewOffset ? `translate(${toCanvasElementPx(dragPreviewOffset.dx)}, ${toCanvasElementPx(dragPreviewOffset.dy)})` : 'none'};
     pointer-events: ${activeTool === 'draw' || isNotPickable ? 'none' : 'auto'};
+    transition: ${shouldAnimateGeneratorBounds ? 'left 280ms cubic-bezier(0.22, 1, 0.36, 1), top 280ms cubic-bezier(0.22, 1, 0.36, 1), width 280ms cubic-bezier(0.22, 1, 0.36, 1), height 280ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease' : 'none'};
+    will-change: ${dragPreviewOffset ? 'transform' : shouldAnimateGeneratorBounds ? 'left, top, width, height' : 'auto'};
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .${elementPositionClassName} {
+        transition: none;
+        will-change: auto;
+    }
 }
 `;
 

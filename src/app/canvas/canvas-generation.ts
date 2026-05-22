@@ -13,6 +13,7 @@ import type {
 import { isCanvasGeneratorElement, isCanvasMediaElement } from '@/components/lovart/canvas-types';
 import { patchGenerationTargetElement } from '@/components/lovart/canvas-element-patch';
 import { summarizeGenerationError } from '@/components/lovart/generator-error-utils';
+import { resolveGeneratorAspectRatioBounds } from '@/components/lovart/generator-aspect-ratio-layout';
 import {
     createGenerationFailurePatch,
     createGenerationIdlePatch,
@@ -411,16 +412,24 @@ export function applyVideoGenerationSuccess(
         ? taskId.trim()
         : null;
 
-    return elements.map((element) =>
-        element.id === elementId
-            ? {
-                ...element,
-                type: 'video',
-                content: videoUrl,
-                sourceGenerationTaskId: normalizedTaskId ?? element.sourceGenerationTaskId,
-                sourceGenerationTaskType: (normalizedTaskId ?? element.sourceGenerationTaskId) ? 'video' : undefined,
-                ...createGenerationIdlePatch(),
-            }
-            : element,
-    );
+    return elements.map((element) => {
+        if (element.id !== elementId) {
+            return element;
+        }
+
+        const bounds = resolveGeneratorAspectRatioBounds(element.selectedAspectRatio, element, {
+            fallbackWidth: 400,
+            fallbackHeight: 400,
+        });
+
+        return {
+            ...element,
+            type: 'video',
+            content: videoUrl,
+            ...(bounds ? bounds : {}),
+            sourceGenerationTaskId: normalizedTaskId ?? element.sourceGenerationTaskId,
+            sourceGenerationTaskType: (normalizedTaskId ?? element.sourceGenerationTaskId) ? 'video' : undefined,
+            ...createGenerationIdlePatch(),
+        };
+    });
 }

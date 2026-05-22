@@ -107,7 +107,7 @@ export function useCanvasAiPlanExecutor({
                         ? JSON.stringify(selectionImageContents.slice(0, 2))
                         : undefined;
                     const videoGenerator = buildGeneratorElement('video-generator', {
-                        ...buildCenteredElementBounds(center, 400, 300),
+                        ...buildCenteredElementBounds(center, 400, 400),
                         displayName: action.title,
                         savedPrompt: action.prompt,
                         savedFrameImages: selectedFrameImages,

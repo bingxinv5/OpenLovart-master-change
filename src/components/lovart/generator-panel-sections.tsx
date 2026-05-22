@@ -4,6 +4,7 @@ import React from 'react';
 import { Film, Loader2, Plus, Search, Volume2, X, Zap } from 'lucide-react';
 import { GeneratorStatusCard, type GeneratorStatusState } from './GeneratorStatusCard';
 import { WorkbenchImage } from './WorkbenchImage';
+import { buildPromptComposerSegments, type PromptMentionLike } from './generator-mention-view-model';
 
 type GeneratorKind = 'image' | 'video';
 type ReferencePreviewKind = 'image' | 'video' | 'audio';
@@ -190,18 +191,80 @@ export interface GeneratorMentionSuggestionItem {
     id: string;
     name: string;
     label: string;
+    token?: string;
     kind?: ReferencePreviewKind;
     previewImage?: string | File;
+}
+
+export interface GeneratorPromptInlineMentionItem extends GeneratorMentionSuggestionItem, PromptMentionLike {
+    token: string;
+}
+
+export function GeneratorPromptInlineMentionLayer({
+    prompt,
+    mentions,
+    scrollContainerRef,
+}: {
+    prompt: string;
+    mentions: GeneratorPromptInlineMentionItem[];
+    scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+}) {
+    if (!prompt || mentions.length === 0) {
+        return null;
+    }
+
+    const segments = buildPromptComposerSegments(prompt, mentions);
+    if (!segments.some((segment) => segment.type === 'mention')) {
+        return null;
+    }
+
+    return (
+        <div ref={scrollContainerRef} className="pointer-events-none absolute inset-0 z-0 overflow-hidden px-3 py-2.5 text-sm leading-6 text-[var(--canvas-text-primary)]">
+            <div className="min-h-full whitespace-pre-wrap break-words">
+                {segments.map((segment) => {
+                    if (segment.type === 'text') {
+                        return <span key={segment.key}>{segment.value}</span>;
+                    }
+
+                    const mention = segment.mention;
+                    const mentionLabel = mention.kind === 'image' ? mention.name : mention.token.replace(/^@/, '');
+                    return (
+                        <span
+                            key={segment.key}
+                            className="relative inline-block whitespace-pre align-baseline text-transparent"
+                            title={`${mention.token} · ${mention.name}`}
+                        >
+                            {segment.value}
+                            <span className="absolute left-0 top-1/2 flex h-6 w-full -translate-y-1/2 items-center gap-1 overflow-hidden rounded-md border border-sky-200/90 bg-sky-50 px-1.5 align-middle text-[11px] font-semibold leading-none text-sky-700 shadow-sm">
+                                {mention.kind === 'video' || mention.kind === 'audio' ? (
+                                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${mention.kind === 'video' ? 'bg-slate-900 text-white' : 'canvas-reference-audio-tile'}`}>
+                                        {mention.kind === 'video' ? <Film size={9} /> : <Volume2 size={9} />}
+                                    </span>
+                                ) : mention.previewImage ? (
+                                    <ReferencePreviewTile item={{ id: mention.id, kind: 'image', title: mention.name, previewImage: mention.previewImage }} sizeClassName="h-4 w-4 shrink-0 overflow-hidden rounded" imageClassName="rounded" iconSize={9} />
+                                ) : (
+                                    <span className="h-4 w-4 shrink-0 rounded bg-white/70" />
+                                )}
+                                <span className="min-w-0 flex-1 truncate">{mentionLabel}</span>
+                            </span>
+                        </span>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }
 
 export function MentionComposerSuggestions({
     title,
     suggestions,
+    activeIndex = 0,
     emptyText,
     onApply,
 }: {
     title: string;
     suggestions: GeneratorMentionSuggestionItem[];
+    activeIndex?: number;
     emptyText: string;
     onApply: (item: GeneratorMentionSuggestionItem) => void;
 }) {
@@ -209,13 +272,16 @@ export function MentionComposerSuggestions({
         <div className="canvas-popover absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl">
             <div className="border-b border-[var(--canvas-border)] px-3 py-2 text-[11px] font-medium text-[var(--canvas-text-secondary)]">{title}</div>
             <div className="max-h-[220px] overflow-y-auto p-2">
-                {suggestions.length > 0 ? suggestions.map((item) => (
+                {suggestions.length > 0 ? suggestions.map((item, index) => {
+                    const isActive = index === Math.max(0, Math.min(activeIndex, suggestions.length - 1));
+                    return (
                     <button
                         key={item.id}
                         type="button"
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => onApply(item)}
-                        className="canvas-menu-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors"
+                        data-active={isActive ? 'true' : undefined}
+                        className={`canvas-menu-item flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${isActive ? 'bg-sky-50 ring-1 ring-sky-200/80' : ''}`}
                     >
                         {item.kind === 'video' || item.kind === 'audio' ? (
                             <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${item.kind === 'video' ? 'bg-slate-900 text-white' : 'canvas-reference-audio-tile'}`}>
@@ -231,7 +297,8 @@ export function MentionComposerSuggestions({
                             <div className="text-[11px] text-[var(--canvas-text-tertiary)]">{item.label}</div>
                         </div>
                     </button>
-                )) : (
+                    );
+                }) : (
                     <div className="rounded-xl border border-dashed border-[var(--canvas-border)] px-3 py-5 text-center text-[12px] text-[var(--canvas-text-tertiary)]">
                         {emptyText}
                     </div>

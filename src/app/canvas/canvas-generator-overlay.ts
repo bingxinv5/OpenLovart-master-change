@@ -5,6 +5,14 @@ import { isCanvasGeneratorElement } from '@/components/lovart/canvas-types';
 /** @deprecated Use CanvasGeneratorElement from canvas-types directly. */
 export type SelectedGeneratorElement = CanvasGeneratorElement;
 
+const GENERATOR_PANEL_WIDTH = 620;
+const STORYBOARD_PANEL_WIDTH = 560;
+const GENERATOR_PANEL_FIXED_SCALE = 1.16;
+
+function getGeneratorPanelScale(type: CanvasElement['type']) {
+    return type === 'storyboard-planner' ? 1 : GENERATOR_PANEL_FIXED_SCALE;
+}
+
 export function getSelectedGeneratorElement(
     elements: CanvasElement[],
     selectedIds: string[],
@@ -31,29 +39,33 @@ export function getGeneratorOverlayStyle(
     pan: { x: number; y: number },
 ): CSSProperties {
     const fallbackWidth = element.type === 'storyboard-planner' ? 560 : 400;
-    const fallbackHeight = element.type === 'video-generator'
-        ? 300
-        : element.type === 'storyboard-planner'
-            ? 320
-            : 400;
-    const panelWidth = element.type === 'storyboard-planner' ? 560 : 620;
+    const fallbackHeight = element.type === 'storyboard-planner'
+        ? 320
+        : 400;
+    const panelWidth = element.type === 'storyboard-planner' ? STORYBOARD_PANEL_WIDTH : GENERATOR_PANEL_WIDTH;
+    const panelScale = getGeneratorPanelScale(element.type);
+    const panelVisualWidth = panelWidth * panelScale;
     const viewportMargin = 16;
     const anchorGap = 20;
     const elementLeft = (element.x * scale) + pan.x;
     const elementTop = (element.y * scale) + pan.y;
     const elementWidth = (element.width || fallbackWidth) * scale;
     const elementHeight = (element.height || fallbackHeight) * scale;
-    const requestedLeft = elementLeft + (elementWidth / 2) - (panelWidth / 2);
+    const requestedLeft = elementLeft + (elementWidth / 2) - (panelVisualWidth / 2);
     const requestedTopBelow = elementTop + elementHeight + anchorGap;
 
     const left = typeof window === 'undefined'
         ? requestedLeft
-        : Math.max(viewportMargin, Math.min(requestedLeft, window.innerWidth - panelWidth - viewportMargin));
+        : Math.max(viewportMargin, Math.min(requestedLeft, window.innerWidth - panelVisualWidth - viewportMargin));
 
     const top = requestedTopBelow;
 
     return {
         left: `${left}px`,
         top: `${top}px`,
+        ...(panelScale !== 1 ? {
+            transform: `scale(${panelScale})`,
+            transformOrigin: 'top left',
+        } : {}),
     };
 }

@@ -51,8 +51,8 @@ export function buildImageReferencePreviewItems(referenceImages: Array<File | st
     return referenceImages.map((image, index) => ({
         id: `reference-image-${index}`,
         kind: 'image',
-        title: `参考图 ${index + 1}`,
-        subtitle: `参考图 ${index + 1}`,
+        title: `图${index + 1}`,
+        subtitle: `图${index + 1}`,
         previewImage: image,
     }));
 }
@@ -280,18 +280,19 @@ export function buildVideoPromptMentions(params: {
     const mentions: PromptMention[] = [];
 
     frameImages.forEach((item, index) => {
-        const token = `@参考图${index + 1}`;
+        const token = `@图${index + 1}`;
+        const displayName = `图${index + 1}`;
         if (useFrameLabels) {
             const slotLabel = item.imageType === 'last_frame' ? '尾帧' : '首帧';
             mentions.push({
                 id: item.id,
                 token,
                 replacement: `第${index + 1}张参考图(${slotLabel})`,
-                label: `输入 ${token} 引用这张${slotLabel}参考图`,
-                name: item.name,
+                label: `输入 ${token} 引用这张${slotLabel}图`,
+                name: displayName,
                 kind: 'image',
                 previewImage: item.image,
-                searchText: `${token} 参考图${index + 1} ${slotLabel} ${item.name}`.toLowerCase(),
+                searchText: `${token} ${displayName} @参考图${index + 1} 参考图${index + 1} ${slotLabel} ${item.name}`.toLowerCase(),
             });
             return;
         }
@@ -300,11 +301,11 @@ export function buildVideoPromptMentions(params: {
             id: item.id,
             token,
             replacement: `第${index + 1}张参考图`,
-            label: `输入 ${token} 引用这张参考图`,
-            name: item.name,
+            label: `输入 ${token} 引用这张图`,
+            name: displayName,
             kind: 'image',
             previewImage: item.image,
-            searchText: `${token} 参考图${index + 1} ${item.name}`.toLowerCase(),
+            searchText: `${token} ${displayName} @参考图${index + 1} 参考图${index + 1} ${item.name}`.toLowerCase(),
         });
     });
 
@@ -400,8 +401,8 @@ export function getPromptMentionEmptyState(params: {
     return '先添加参考图，再输入 @ 进行引用';
 }
 
-export function resolvePromptMentionQuery(value: string, caretIndex: number): PromptMentionQuery | null {
-    return resolveTextareaMentionQuery(value, caretIndex);
+export function resolvePromptMentionQuery(value: string, caretIndex: number, ignoredTokens: string[] = []): PromptMentionQuery | null {
+    return resolveTextareaMentionQuery(value, caretIndex, '@', { requireWhitespacePrefix: false, ignoredTokens });
 }
 
 export function getAvailableFrameImageTypes(frameImages: FrameImage[], usesReferenceImages: boolean) {

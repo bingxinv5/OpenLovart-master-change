@@ -585,7 +585,7 @@ export function useCanvasStoryboardActions({
                 x: element.x,
                 y: element.y + offsetY,
                 width: element.width || 400,
-                height: element.height || 300,
+                height: element.height || 400,
                 displayName: `${element.displayName || element.storyboardShotCode || '分镜'} · 视频`,
                 referenceImageId: element.id,
                 parentFrameId: element.parentFrameId,

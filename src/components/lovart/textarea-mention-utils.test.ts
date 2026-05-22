@@ -22,6 +22,25 @@ describe('resolveTextareaMentionQuery', () => {
         expect(resolveTextareaMentionQuery('email@test', 10)).toBeNull();
     });
 
+    it('can resolve inline mentions when whitespace prefix is disabled', () => {
+        expect(resolveTextareaMentionQuery('已有内容@参考', 7, '@', { requireWhitespacePrefix: false })).toEqual({
+            start: 4,
+            end: 7,
+            query: '参考',
+        });
+    });
+
+    it('does not reopen suggestions when caret is inside an existing token', () => {
+        expect(resolveTextareaMentionQuery('按照 @图1 进行', 6, '@', {
+            requireWhitespacePrefix: false,
+            ignoredTokens: ['@图1'],
+        })).toBeNull();
+        expect(resolveTextareaMentionQuery('按照 @图1 进行', 7, '@', {
+            requireWhitespacePrefix: false,
+            ignoredTokens: ['@图1'],
+        })).toBeNull();
+    });
+
     it('returns null when the query already contains whitespace', () => {
         expect(resolveTextareaMentionQuery('hello @design review', 20)).toBeNull();
     });
@@ -107,6 +126,19 @@ describe('resolveTokenDeletionRange', () => {
         })).toEqual({
             start: 0,
             end: 4,
+            nextCaretOffset: 0,
+        });
+    });
+
+    it('removes a token on backspace from inside padded mention spacing', () => {
+        expect(resolveTokenDeletionRange({
+            value: '@图1      scene',
+            tokens: ['@图1'],
+            selectionOffset: 6,
+            key: 'Backspace',
+        })).toEqual({
+            start: 0,
+            end: 9,
             nextCaretOffset: 0,
         });
     });

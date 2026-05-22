@@ -44,6 +44,7 @@ import {
 import {
     buildPromptReferenceMentions,
     clampPromptReferenceTokens,
+    ensurePromptMentionInlinePadding,
     getPromptMentionSuggestions,
     remapPromptReferenceTokensAfterRemoval,
     resolvePromptReferenceMentions,
@@ -79,6 +80,7 @@ import type { ImageResourceLibraryTab } from './ImageGeneratorResourceLibrary';
 import { ImageGeneratorPromptComposer } from './ImageGeneratorPromptComposer';
 import { ImageGeneratorFooterControls } from './ImageGeneratorFooterControls';
 import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
+import { buildGeneratorAspectRatioPatch, resolveGeneratorAspectRatioBounds } from './generator-aspect-ratio-layout';
 
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
 
@@ -156,6 +158,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [confirmClear, setConfirmClear] = useState(false);
     const [resourceLibraryTab, setResourceLibraryTab] = useState<ImageResourceLibraryTab>('history');
     const [mentionQuery, setMentionQuery] = useState<TextareaMentionQuery | null>(null);
+    const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
     const maxPromptRows = 8;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -172,10 +175,37 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const isPromptComposingRef = useRef(false);
     const dismissedCanvasReferenceSourceIdsRef = useRef<Set<string>>(new Set());
     const promptReferenceMentions = useMemo(() => buildPromptReferenceMentions(referenceImages), [referenceImages]);
+    const promptReferenceTokens = useMemo(() => promptReferenceMentions.map((mention) => mention.token), [promptReferenceMentions]);
     const mentionSuggestions = useMemo(
         () => getPromptMentionSuggestions(promptReferenceMentions, mentionQuery),
         [mentionQuery, promptReferenceMentions],
     );
+    const referencedMentions = useMemo(
+        () => promptReferenceMentions.filter((mention) => prompt.includes(mention.token)),
+        [prompt, promptReferenceMentions],
+    );
+
+    useEffect(() => {
+        setMentionActiveIndex(0);
+    }, [mentionQuery?.start, mentionQuery?.query, mentionSuggestions.length]);
+
+    useEffect(() => {
+        const paddedPrompt = ensurePromptMentionInlinePadding(prompt, promptReferenceTokens, promptSelectionRef.current);
+        if (!paddedPrompt.changed) {
+            return;
+        }
+
+        promptSelectionRef.current = paddedPrompt.selection ?? promptSelectionRef.current;
+        setPrompt(paddedPrompt.prompt);
+        requestAnimationFrame(() => {
+            const input = promptInputRef.current;
+            if (!input || document.activeElement !== input || !paddedPrompt.selection) {
+                return;
+            }
+
+            input.setSelectionRange(paddedPrompt.selection.start, paddedPrompt.selection.end);
+        });
+    }, [prompt, promptReferenceTokens]);
 
     const closeAllMenus = useCallback(() => {
         setShowModelMenu(false);
@@ -373,23 +403,33 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [maxReferenceImages]);
 
     const syncPromptMentionQuery = useCallback((nextPrompt: string, caretIndex: number) => {
-        setMentionQuery(resolveTextareaMentionQuery(nextPrompt, caretIndex));
-    }, []);
+        setMentionQuery(resolveTextareaMentionQuery(nextPrompt, caretIndex, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens }));
+    }, [promptReferenceTokens]);
 
     const syncPromptSelectionFromInput = useCallback((input: HTMLTextAreaElement | null) => {
         if (!input) {
             return;
         }
 
-        promptSelectionRef.current = {
+        const rawSelection = {
             start: input.selectionStart ?? 0,
             end: input.selectionEnd ?? (input.selectionStart ?? 0),
         };
+        const paddedPrompt = ensurePromptMentionInlinePadding(input.value, promptReferenceTokens, rawSelection);
+        const nextSelection = paddedPrompt.selection ?? rawSelection;
+
+        promptSelectionRef.current = nextSelection;
+        if (paddedPrompt.changed) {
+            setPrompt(paddedPrompt.prompt);
+        }
+        if (nextSelection.start !== rawSelection.start || nextSelection.end !== rawSelection.end) {
+            input.setSelectionRange(nextSelection.start, nextSelection.end);
+        }
 
         if (!isPromptComposingRef.current) {
-            syncPromptMentionQuery(input.value, promptSelectionRef.current.start);
+            syncPromptMentionQuery(paddedPrompt.prompt, nextSelection.start);
         }
-    }, [syncPromptMentionQuery]);
+    }, [promptReferenceTokens, syncPromptMentionQuery]);
 
     const handleImageSizeChange = useCallback((nextImageSize: ImageSize) => {
         setImageSize(nextImageSize);
@@ -423,15 +463,18 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             end: textarea.selectionEnd ?? promptSelectionRef.current.end,
         } : promptSelectionRef.current;
         const activeQuery = selection.start === selection.end
-            ? resolveTextareaMentionQuery(basePrompt, selection.start)
+            ? resolveTextareaMentionQuery(basePrompt, selection.start, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens })
             : null;
-        const { nextValue, nextSelection } = insertTextAtSelection({
+        const insertedPrompt = insertTextAtSelection({
             value: basePrompt,
             selection,
             insertText: `${mention.token} `,
             replaceRange: activeQuery ? { start: activeQuery.start, end: activeQuery.end } : undefined,
             ensureSpacing: true,
         });
+        const paddedPrompt = ensurePromptMentionInlinePadding(insertedPrompt.nextValue, promptReferenceTokens, insertedPrompt.nextSelection);
+        const nextValue = paddedPrompt.prompt;
+        const nextSelection = paddedPrompt.selection ?? insertedPrompt.nextSelection;
 
         promptSelectionRef.current = nextSelection;
         setPrompt(nextValue);
@@ -446,19 +489,30 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             input.focus();
             input.setSelectionRange(nextSelection.start, nextSelection.end);
         });
-    }, [prompt]);
+    }, [prompt, promptReferenceTokens]);
 
     const handlePromptChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const nextPrompt = event.target.value;
-        promptSelectionRef.current = {
-            start: event.target.selectionStart ?? nextPrompt.length,
-            end: event.target.selectionEnd ?? (event.target.selectionStart ?? nextPrompt.length),
+        const rawPrompt = event.target.value;
+        const rawSelection = {
+            start: event.target.selectionStart ?? rawPrompt.length,
+            end: event.target.selectionEnd ?? (event.target.selectionStart ?? rawPrompt.length),
         };
+        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptReferenceTokens, rawSelection);
+        const nextPrompt = paddedPrompt.prompt;
+        promptSelectionRef.current = paddedPrompt.selection ?? rawSelection;
         setPrompt(nextPrompt);
+        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
+            requestAnimationFrame(() => {
+                const input = promptInputRef.current;
+                if (input) {
+                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
+                }
+            });
+        }
         if (!isPromptComposingRef.current) {
             syncPromptMentionQuery(nextPrompt, promptSelectionRef.current.start);
         }
-    }, [syncPromptMentionQuery]);
+    }, [promptReferenceTokens, syncPromptMentionQuery]);
 
     const handlePromptSelectionChange = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
         syncPromptSelectionFromInput(event.currentTarget);
@@ -466,14 +520,25 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const handlePromptCompositionEnd = useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
         isPromptComposingRef.current = false;
-        const nextPrompt = event.currentTarget.value;
-        promptSelectionRef.current = {
-            start: event.currentTarget.selectionStart ?? nextPrompt.length,
-            end: event.currentTarget.selectionEnd ?? (event.currentTarget.selectionStart ?? nextPrompt.length),
+        const rawPrompt = event.currentTarget.value;
+        const rawSelection = {
+            start: event.currentTarget.selectionStart ?? rawPrompt.length,
+            end: event.currentTarget.selectionEnd ?? (event.currentTarget.selectionStart ?? rawPrompt.length),
         };
+        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptReferenceTokens, rawSelection);
+        const nextPrompt = paddedPrompt.prompt;
+        promptSelectionRef.current = paddedPrompt.selection ?? rawSelection;
         setPrompt(nextPrompt);
+        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
+            requestAnimationFrame(() => {
+                const input = promptInputRef.current;
+                if (input) {
+                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
+                }
+            });
+        }
         syncPromptMentionQuery(nextPrompt, promptSelectionRef.current.start);
-    }, [syncPromptMentionQuery]);
+    }, [promptReferenceTokens, syncPromptMentionQuery]);
 
     const clearCanvasReferenceBinding = useCallback(() => {
         const sourceId = currentElement?.referenceImageId;
@@ -629,6 +694,16 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
     }, [elementId, canvasElements, currentElement?.referenceImageId, currentElement?.savedReferenceImage, currentElement?.savedReferenceImages]);
 
+    useEffect(() => {
+        const patch = buildGeneratorAspectRatioPatch(aspectRatio, currentElement, {
+            fallbackWidth: 400,
+            fallbackHeight: 400,
+        });
+        if (patch) {
+            onElementChange?.(elementId, patch);
+        }
+    }, [aspectRatio, currentElement?.height, currentElement?.selectedAspectRatio, currentElement?.width, currentElement?.x, currentElement?.y, elementId, onElementChange]);
+
     useClearGeneratorError(elementId, errorFromElement, onElementChange);
 
     const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string }) => {
@@ -647,7 +722,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             end: editor.selectionEnd ?? (editor.selectionStart ?? livePrompt.length),
         };
         promptSelectionRef.current = liveSelection;
-        const liveMentionQuery = resolveTextareaMentionQuery(livePrompt, liveSelection.start) ?? mentionQuery;
+        const liveMentionQuery = resolveTextareaMentionQuery(livePrompt, liveSelection.start, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens });
         const liveMentionSuggestions = getPromptMentionSuggestions(promptReferenceMentions, liveMentionQuery);
 
         if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -683,6 +758,18 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
 
         if (liveMentionQuery) {
+            if (e.key === 'ArrowDown' && liveMentionSuggestions.length > 0) {
+                e.preventDefault();
+                setMentionActiveIndex((prev) => (prev + 1) % liveMentionSuggestions.length);
+                return;
+            }
+
+            if (e.key === 'ArrowUp' && liveMentionSuggestions.length > 0) {
+                e.preventDefault();
+                setMentionActiveIndex((prev) => (prev - 1 + liveMentionSuggestions.length) % liveMentionSuggestions.length);
+                return;
+            }
+
             if (e.key === 'Escape') {
                 e.preventDefault();
                 setMentionQuery(null);
@@ -692,16 +779,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 if (liveMentionSuggestions.length > 0) {
-                    handleInsertPromptReferenceToken(liveMentionSuggestions[0]);
+                    handleInsertPromptReferenceToken(liveMentionSuggestions[Math.max(0, Math.min(mentionActiveIndex, liveMentionSuggestions.length - 1))]);
                 }
                 return;
-            }
-        }
-
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            if (prompt.trim() && !isGenerating) {
-                await handleGenerate();
             }
         }
     };
@@ -842,10 +922,20 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             });
             setRecentHistory(nextHistory);
 
-            const elX = currentElement?.x ?? 200;
-            const elY = currentElement?.y ?? 200;
-            const elW = currentElement?.width ?? 400;
-            const elH = currentElement?.height ?? 400;
+            const baseBounds = {
+                x: currentElement?.x ?? 200,
+                y: currentElement?.y ?? 200,
+                width: currentElement?.width ?? 400,
+                height: currentElement?.height ?? 400,
+            };
+            const outputBounds = resolveGeneratorAspectRatioBounds(aspectRatio, baseBounds, {
+                fallbackWidth: 400,
+                fallbackHeight: 400,
+            }) ?? baseBounds;
+            const elX = outputBounds.x;
+            const elY = outputBounds.y;
+            const elW = outputBounds.width;
+            const elH = outputBounds.height;
             const offsetX = elW + 20;
             const sharedElementState = {
                 savedPrompt: prompt,
@@ -1095,6 +1185,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 showAddImageMenu={showAddImageMenu}
                 mentionQuery={mentionQuery}
                 mentionSuggestions={mentionSuggestions}
+                mentionActiveIndex={mentionActiveIndex}
+                referencedMentions={referencedMentions}
                 hasPromptReferenceMentions={promptReferenceMentions.length > 0}
                 onPromptChange={handlePromptChange}
                 onPromptKeyDown={handleKeyDown}

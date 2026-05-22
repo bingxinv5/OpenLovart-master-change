@@ -9,6 +9,11 @@ export type TextareaMentionQuery = {
     query: string;
 };
 
+export type TextareaMentionQueryOptions = {
+    requireWhitespacePrefix?: boolean;
+    ignoredTokens?: string[];
+};
+
 export type TextareaTokenDeletion = {
     start: number;
     end: number;
@@ -33,6 +38,7 @@ export function resolveTextareaMentionQuery(
     value: string,
     caretIndex: number,
     trigger = '@',
+    options: TextareaMentionQueryOptions = {},
 ): TextareaMentionQuery | null {
     const safeCaret = Math.max(0, Math.min(caretIndex, value.length));
     const beforeCaret = value.slice(0, safeCaret);
@@ -42,7 +48,17 @@ export function resolveTextareaMentionQuery(
     }
 
     const prefix = triggerIndex === 0 ? '' : beforeCaret.charAt(triggerIndex - 1);
-    if (prefix && !/\s/.test(prefix)) {
+    const requireWhitespacePrefix = options.requireWhitespacePrefix ?? true;
+    if (requireWhitespacePrefix && prefix && !/\s/.test(prefix)) {
+        return null;
+    }
+
+    if (options.ignoredTokens?.some((token) => (
+        token
+        && value.startsWith(token, triggerIndex)
+        && safeCaret > triggerIndex
+        && safeCaret <= triggerIndex + token.length
+    ))) {
         return null;
     }
 
@@ -141,8 +157,11 @@ export function resolveTokenDeletionRange(params: {
             }
 
             const tokenEnd = tokenStart + token.length;
-            const deletionEnd = value.charAt(tokenEnd) === ' ' ? tokenEnd + 1 : tokenEnd;
-            const matchesBackspace = key === 'Backspace' && (selectionOffset === tokenEnd || selectionOffset === deletionEnd);
+            let deletionEnd = tokenEnd;
+            while (deletionEnd < value.length && value.charAt(deletionEnd) === ' ') {
+                deletionEnd += 1;
+            }
+            const matchesBackspace = key === 'Backspace' && selectionOffset > tokenStart && selectionOffset <= deletionEnd;
             const matchesDelete = key === 'Delete' && selectionOffset === tokenStart;
 
             if (matchesBackspace || matchesDelete) {

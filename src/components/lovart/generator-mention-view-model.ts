@@ -2,6 +2,7 @@ import {
     filterMentionSuggestions,
     normalizeMentionText,
     resolveTokenDeletionRange,
+    type TextareaSelection,
     type TextareaMentionQuery,
     type TextareaTokenDeletion,
 } from './textarea-mention-utils';
@@ -14,7 +15,7 @@ export interface PromptMentionLike {
 
 export type PromptComposerSegment<TMention extends PromptMentionLike> =
     | { type: 'text'; value: string; key: string }
-    | { type: 'mention'; mention: TMention; key: string };
+    | { type: 'mention'; mention: TMention; value: string; key: string };
 
 export interface PromptReferenceMention extends PromptMentionLike {
     id: string;
@@ -23,7 +24,111 @@ export interface PromptReferenceMention extends PromptMentionLike {
     image: File | string;
 }
 
-const PROMPT_REFERENCE_TOKEN_REGEX = /@参考图(\d+)/g;
+const PROMPT_REFERENCE_TOKEN_REGEX = /@(参考)?图(\d+)/g;
+export const PROMPT_MENTION_INLINE_PADDING = '      ';
+
+function mapOffsetThroughReplacement(offset: number, rangeStart: number, rangeEnd: number, replacementLength: number, delta: number) {
+    if (offset < rangeStart) {
+        return offset;
+    }
+
+    if (offset <= rangeEnd) {
+        return rangeStart + replacementLength;
+    }
+
+    return offset + delta;
+}
+
+export function ensurePromptMentionInlinePadding(
+    prompt: string,
+    tokens: string[],
+    selection?: TextareaSelection,
+): { prompt: string; selection?: TextareaSelection; changed: boolean } {
+    if (!prompt || tokens.length === 0) {
+        return { prompt, selection, changed: false };
+    }
+
+    const sortedTokens = [...new Set(tokens.filter(Boolean))].sort((left, right) => right.length - left.length);
+    let cursor = 0;
+    let nextPrompt = '';
+    let changed = false;
+    let nextSelection = selection ? { ...selection } : undefined;
+    let cumulativeDelta = 0;
+
+    while (cursor < prompt.length) {
+        const matchedToken = sortedTokens.find((token) => prompt.startsWith(token, cursor));
+        if (!matchedToken) {
+            nextPrompt += prompt.charAt(cursor);
+            cursor += 1;
+            continue;
+        }
+
+        nextPrompt += matchedToken;
+        cursor += matchedToken.length;
+
+        const spacingStart = cursor;
+        while (cursor < prompt.length && prompt.charAt(cursor) === ' ') {
+            cursor += 1;
+        }
+
+        const existingSpacing = prompt.slice(spacingStart, cursor);
+        const nextSpacing = existingSpacing.length >= PROMPT_MENTION_INLINE_PADDING.length
+            ? existingSpacing
+            : PROMPT_MENTION_INLINE_PADDING;
+        nextPrompt += nextSpacing;
+
+        const delta = nextSpacing.length - existingSpacing.length;
+        if (nextSelection) {
+            const mappedSpacingStart = spacingStart + cumulativeDelta;
+            const mappedSpacingEnd = cursor + cumulativeDelta;
+            nextSelection = {
+                start: mapOffsetThroughReplacement(nextSelection.start, mappedSpacingStart, mappedSpacingEnd, nextSpacing.length, delta),
+                end: mapOffsetThroughReplacement(nextSelection.end, mappedSpacingStart, mappedSpacingEnd, nextSpacing.length, delta),
+            };
+        }
+
+        if (nextSpacing.length !== existingSpacing.length) {
+            changed = true;
+            cumulativeDelta += delta;
+        }
+    }
+
+    return { prompt: nextPrompt, selection: nextSelection, changed };
+}
+
+export function stripPromptMentionInlinePadding(prompt: string, tokens: string[]): string {
+    if (!prompt || tokens.length === 0) {
+        return prompt;
+    }
+
+    const sortedTokens = [...new Set(tokens.filter(Boolean))].sort((left, right) => right.length - left.length);
+    let cursor = 0;
+    let nextPrompt = '';
+
+    while (cursor < prompt.length) {
+        const matchedToken = sortedTokens.find((token) => prompt.startsWith(token, cursor));
+        if (!matchedToken) {
+            nextPrompt += prompt.charAt(cursor);
+            cursor += 1;
+            continue;
+        }
+
+        nextPrompt += matchedToken;
+        cursor += matchedToken.length;
+
+        let spacingEnd = cursor;
+        while (spacingEnd < prompt.length && prompt.charAt(spacingEnd) === ' ') {
+            spacingEnd += 1;
+        }
+
+        if (spacingEnd < prompt.length && spacingEnd > cursor) {
+            nextPrompt += ' ';
+        }
+        cursor = spacingEnd;
+    }
+
+    return nextPrompt;
+}
 
 export function getPromptMentionSuggestions<TMention extends PromptMentionLike>(
     mentions: TMention[],
@@ -50,7 +155,7 @@ export function materializePromptMentions<TMention extends PromptMentionLike>(
     prompt: string,
     mentions: TMention[],
 ): string {
-    let materializedPrompt = prompt.trim();
+    let materializedPrompt = stripPromptMentionInlinePadding(prompt, mentions.map((mention) => mention.token)).trim();
     if (!materializedPrompt) {
         return materializedPrompt;
     }
@@ -80,12 +185,23 @@ export function buildPromptComposerSegments<TMention extends PromptMentionLike>(
     while (cursor < prompt.length) {
         const matchedMention = sortedMentions.find((mention) => prompt.startsWith(mention.token, cursor));
         if (matchedMention) {
+            const tokenStart = cursor;
+            cursor += matchedMention.token.length;
+            const spacingStart = cursor;
+            while (
+                cursor < prompt.length
+                && prompt.charAt(cursor) === ' '
+                && cursor - spacingStart < PROMPT_MENTION_INLINE_PADDING.length
+            ) {
+                cursor += 1;
+            }
+
             segments.push({
                 type: 'mention',
                 mention: matchedMention,
+                value: prompt.slice(tokenStart, cursor),
                 key: `mention-${segmentIndex}-${cursor}`,
             });
-            cursor += matchedMention.token.length;
             segmentIndex += 1;
             continue;
         }
@@ -110,19 +226,20 @@ export function buildPromptComposerSegments<TMention extends PromptMentionLike>(
 export function buildPromptReferenceMentions(referenceImages: (File | string)[]): PromptReferenceMention[] {
     return referenceImages.map((image, index) => ({
         id: `reference-${index}`,
-        token: `@参考图${index + 1}`,
+        token: `@图${index + 1}`,
         replacement: `第${index + 1}张参考图`,
-        label: `输入 ${`@参考图${index + 1}`} 引用这张参考图`,
-        name: `参考图 ${index + 1}`,
+        label: `输入 ${`@图${index + 1}`} 引用这张图`,
+        name: `图${index + 1}`,
         image,
-        searchText: `参考图${index + 1} @参考图${index + 1}`.toLowerCase(),
+        searchText: `图${index + 1} @图${index + 1} 参考图${index + 1} @参考图${index + 1}`.toLowerCase(),
     }));
 }
 
 export function resolvePromptReferenceMentions(prompt: string, mentions: PromptReferenceMention[]) {
     const replacements = new Map(mentions.map((mention) => [mention.token, mention.replacement]));
     const invalidTokens: string[] = [];
-    const materializedPrompt = prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, rawIndex) => {
+    const promptWithoutInlinePadding = stripPromptMentionInlinePadding(prompt, mentions.map((mention) => mention.token));
+    const materializedPrompt = promptWithoutInlinePadding.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, _legacyPrefix, rawIndex) => {
         const mentionIndex = Number.parseInt(rawIndex, 10);
         if (!Number.isSafeInteger(mentionIndex)) {
             if (!invalidTokens.includes(fullMatch)) {
@@ -131,7 +248,7 @@ export function resolvePromptReferenceMentions(prompt: string, mentions: PromptR
             return fullMatch;
         }
 
-        const replacement = replacements.get(fullMatch);
+        const replacement = replacements.get(fullMatch) ?? replacements.get(`@图${mentionIndex}`);
         if (!replacement) {
             if (!invalidTokens.includes(fullMatch)) {
                 invalidTokens.push(fullMatch);
@@ -149,7 +266,7 @@ export function resolvePromptReferenceMentions(prompt: string, mentions: PromptR
 }
 
 export function remapPromptReferenceTokensAfterRemoval(prompt: string, removedTokenIndex: number) {
-    return normalizeMentionText(prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, rawIndex) => {
+    return normalizeMentionText(prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, _legacyPrefix, rawIndex) => {
         const mentionIndex = Number.parseInt(rawIndex, 10);
         if (!Number.isSafeInteger(mentionIndex)) {
             return fullMatch;
@@ -160,18 +277,22 @@ export function remapPromptReferenceTokensAfterRemoval(prompt: string, removedTo
         }
 
         if (mentionIndex > removedTokenIndex) {
-            return `@参考图${mentionIndex - 1}`;
+            return `@图${mentionIndex - 1}`;
         }
 
-        return fullMatch;
+        return `@图${mentionIndex}`;
     }));
 }
 
 export function clampPromptReferenceTokens(prompt: string, maxReferenceImages: number) {
-    return normalizeMentionText(prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, rawIndex) => {
+    return normalizeMentionText(prompt.replace(PROMPT_REFERENCE_TOKEN_REGEX, (fullMatch, _legacyPrefix, rawIndex) => {
         const mentionIndex = Number.parseInt(rawIndex, 10);
-        if (!Number.isSafeInteger(mentionIndex) || mentionIndex <= maxReferenceImages) {
+        if (!Number.isSafeInteger(mentionIndex)) {
             return fullMatch;
+        }
+
+        if (mentionIndex <= maxReferenceImages) {
+            return `@图${mentionIndex}`;
         }
 
         return '';

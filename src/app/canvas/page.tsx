@@ -1318,7 +1318,7 @@ function LovartCanvasContent() {
 
     const handleOpenVideoGenerator = useCallback(() => {
         const center = getPlacementPosition();
-        const newElement = buildGeneratorElement('video-generator', buildCenteredElementBounds(center, 400, 300));
+        const newElement = buildGeneratorElement('video-generator', buildCenteredElementBounds(center, 400, 400));
         addAndFocusElement(newElement);
     }, [getPlacementPosition, addAndFocusElement, buildGeneratorElement]);
 

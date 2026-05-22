@@ -1,6 +1,7 @@
 import React from 'react';
 import {
     GeneratorReferenceStack,
+    GeneratorPromptInlineMentionLayer,
     MentionComposerSuggestions,
     type GeneratorReferencePreviewItem,
 } from './generator-panel-sections';
@@ -18,6 +19,8 @@ interface ImageGeneratorPromptComposerProps {
     showAddImageMenu: boolean;
     mentionQuery: TextareaMentionQuery | null;
     mentionSuggestions: PromptReferenceMention[];
+    mentionActiveIndex: number;
+    referencedMentions: PromptReferenceMention[];
     hasPromptReferenceMentions: boolean;
     onPromptChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
     onPromptKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -43,6 +46,8 @@ export function ImageGeneratorPromptComposer({
     showAddImageMenu,
     mentionQuery,
     mentionSuggestions,
+    mentionActiveIndex,
+    referencedMentions,
     hasPromptReferenceMentions,
     onPromptChange,
     onPromptKeyDown,
@@ -57,15 +62,37 @@ export function ImageGeneratorPromptComposer({
     onSelectFromCanvas,
     onApplyMention,
 }: ImageGeneratorPromptComposerProps) {
+    const promptOverlayRef = React.useRef<HTMLDivElement>(null);
+    const hasInlineMentions = referencedMentions.length > 0;
+
     return (
         <div className="p-3 pb-2">
             <div className="relative">
                 <div className="canvas-settings-input rounded-2xl shadow-sm">
                     <div className="relative px-3 py-2.5">
+                        <GeneratorPromptInlineMentionLayer
+                            prompt={prompt}
+                            mentions={referencedMentions.map((mention) => ({
+                                id: mention.id,
+                                name: mention.name,
+                                label: mention.label,
+                                token: mention.token,
+                                replacement: mention.replacement,
+                                searchText: mention.searchText,
+                                kind: 'image' as const,
+                                previewImage: mention.image,
+                            }))}
+                            scrollContainerRef={promptOverlayRef}
+                        />
                         <textarea
                             ref={promptInputRef}
                             value={prompt}
                             onChange={onPromptChange}
+                            onScroll={(event) => {
+                                if (promptOverlayRef.current) {
+                                    promptOverlayRef.current.scrollTop = event.currentTarget.scrollTop;
+                                }
+                            }}
                             onKeyDown={onPromptKeyDown}
                             onKeyUp={onPromptSelectionChange}
                             onSelect={onPromptSelectionChange}
@@ -81,7 +108,7 @@ export function ImageGeneratorPromptComposer({
                             onCompositionStart={onPromptCompositionStart}
                             onCompositionEnd={onPromptCompositionEnd}
                             onBlur={onPromptBlur}
-                            className="w-full resize-none overflow-hidden bg-transparent text-sm leading-6 text-[var(--canvas-text-primary)] outline-none placeholder:text-[var(--canvas-text-tertiary)]"
+                            className={`relative z-10 w-full resize-none overflow-hidden bg-transparent text-sm leading-6 outline-none placeholder:text-[var(--canvas-text-tertiary)] ${hasInlineMentions ? 'text-transparent caret-[var(--canvas-text-primary)]' : 'text-[var(--canvas-text-primary)]'}`}
                             disabled={isGenerating}
                         />
                     </div>
@@ -109,10 +136,12 @@ export function ImageGeneratorPromptComposer({
                 {mentionQuery && (
                     <MentionComposerSuggestions
                         title="可引用的参考图"
+                        activeIndex={mentionActiveIndex}
                         suggestions={mentionSuggestions.map((mention) => ({
                             id: mention.id,
                             name: mention.name,
                             label: mention.label,
+                            token: mention.token,
                             kind: 'image' as const,
                             previewImage: mention.image,
                         }))}

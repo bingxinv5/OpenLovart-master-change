@@ -64,6 +64,30 @@ describe('applyVideoGenerationSuccess', () => {
             sourceGenerationTaskType: 'video',
         });
     });
+
+    it('resizes generated video results to the selected aspect ratio', () => {
+        const elements = [
+            {
+                id: 'video-generator-1',
+                type: 'video-generator',
+                x: 10,
+                y: 20,
+                width: 400,
+                height: 300,
+                selectedAspectRatio: '9:16',
+            },
+        ];
+
+        const [result] = applyVideoGenerationSuccess(elements as never, 'video-generator-1', 'https://example.com/final.mp4');
+
+        expect(result).toMatchObject({
+            type: 'video',
+            x: 10,
+            y: -185,
+            width: 400,
+            height: 711,
+        });
+    });
 });
 
 describe('long-running video generation state', () => {

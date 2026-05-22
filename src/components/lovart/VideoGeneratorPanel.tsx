@@ -34,6 +34,7 @@ import {
     type TextareaSelection,
 } from './textarea-mention-utils';
 import {
+    ensurePromptMentionInlinePadding,
     getPromptMentionSuggestions,
     materializePromptMentions,
     resolvePromptMentionDeletion,
@@ -86,6 +87,7 @@ import { VideoGeneratorResourceLibrary } from './VideoGeneratorResourceLibrary';
 import { VideoGeneratorPromptComposer } from './VideoGeneratorPromptComposer';
 import { VideoGeneratorFileInputs } from './VideoGeneratorFileInputs';
 import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
+import { buildGeneratorAspectRatioPatch } from './generator-aspect-ratio-layout';
 
 type PromptSelection = TextareaSelection;
 
@@ -168,6 +170,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         initialReferenceAudios,
     ));
     const [mentionQuery, setMentionQuery] = useState<PromptMentionQuery | null>(null);
+    const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isRecovering, setIsRecovering] = useState(false);
     const [recoveryTaskId, setRecoveryTaskId] = useState(currentElement?.generatingTaskId || currentElement?.sourceGenerationTaskId || '');
@@ -269,7 +272,34 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         };
     }), [basePromptMentions, promptMentionBindingMap, usesFrameImages]);
     const promptMentionMap = useMemo(() => new Map(promptMentions.map((mention) => [mention.id, mention])), [promptMentions]);
+    const promptMentionTokens = useMemo(() => promptMentions.map((mention) => mention.token), [promptMentions]);
     const mentionSuggestions = useMemo(() => getPromptMentionSuggestions(promptMentions, mentionQuery), [mentionQuery, promptMentions]);
+    const referencedMentions = useMemo(
+        () => promptMentions.filter((mention) => prompt.includes(mention.token)),
+        [prompt, promptMentions],
+    );
+
+    useEffect(() => {
+        setMentionActiveIndex(0);
+    }, [mentionQuery?.start, mentionQuery?.query, mentionSuggestions.length]);
+
+    useEffect(() => {
+        const paddedPrompt = ensurePromptMentionInlinePadding(prompt, promptMentionTokens, promptSelectionRef.current);
+        if (!paddedPrompt.changed) {
+            return;
+        }
+
+        promptSelectionRef.current = paddedPrompt.selection ?? promptSelectionRef.current;
+        setPrompt(paddedPrompt.prompt);
+        requestAnimationFrame(() => {
+            const input = promptInputRef.current;
+            if (!input || document.activeElement !== input || !paddedPrompt.selection) {
+                return;
+            }
+
+            input.setSelectionRange(paddedPrompt.selection.start, paddedPrompt.selection.end);
+        });
+    }, [prompt, promptMentionTokens]);
     const promptMentionPlaceholder = useMemo(
         () => getPromptMentionPlaceholder({ usesFrameImages, isDomesticOmniMode }),
         [isDomesticOmniMode, usesFrameImages],
@@ -316,6 +346,16 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
         setResolution(resolutionOptions[resolutionOptions.length - 1]);
     }, [resolution, resolutionOptions]);
+
+    useEffect(() => {
+        const patch = buildGeneratorAspectRatioPatch(aspectRatio, currentElement, {
+            fallbackWidth: 400,
+            fallbackHeight: 400,
+        });
+        if (patch) {
+            onElementChange?.(elementId, patch);
+        }
+    }, [aspectRatio, currentElement?.height, currentElement?.selectedAspectRatio, currentElement?.width, currentElement?.x, currentElement?.y, elementId, onElementChange]);
 
     useEffect(() => {
         if (!isDomesticModel) {
@@ -601,38 +641,57 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     // Polling is handled by parent (canvas page), not here
 
     const syncPromptMentionQuery = useCallback((nextPrompt: string, caretIndex: number) => {
-        setMentionQuery(resolvePromptMentionQuery(nextPrompt, caretIndex));
-    }, []);
+        setMentionQuery(resolvePromptMentionQuery(nextPrompt, caretIndex, promptMentionTokens));
+    }, [promptMentionTokens]);
 
     const syncPromptSelectionFromInput = useCallback((input: HTMLTextAreaElement | null) => {
         if (!input) {
             return;
         }
 
-        const nextSelection: PromptSelection = {
+        const rawSelection: PromptSelection = {
             start: input.selectionStart ?? 0,
             end: input.selectionEnd ?? (input.selectionStart ?? 0),
         };
+        const paddedPrompt = ensurePromptMentionInlinePadding(input.value, promptMentionTokens, rawSelection);
+        const nextSelection = paddedPrompt.selection ?? rawSelection;
         promptSelectionRef.current = nextSelection;
+        if (paddedPrompt.changed) {
+            setPrompt(paddedPrompt.prompt);
+        }
+        if (nextSelection.start !== rawSelection.start || nextSelection.end !== rawSelection.end) {
+            input.setSelectionRange(nextSelection.start, nextSelection.end);
+        }
 
         if (!isPromptComposingRef.current) {
-            syncPromptMentionQuery(input.value, nextSelection.start);
+            syncPromptMentionQuery(paddedPrompt.prompt, nextSelection.start);
         }
-    }, [syncPromptMentionQuery]);
+    }, [promptMentionTokens, syncPromptMentionQuery]);
 
     const handlePromptChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const nextPrompt = event.target.value;
-        const nextSelection: PromptSelection = {
-            start: event.target.selectionStart ?? nextPrompt.length,
-            end: event.target.selectionEnd ?? (event.target.selectionStart ?? nextPrompt.length),
+        const rawPrompt = event.target.value;
+        const rawSelection: PromptSelection = {
+            start: event.target.selectionStart ?? rawPrompt.length,
+            end: event.target.selectionEnd ?? (event.target.selectionStart ?? rawPrompt.length),
         };
+        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptMentionTokens, rawSelection);
+        const nextPrompt = paddedPrompt.prompt;
+        const nextSelection = paddedPrompt.selection ?? rawSelection;
 
         promptSelectionRef.current = nextSelection;
         setPrompt(nextPrompt);
+        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
+            requestAnimationFrame(() => {
+                const input = promptInputRef.current;
+                if (input) {
+                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
+                }
+            });
+        }
         if (!isPromptComposingRef.current) {
             syncPromptMentionQuery(nextPrompt, nextSelection.start);
         }
-    }, [syncPromptMentionQuery]);
+    }, [promptMentionTokens, syncPromptMentionQuery]);
 
     const handlePromptSelectionChange = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
         syncPromptSelectionFromInput(event.currentTarget);
@@ -640,16 +699,27 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     const handlePromptCompositionEnd = useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
         isPromptComposingRef.current = false;
-        const nextPrompt = event.currentTarget.value;
-        const nextSelection: PromptSelection = {
-            start: event.currentTarget.selectionStart ?? nextPrompt.length,
-            end: event.currentTarget.selectionEnd ?? (event.currentTarget.selectionStart ?? nextPrompt.length),
+        const rawPrompt = event.currentTarget.value;
+        const rawSelection: PromptSelection = {
+            start: event.currentTarget.selectionStart ?? rawPrompt.length,
+            end: event.currentTarget.selectionEnd ?? (event.currentTarget.selectionStart ?? rawPrompt.length),
         };
+        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptMentionTokens, rawSelection);
+        const nextPrompt = paddedPrompt.prompt;
+        const nextSelection = paddedPrompt.selection ?? rawSelection;
 
         promptSelectionRef.current = nextSelection;
         setPrompt(nextPrompt);
+        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
+            requestAnimationFrame(() => {
+                const input = promptInputRef.current;
+                if (input) {
+                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
+                }
+            });
+        }
         syncPromptMentionQuery(nextPrompt, nextSelection.start);
-    }, [syncPromptMentionQuery]);
+    }, [promptMentionTokens, syncPromptMentionQuery]);
 
     const applyPromptMention = useCallback((mention: PromptMention) => {
         const input = promptInputRef.current;
@@ -660,15 +730,18 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         } : promptSelectionRef.current;
         const stableToken = promptMentionBindingMap.get(mention.id)?.token?.trim() || mention.token;
         const activeQuery = liveSelection.start === liveSelection.end
-            ? resolvePromptMentionQuery(basePrompt, liveSelection.start)
+            ? resolvePromptMentionQuery(basePrompt, liveSelection.start, promptMentionTokens)
             : null;
-        const { nextValue, nextSelection } = insertTextAtSelection({
+        const insertedPrompt = insertTextAtSelection({
             value: basePrompt,
             selection: liveSelection,
             insertText: `${stableToken} `,
             replaceRange: activeQuery ? { start: activeQuery.start, end: activeQuery.end } : undefined,
             ensureSpacing: true,
         });
+        const paddedPrompt = ensurePromptMentionInlinePadding(insertedPrompt.nextValue, promptMentionTokens, insertedPrompt.nextSelection);
+        const nextValue = paddedPrompt.prompt;
+        const nextSelection = paddedPrompt.selection ?? insertedPrompt.nextSelection;
 
         setPromptMentionBindings((prev) => prev.some((binding) => binding.mentionId === mention.id)
             ? prev.map((binding) => (
@@ -690,7 +763,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             textarea.focus();
             textarea.setSelectionRange(nextSelection.start, nextSelection.end);
         });
-    }, [prompt, promptMentionBindingMap]);
+    }, [prompt, promptMentionBindingMap, promptMentionTokens]);
 
     const clearMountedReferences = useCallback(() => {
         setPrompt((prev) => removeMentionTokens(prev, promptMentionBindings.flatMap((binding) => binding.token ? [binding.token] : [])));
@@ -709,7 +782,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             end: editor.selectionEnd ?? (editor.selectionStart ?? livePrompt.length),
         };
         promptSelectionRef.current = liveSelection;
-        const liveMentionQuery = resolvePromptMentionQuery(livePrompt, liveSelection.start) ?? mentionQuery;
+        const liveMentionQuery = resolvePromptMentionQuery(livePrompt, liveSelection.start, promptMentionTokens);
         const liveMentionSuggestions = getPromptMentionSuggestions(promptMentions, liveMentionQuery);
 
         if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -740,6 +813,18 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         }
 
         if (liveMentionQuery) {
+            if (e.key === 'ArrowDown' && liveMentionSuggestions.length > 0) {
+                e.preventDefault();
+                setMentionActiveIndex((prev) => (prev + 1) % liveMentionSuggestions.length);
+                return;
+            }
+
+            if (e.key === 'ArrowUp' && liveMentionSuggestions.length > 0) {
+                e.preventDefault();
+                setMentionActiveIndex((prev) => (prev - 1 + liveMentionSuggestions.length) % liveMentionSuggestions.length);
+                return;
+            }
+
             if (e.key === 'Escape') {
                 e.preventDefault();
                 setMentionQuery(null);
@@ -749,20 +834,9 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 if (liveMentionSuggestions.length > 0) {
-                    applyPromptMention(liveMentionSuggestions[0]);
+                    applyPromptMention(liveMentionSuggestions[Math.max(0, Math.min(mentionActiveIndex, liveMentionSuggestions.length - 1))]);
                 }
                 return;
-            }
-        }
-
-        if (e.key === 'Enter' && e.shiftKey) {
-            return;
-        }
-
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            if (canGenerate) {
-                await handleGenerate();
             }
         }
     };
@@ -1070,6 +1144,8 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 mentionPanelTitle={promptMentionPanelTitle}
                 mentionEmptyState={promptMentionEmptyState}
                 mentionSuggestions={mentionSuggestions}
+                mentionActiveIndex={mentionActiveIndex}
+                referencedMentions={referencedMentions}
                 onPromptChange={handlePromptChange}
                 onPromptKeyDown={handleKeyDown}
                 onPromptSelectionChange={handlePromptSelectionChange}
