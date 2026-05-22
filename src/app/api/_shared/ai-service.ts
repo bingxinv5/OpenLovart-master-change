@@ -58,7 +58,9 @@ export function resolveAiServiceConfig(
   const provider = getAiProvider(providerId);
   const clientBaseUrl = request.headers.get('x-ai-base-url');
   const clientApiKey = request.headers.get('x-ai-api-key');
-  const apiKey = clientApiKey || process.env[provider.apiKeyEnv] || process.env.AI_API_KEY;
+  const apiKey = clientApiKey
+    || process.env[provider.apiKeyEnv]
+    || (providerId === DEFAULT_AI_PROVIDER_ID ? process.env.AI_API_KEY : undefined);
   const rawBaseUrl = clientBaseUrl || process.env[provider.baseUrlEnv] || (providerId === DEFAULT_AI_PROVIDER_ID ? process.env.AI_API_BASE_URL : undefined) || provider.defaultBaseUrl;
 
   if (!apiKey) {
@@ -111,7 +113,10 @@ export function getApiErrorMessage(payload: unknown, fallback: string): string {
   const nestedError = getNestedValue(record, 'error', 'message');
 
   if (typeof nestedError === 'string') return nestedError;
+  if (typeof record.error === 'string') return record.error;
   if (typeof record.message === 'string') return record.message;
+  if (typeof record.details === 'string') return record.details;
+  if (typeof record.detail === 'string') return record.detail;
   return fallback;
 }
 
@@ -494,7 +499,7 @@ function isHttpUrl(value: unknown): value is string {
   return typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'));
 }
 
-function buildImageProxyUrl(origin: string, url: string, filename: string): string {
+function buildProxyDownloadUrl(origin: string, url: string, filename: string): string {
   if (!isHttpUrl(url)) {
     return url;
   }
@@ -509,6 +514,22 @@ function buildImageProxyUrl(origin: string, url: string, filename: string): stri
   proxyUrl.searchParams.set('filename', filename);
   proxyUrl.searchParams.set('inline', '1');
   return proxyUrl.toString();
+}
+
+function buildImageProxyUrl(origin: string, url: string, filename: string): string {
+  return buildProxyDownloadUrl(origin, url, filename);
+}
+
+export function proxyVideoResultUrl(
+  videoUrl: string | null,
+  origin: string,
+  options: {
+    filename?: string;
+  } = {},
+): string | null {
+  if (!videoUrl) return null;
+
+  return buildProxyDownloadUrl(origin, videoUrl, options.filename ?? 'lovart-video');
 }
 
 export function proxyImageResultUrls(

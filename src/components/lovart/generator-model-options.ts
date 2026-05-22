@@ -1,12 +1,12 @@
 import {
     describeOpenAiGptImageAspectRatio,
     getMaxReferenceImagesForImageModel,
-    MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS,
     OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
     OPENAI_GPT_IMAGE_SIZE_OPTIONS,
     STANDARD_IMAGE_SIZE_OPTIONS,
     MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS,
     getMagicApiGeminiImageSizeOptions,
+    getMagicApiGptImageAspectRatioOptions,
     getMagicApiGptImageSizeOptions,
     JIEKOU_GPT_IMAGE_SIZE_OPTIONS,
     JIEKOU_IMAGE_ASPECT_RATIO_OPTIONS,
@@ -161,7 +161,7 @@ export function resolveImageGeneratorModelOptions({
     const availableAspectRatios: ImageAspectRatio[] = isJieKou && (isJieKouGeminiImageModel || isJieKouNanoBananaImageModel || isJieKouGptImageModel)
         ? [...JIEKOU_IMAGE_ASPECT_RATIO_OPTIONS]
         : isMagicApi && isOpenAiGptImageModel
-        ? [...MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS]
+        ? getMagicApiGptImageAspectRatioOptions(model)
         : isOpenAiGptImageModel
         ? ['auto', ...OPENAI_GPT_IMAGE_SELECTABLE_ASPECT_RATIOS]
         : isMagicApi

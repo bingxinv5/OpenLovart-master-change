@@ -23,7 +23,7 @@ export const VIDEO_MODEL_OPTIONS = [
 ] as const;
 
 export type VideoModel = (typeof VIDEO_MODEL_OPTIONS)[number];
-export type VideoAspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '3:2' | '2:3' | '21:9';
+export type VideoAspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '3:2' | '2:3' | '21:9' | '9:21';
 export type VideoResolution = '480p' | '720p' | '1080p';
 export type DomesticGenerationMode = 'first-last-frame' | 'omni-reference';
 
@@ -50,10 +50,10 @@ export const VIDEO_MODEL_DESC: Record<VideoModel, string> = {
   'veo3.1': '支持首帧/尾帧图片',
   'veo3.1-fast': '支持首帧/尾帧图片，更便宜，质量低于 Veo 3.1',
   'veo3.1-components': '支持1-3张参考图',
-  'doubao-seedance-2-0-260128': '国产多模态官方格式，支持首尾帧模式和全能参考模式',
+  'doubao-seedance-2-0-260128': '国产多模态官方格式，支持首尾帧/全能参考、21:9/9:21、480P/720P/1080P',
   'sora-2': 'GeekNow Sora 2，支持文生视频和首帧参考',
   'grok-video-3-pro': 'GeekNow Grok Video Pro（10s），支持 720P/1080P 与参考图',
-  'doubao-seed-2-0-pro-260215': '豆包 Seed 2.0 Pro，支持首尾帧/全能参考、480P/720P、音频与提示词增强',
+  'doubao-seed-2-0-pro-260215': '豆包 Seed 2.0 Pro，支持首尾帧/全能参考、21:9/9:21、480P/720P/1080P、音频与提示词增强',
   'veo_3_1': 'GeekNow Veo 3.1（支持5s/8s、首尾帧图片、当前渠道可能不可用）',
   'veo_3_1-fast': 'GeekNow Veo 3.1 Fast（支持5s/8s、首尾帧图片、更快更便宜）',
   'veo_3_1-components': 'GeekNow Veo 3.1 Components（支持5s/8s、多张参考图模式）',
@@ -274,7 +274,7 @@ export function getVideoAspectRatioOptions(model: string): VideoAspectRatio[] {
   }
 
   if (isDomesticMultimodalVideoModel(model)) {
-    return ['16:9', '9:16', '1:1', '4:3', '3:4'];
+    return ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21'];
   }
 
   if (isMagicApiGrokVideoModel(model)) {
@@ -349,7 +349,7 @@ export function getVideoResolutionOptions(model: string): VideoResolution[] {
   if (model.endsWith('_1080p') || model.includes('1920*1080')) return ['1080p'];
   if (model.endsWith('_720p') || model.includes('1280*720')) return ['720p'];
 
-  return isDomesticMultimodalVideoModel(model) ? ['480p', '720p'] : ['720p'];
+  return isDomesticMultimodalVideoModel(model) ? ['480p', '720p', '1080p'] : ['720p'];
 }
 
 export function getVideoAddImageTitle(model: string, domesticMode?: DomesticGenerationMode): string {
@@ -409,6 +409,10 @@ export function getVideoAddImageTitle(model: string, domesticMode?: DomesticGene
 }
 
 export function getDefaultVideoModelForProvider(providerId: AiProviderId): VideoModel {
+  if (providerId === 'laomandi') {
+    return 'doubao-seedance-2-0-260128';
+  }
+
   if (providerId === 'mkeai') {
     return 'mkeai-sora-2';
   }

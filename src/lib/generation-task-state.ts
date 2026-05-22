@@ -5,18 +5,30 @@ export type GenerationTaskPatch = {
   generatingTaskType?: GenerationTaskType;
   generatingProgress?: number;
   generatingError?: string;
+  generatingStartedAt?: number;
+  generatingLastProgressAt?: number;
+  generatingLongRunningSince?: number;
 };
 
 export function createGenerationTaskPatch(
   taskId: string,
   taskType: GenerationTaskType,
   progress = 0,
+  options: {
+    startedAt?: number;
+    lastProgressAt?: number;
+    longRunningSince?: number;
+  } = {},
 ): GenerationTaskPatch {
+  const startedAt = options.startedAt ?? Date.now();
   return {
     generatingTaskId: taskId,
     generatingTaskType: taskType,
     generatingProgress: progress,
     generatingError: undefined,
+    generatingStartedAt: startedAt,
+    generatingLastProgressAt: options.lastProgressAt ?? startedAt,
+    generatingLongRunningSince: options.longRunningSince,
   };
 }
 
@@ -31,6 +43,9 @@ export function createGenerationIdlePatch(
     generatingTaskType: undefined,
     generatingProgress: options.progress,
     generatingError: options.error,
+    generatingStartedAt: undefined,
+    generatingLastProgressAt: undefined,
+    generatingLongRunningSince: undefined,
   };
 }
 

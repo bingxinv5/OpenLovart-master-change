@@ -111,6 +111,7 @@ const RATIO_SHAPE_CLASSES: Record<string, string> = {
     '3:2': 'w-3.5 h-[9px]',
     '2:3': 'w-[9px] h-3.5',
     '21:9': 'w-4 h-[7px]',
+    '9:21': 'w-[7px] h-4',
 };
 
 const DURATION_GRID_COLUMN_CLASSES = ['grid-cols-1', 'grid-cols-2', 'grid-cols-3', 'grid-cols-4', 'grid-cols-5', 'grid-cols-6'];

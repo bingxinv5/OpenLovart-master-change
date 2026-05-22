@@ -296,7 +296,7 @@ export function StoryboardPlannerPanel({
   });
   const [combinedPrompt, setCombinedPrompt] = useState(() => getChineseCombinedPrompt(persisted));
   const imageDefaults = useImageGenerationDefaults();
-  const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().providerId);
+  const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.image);
 
   // ── 用户可选的生成参数（对齐图片生成器） ──
   const hasPersistedAspectRatioOverride = persisted.userAspectRatioOverride === true
@@ -349,7 +349,7 @@ export function StoryboardPlannerPanel({
 
   useEffect(() => {
     return subscribeApiSettingsChange(() => {
-      setApiProviderId(getApiSettings().providerId);
+      setApiProviderId(getApiSettings().featureProviders.image);
     });
   }, []);
 

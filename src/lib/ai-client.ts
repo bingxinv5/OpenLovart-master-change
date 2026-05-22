@@ -1,4 +1,4 @@
-import { apiSettingsHeaders } from './api-settings';
+import { apiSettingsHeaders, type AiFeatureId } from './api-settings';
 import { resolveImageRequest, resolveVideoRequest } from './generation-defaults';
 import {
   shouldUseDomesticImageBatching,
@@ -10,9 +10,17 @@ export const GENERATION_POLLING_CONFIG = {
   intervalMs: 1500,
   statusRequestTimeoutMs: 15_000,
   retryableErrorThreshold: 3,
+  videoRetryableErrorTimeoutMs: 15 * 60 * 1000,
+  videoBackoffAfterMs: 10 * 60 * 1000,
+  videoBackoffIntervalMs: 10_000,
+  videoLongRunningIntervalMs: 30_000,
   staleTimeoutMs: {
     image: 12 * 60 * 1000,
     video: 20 * 60 * 1000,
+  },
+  hardTimeoutMs: {
+    image: 12 * 60 * 1000,
+    video: 4 * 60 * 60 * 1000,
   },
 } as const;
 
@@ -145,7 +153,7 @@ export async function requestImageGeneration(
     forceAsync: true,
   };
 
-  const response = await requestJsonResponse('/api/generate-image', requestBody);
+  const response = await requestJsonResponse('/api/generate-image', requestBody, { feature: 'image' });
   return await readJsonResponse<ImageGenerationResponse>(response, '图片生成请求失败');
 }
 
@@ -156,7 +164,7 @@ export async function requestVideoGeneration(
   const resolved = resolveVideoRequest(request);
   const response = await requestJsonResponse('/api/generate-video', {
     ...resolved,
-  });
+  }, { feature: 'video' });
   return await readJsonResponse<VideoGenerationResponse>(response, '视频生成请求失败');
 }
 
@@ -166,7 +174,7 @@ export async function uploadReferenceFile(file: File): Promise<UploadedReference
 
   const response = await fetch('/api/upload-ai-file', {
     method: 'POST',
-    headers: { ...apiSettingsHeaders() },
+    headers: { ...apiSettingsHeaders('video') },
     body: formData,
   });
 
@@ -177,13 +185,13 @@ export async function requestAiChat(
   request: AiChatRequest,
   options: { signal?: AbortSignal } = {},
 ): Promise<Response> {
-  return requestJsonResponse('/api/ai-chat', request, options);
+  return requestJsonResponse('/api/ai-chat', request, { ...options, feature: 'chat' });
 }
 
 export async function requestStoryboardPlan(
   request: StoryboardPlanRequest,
 ): Promise<StoryboardPlanResponse> {
-  const response = await requestJsonResponse('/api/storyboard-plan', request);
+  const response = await requestJsonResponse('/api/storyboard-plan', request, { feature: 'chat' });
   return await readJsonResponse<StoryboardPlanResponse>(response, '分镜规划请求失败');
 }
 
@@ -196,7 +204,7 @@ export async function pollGenerationTask(
     : `/api/video-status?taskId=${encodeURIComponent(taskId)}`;
 
   const response = await fetch(apiPath, {
-    headers: { ...apiSettingsHeaders() },
+    headers: { ...apiSettingsHeaders(taskType) },
     signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
       ? AbortSignal.timeout(GENERATION_POLLING_CONFIG.statusRequestTimeoutMs)
       : undefined,
@@ -205,11 +213,13 @@ export async function pollGenerationTask(
   const taskLabel = taskType === 'image' ? '图片' : '视频';
 
   if (!response.ok) {
+    const error = getStringValue(data.details)
+      ?? getStringValue(data.error)
+      ?? `${taskLabel}状态查询失败 (${response.status})`;
+
     return {
-      status: 'retryable-error',
-      error: getStringValue(data.details)
-        ?? getStringValue(data.error)
-        ?? `${taskLabel}状态查询失败 (${response.status})`,
+      status: isPermanentGenerationStatusError(response.status, error) ? 'failed' : 'retryable-error',
+      error,
     };
   }
 
@@ -310,27 +320,49 @@ export function getGenerationPollingStrategy(
 ) {
   const intervalMs = options.intervalMs ?? GENERATION_POLLING_CONFIG.intervalMs;
   const staleTimeoutMs = GENERATION_POLLING_CONFIG.staleTimeoutMs[taskType];
+  const hardTimeoutMs = GENERATION_POLLING_CONFIG.hardTimeoutMs[taskType];
 
   return {
     intervalMs,
-    maxAttempts: options.maxAttempts ?? Math.max(1, Math.ceil(staleTimeoutMs / intervalMs)),
+    maxAttempts: options.maxAttempts ?? Math.max(1, Math.ceil(hardTimeoutMs / intervalMs)),
     retryableErrorThreshold: options.retryableErrorThreshold ?? GENERATION_POLLING_CONFIG.retryableErrorThreshold,
     staleTimeoutMs,
+    hardTimeoutMs,
     onProgress: options.onProgress,
   };
+}
+
+export function getGenerationPollingDelay(
+  taskType: GenerationTaskType,
+  elapsedMs: number,
+  isLongRunning: boolean = false,
+): number {
+  if (taskType !== 'video') {
+    return GENERATION_POLLING_CONFIG.intervalMs;
+  }
+
+  if (isLongRunning || elapsedMs >= GENERATION_POLLING_CONFIG.staleTimeoutMs.video) {
+    return GENERATION_POLLING_CONFIG.videoLongRunningIntervalMs;
+  }
+
+  if (elapsedMs >= GENERATION_POLLING_CONFIG.videoBackoffAfterMs) {
+    return GENERATION_POLLING_CONFIG.videoBackoffIntervalMs;
+  }
+
+  return GENERATION_POLLING_CONFIG.intervalMs;
 }
 
 async function requestJsonResponse(
   path: string,
   body: Record<string, unknown>,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; feature?: AiFeatureId } = {},
 ): Promise<Response> {
   try {
     return await fetch(path, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...apiSettingsHeaders(),
+        ...apiSettingsHeaders(options.feature),
       },
       body: JSON.stringify(removeUndefinedValues(body)),
       signal: options.signal,
@@ -404,6 +436,26 @@ function getStringValue(value: unknown): string | null {
 
 function getNumberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function isPermanentGenerationStatusError(status: number, message: string): boolean {
+  if ([400, 401, 403, 404, 422].includes(status)) {
+    return true;
+  }
+
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('invalid token')
+    || lower.includes('invalid api key')
+    || lower.includes('invalid key')
+    || lower.includes('unauthorized')
+    || lower.includes('authentication')
+    || lower.includes('forbidden')
+    || (lower.includes('api key') && (lower.includes('missing') || lower.includes('not configured')))
+    || message.includes('未配置')
+    || (message.includes('无效') && (message.includes('API') || message.includes('Key') || message.includes('密钥')))
+    || (message.includes('过期') && (message.includes('API') || message.includes('Key') || message.includes('密钥')))
+  );
 }
 
 function delay(ms: number): Promise<void> {

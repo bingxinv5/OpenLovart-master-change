@@ -65,4 +65,15 @@ describe('generator-error-utils', () => {
     expect(message).toContain('API 密钥错误');
     expect(message).toContain('API Key 无效或已过期');
   });
+
+  it('classifies video real-person reference image rejections with replacement guidance', () => {
+    const message = classifyGenerationError(
+      'video',
+      new Error('视频生成请求失败：The request failed because the input image may contain real person. Request id: req-1'),
+    );
+
+    expect(message).toContain('参考图被上游安全策略拒绝');
+    expect(message).toContain('不是接口接入错误');
+    expect(message).toContain('移除当前参考图');
+  });
 });

@@ -16,6 +16,18 @@ function createRequest(body: Record<string, unknown>, headers: Record<string, st
     });
 }
 
+function createRequestWithoutApiKey(body: Record<string, unknown>, headers: Record<string, string> = {}) {
+    return new NextRequest('http://localhost:3000/api/generate-video', {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            'x-ai-base-url': 'http://localhost:3001',
+            ...headers,
+        },
+        body: JSON.stringify(body),
+    });
+}
+
 describe('generate-video route', () => {
     afterEach(() => {
         vi.restoreAllMocks();
@@ -115,11 +127,12 @@ describe('generate-video route', () => {
         expect(response.status).toBe(200);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-        await expect(response.json()).resolves.toMatchObject({
+        const data = await response.json();
+        expect(data).toMatchObject({
             status: 'completed',
             taskId: 'domestic-official:cgt-direct-video-1',
-            videoUrl: 'https://example.com/direct-video.mp4',
         });
+        expect(data.videoUrl).toBe('http://localhost:3000/api/proxy-download?url=https%3A%2F%2Fexample.com%2Fdirect-video.mp4&filename=lovart-video-generate&inline=1');
     });
 
     it('accepts camelCase taskId when the upstream only returns a pending task', async () => {
@@ -530,6 +543,187 @@ describe('generate-video route', () => {
             reference_image_urls: ['https://example.com/ref.png'],
             reference_video_url: 'https://example.com/ref.mp4',
             audio_url: 'https://example.com/ref.mp3',
+        });
+    });
+
+    it('submits Laomandi videos through the official Seedance content endpoint', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { task_id: 'cgt-laomandi-1' } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'Laomandi 官方视频链路',
+            model: 'doubao-seedance-2-0-260128',
+            aspectRatio: '16:9',
+            duration: '5s',
+            referenceImages: ['https://example.com/ref.png'],
+            generationMode: 'omni-reference',
+            generateAudio: true,
+        }, { 'x-ai-provider': 'laomandi' }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+        const [url, init] = fetchSpy.mock.calls[0] ?? [];
+        expect(url).toBe('http://localhost:3001/contents/generations/tasks');
+
+        const upstreamBody = JSON.parse(String(init?.body));
+        expect(upstreamBody).toMatchObject({
+            model: 'doubao-seedance-2-0-260128',
+            ratio: '16:9',
+            duration: 5,
+            generate_audio: true,
+            watermark: false,
+        });
+        expect(upstreamBody.content).toEqual(expect.arrayContaining([
+            { type: 'text', text: 'Laomandi 官方视频链路' },
+            {
+                type: 'image_url',
+                image_url: { url: 'https://example.com/ref.png' },
+                role: 'reference_image',
+            },
+        ]));
+
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'laomandi:cgt-laomandi-1',
+        });
+    });
+
+    it('submits Laomandi first and last frames with 1080p resolution', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { task_id: 'cgt-laomandi-first-last-1' } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: '从首帧过渡到尾帧',
+            model: 'doubao-seedance-2-0-260128',
+            aspectRatio: '21:9',
+            duration: '5s',
+            generationMode: 'first-last-frame',
+            resolution: '1080p',
+            images: [
+                { image: 'https://example.com/first.png', image_type: 'first_frame' },
+                { image: 'https://example.com/last.png', image_type: 'last_frame' },
+            ],
+        }, { 'x-ai-provider': 'laomandi' }));
+
+        expect(response.status).toBe(200);
+        const [, init] = fetchSpy.mock.calls[0] ?? [];
+        const upstreamBody = JSON.parse(String(init?.body));
+        expect(upstreamBody).toMatchObject({
+            model: 'doubao-seedance-2-0-260128',
+            ratio: '21:9',
+            duration: 5,
+            watermark: false,
+            resolution: '1080p',
+        });
+        expect(upstreamBody.content).toEqual([
+            { type: 'text', text: '从首帧过渡到尾帧' },
+            { type: 'image_url', image_url: { url: 'https://example.com/first.png' }, role: 'first_frame' },
+            { type: 'image_url', image_url: { url: 'https://example.com/last.png' }, role: 'last_frame' },
+        ]);
+    });
+
+    it('requires a Laomandi-specific API key instead of reusing the default gateway key', async () => {
+        const previousDefaultKey = process.env.AI_API_KEY;
+        const previousLaomandiKey = process.env.LAOMANDI_API_KEY;
+        delete process.env.LAOMANDI_API_KEY;
+        process.env.AI_API_KEY = 'default-gateway-key';
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+        try {
+            const response = await POST(createRequestWithoutApiKey({
+                prompt: 'Laomandi 缺少独立 Key',
+                model: 'doubao-seedance-2-0-260128',
+            }, { 'x-ai-provider': 'laomandi' }));
+
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(response.status).toBe(500);
+            await expect(response.json()).resolves.toMatchObject({
+                error: expect.stringContaining('LAOMANDI_API_KEY 未配置'),
+            });
+        } finally {
+            if (previousDefaultKey === undefined) {
+                delete process.env.AI_API_KEY;
+            } else {
+                process.env.AI_API_KEY = previousDefaultKey;
+            }
+            if (previousLaomandiKey === undefined) {
+                delete process.env.LAOMANDI_API_KEY;
+            } else {
+                process.env.LAOMANDI_API_KEY = previousLaomandiKey;
+            }
+        }
+    });
+
+    it('maps the Laomandi assets base URL to the Ark official video endpoint', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({ id: 'cgt-laomandi-ark-1' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'Laomandi 资产域名映射到视频域名',
+            model: 'doubao-seedance-2-0-260128',
+        }, {
+            'x-ai-provider': 'laomandi',
+            'x-ai-base-url': 'https://api.laomandi.com',
+        }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks');
+        await expect(response.json()).resolves.toEqual({
+            status: 'pending',
+            taskId: 'laomandi:cgt-laomandi-ark-1',
+        });
+    });
+
+    it('returns a readable error when Laomandi upstream fails with an empty body', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response('', { status: 502 }));
+
+        const response = await POST(createRequest({
+            prompt: 'Laomandi 空错误体',
+            model: 'doubao-seedance-2-0-260128',
+        }, { 'x-ai-provider': 'laomandi' }));
+
+        expect(response.status).toBe(500);
+        await expect(response.json()).resolves.toMatchObject({
+            error: '视频生成失败',
+            details: '上游视频接口返回错误 (502)',
+        });
+    });
+
+    it('returns a validation error when Laomandi rejects a real-person reference image', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            error: {
+                message: 'The request failed because the input image may contain real person. Request id: req-1',
+            },
+        }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await POST(createRequest({
+            prompt: 'Laomandi 真人参考图拒绝',
+            model: 'doubao-seedance-2-0-260128',
+            generationMode: 'omni-reference',
+            referenceImages: ['https://example.com/person.png'],
+        }, {
+            'x-ai-provider': 'laomandi',
+            'x-ai-base-url': 'https://api.laomandi.com',
+        }));
+
+        expect(response.status).toBe(422);
+        await expect(response.json()).resolves.toMatchObject({
+            error: 'The request failed because the input image may contain real person. Request id: req-1',
         });
     });
 });

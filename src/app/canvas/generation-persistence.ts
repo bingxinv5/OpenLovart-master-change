@@ -21,6 +21,9 @@ export interface PendingGeneration {
     taskType: 'image' | 'video';
     progress: number;
     savedPrompt?: string;
+    startedAt?: number;
+    lastProgressAt?: number;
+    longRunningSince?: number;
 }
 
 export interface PendingSubmission {
@@ -88,7 +91,14 @@ export function persistGeneration(
 ): void {
     const all = readAll();
     if (!all[projectId]) all[projectId] = {};
-    all[projectId][elementId] = task;
+    const previous = all[projectId][elementId];
+    const now = Date.now();
+    all[projectId][elementId] = {
+        ...task,
+        startedAt: task.startedAt ?? previous?.startedAt ?? now,
+        lastProgressAt: task.lastProgressAt ?? previous?.lastProgressAt ?? now,
+        longRunningSince: task.longRunningSince ?? previous?.longRunningSince,
+    };
     writeAll(all);
 }
 
@@ -99,11 +109,25 @@ export function persistGenerationProgress(
     projectId: string,
     elementId: string,
     progress: number,
+    options: {
+        lastProgressAt?: number;
+        longRunningSince?: number | null;
+    } = {},
 ): void {
     const all = readAll();
     const entry = all[projectId]?.[elementId];
     if (entry) {
         entry.progress = progress;
+        if (options.lastProgressAt !== undefined) {
+            entry.lastProgressAt = options.lastProgressAt;
+        }
+        if (options.longRunningSince !== undefined) {
+            if (options.longRunningSince === null) {
+                delete entry.longRunningSince;
+            } else {
+                entry.longRunningSince = options.longRunningSince;
+            }
+        }
         writeAll(all);
     }
 }
@@ -161,6 +185,9 @@ export function syncGenerationsFromElements<T extends {
     generatingTaskId?: string;
     generatingTaskType?: 'image' | 'video';
     generatingProgress?: number;
+    generatingStartedAt?: number;
+    generatingLastProgressAt?: number;
+    generatingLongRunningSince?: number;
     savedPrompt?: string;
 }>(
     projectId: string,
@@ -171,11 +198,16 @@ export function syncGenerationsFromElements<T extends {
     const map: GenerationMap = {};
     for (const el of elements) {
         if (el.generatingTaskId && el.generatingTaskId !== 'ai-editing') {
+            const existing = existingProjectMap[el.id];
+            const now = Date.now();
             map[el.id] = {
                 taskId: el.generatingTaskId,
                 taskType: el.generatingTaskType || 'image',
                 progress: el.generatingProgress || 0,
                 savedPrompt: el.savedPrompt,
+                startedAt: el.generatingStartedAt ?? existing?.startedAt ?? now,
+                lastProgressAt: el.generatingLastProgressAt ?? existing?.lastProgressAt ?? now,
+                longRunningSince: el.generatingLongRunningSince ?? existing?.longRunningSince,
             };
         }
     }

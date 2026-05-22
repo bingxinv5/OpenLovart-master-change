@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { debugLog } from '@/lib/debug-log';
-import { isJieKouProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isLaomandiProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
 import {
     AI_UPSTREAM_TIMEOUT_MS,
     createAiHeaders,
@@ -11,6 +11,8 @@ import {
     handleApiRouteError,
     parseJsonResponse,
     parseTaskProgress,
+    proxyVideoResultUrl,
+    resolveRequestOrigin,
     resolveAiServiceConfig,
 } from '../_shared/ai-service';
 import {
@@ -18,6 +20,8 @@ import {
     parseVideoTaskId,
     type VideoGenerationTransport,
 } from '@/lib/video-generation-transport';
+
+const ARK_OFFICIAL_VIDEO_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 
 export async function GET(request: NextRequest) {
     try {
@@ -35,6 +39,8 @@ export async function GET(request: NextRequest) {
                     ? 'jiekou'
                     : transport === 'magicapi'
                         ? 'magicapi'
+                        : transport === 'laomandi'
+                            ? 'laomandi'
                         : undefined;
         const { providerId, apiKey, baseUrl } = resolveAiServiceConfig(request, { providerId: forcedProviderId });
         const preferredTransports: VideoGenerationTransport[] = transport === 'mkeai' || isMkeaiProvider(providerId)
@@ -45,6 +51,8 @@ export async function GET(request: NextRequest) {
             ? ['jiekou']
             : transport === 'magicapi' || isMagicApiProvider(providerId)
             ? ['magicapi']
+            : transport === 'laomandi' || isLaomandiProvider(providerId)
+                ? ['laomandi']
             : transport === 'domestic-official'
                 ? ['domestic-official']
                 : looksLikeDomesticOfficialTaskId(upstreamTaskId)
@@ -109,7 +117,9 @@ export async function GET(request: NextRequest) {
 
             return NextResponse.json({
                 status: 'completed',
-                videoUrl,
+                videoUrl: proxyVideoResultUrl(videoUrl, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
+                    filename: 'lovart-video-status',
+                }),
             });
         }
 
@@ -183,11 +193,28 @@ function resolveVideoStatusEndpoint(baseUrl: string, taskId: string, transport: 
         return `${baseUrl}/seedance/v3/contents/generations/tasks/${encodeURIComponent(taskId)}`;
     }
 
+    if (transport === 'laomandi') {
+        return `${resolveLaomandiVideoBaseUrl(baseUrl)}/contents/generations/tasks/${encodeURIComponent(taskId)}`;
+    }
+
     if (transport === 'jiekou') {
         return `${baseUrl}/v3/async/task-result?task_id=${encodeURIComponent(taskId)}`;
     }
 
     return `${baseUrl}/v2/videos/generations/${encodeURIComponent(taskId)}`;
+}
+
+function resolveLaomandiVideoBaseUrl(baseUrl: string): string {
+    try {
+        const parsedUrl = new URL(baseUrl);
+        if (parsedUrl.hostname.toLowerCase() === 'api.laomandi.com') {
+            return ARK_OFFICIAL_VIDEO_BASE_URL;
+        }
+    } catch {
+        return ARK_OFFICIAL_VIDEO_BASE_URL;
+    }
+
+    return baseUrl.replace(/\/+$/, '');
 }
 
 async function fetchOpenAiCompatibleVideoContent(params: { apiKey: string; baseUrl: string; taskId: string }): Promise<Record<string, unknown>> {

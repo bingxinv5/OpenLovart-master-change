@@ -39,6 +39,11 @@ function isBadGatewayStatusError(lowerMessage: string): boolean {
   );
 }
 
+function isRealPersonReferenceImageError(lowerMessage: string): boolean {
+  return lowerMessage.includes('may contain real person')
+    || (lowerMessage.includes('input image') && lowerMessage.includes('real person'));
+}
+
 export function isRecoverableGenerationSubmissionError(error: unknown): boolean {
   const lower = getGenerationErrorMessage(error).toLowerCase();
 
@@ -77,6 +82,19 @@ export function classifyGenerationError(
   const msg = getGenerationErrorMessage(error);
   const lower = msg.toLowerCase();
   const mediaLabel = kind === 'image' ? '图片' : '视频';
+
+  if (kind === 'video' && isRealPersonReferenceImageError(lower)) {
+    return `🛡 参考图被上游安全策略拒绝
+
+上游判断输入参考图可能包含真人，因此拒绝了本次视频生成。这不是接口接入错误。
+
+建议：
+• 移除当前参考图，改成纯文生视频
+• 换一张不含真人或清晰人脸的参考图
+• 如果是生成角色图，先换成更卡通化、非写实的人物参考
+
+上游原始错误：${msg}`;
+  }
 
   if (kind === 'image' && isGeminiImageProviderRoutingError(lower)) {
     return `🤖 Gemini 生图通道暂不可用\n\n当前不是提示词问题，而是上游没有把这把 API Key 路由到可用的 Gemini 生图通道。\n\n你可以先这样处理：\n• 稍后再试\n• 更换一把已验证可用的 API Key\n• 联系第三方检查 default 组 / Gemini 图片通道\n\n上游原始错误：${msg}`;

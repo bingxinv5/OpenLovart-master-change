@@ -1,6 +1,6 @@
 import { DEFAULT_AI_BASE_URL } from './network-policy';
 
-export type AiProviderId = 'bltcy' | 'magicapi' | 'jiekou' | 'vapi' | 'mkeai';
+export type AiProviderId = 'bltcy' | 'magicapi' | 'jiekou' | 'vapi' | 'mkeai' | 'laomandi';
 
 export type AiProviderBaseUrlOption = {
   label: string;
@@ -209,12 +209,35 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderDefinition> = {
       ],
     },
   },
+  laomandi: {
+    id: 'laomandi',
+    label: 'Laomandi / 官方视频',
+    description: 'Laomandi 视频专用配置，使用 Seedance 官方内容任务格式，不参与聊天和生图路由。',
+    defaultBaseUrl: 'https://api.laomandi.com',
+    allowedPublicPatterns: ['api.laomandi.com', 'ark.cn-beijing.volces.com'],
+    apiKeyEnv: 'LAOMANDI_API_KEY',
+    baseUrlEnv: 'LAOMANDI_API_BASE_URL',
+    baseUrlOptions: [
+      { label: 'Laomandi 资产 API', value: 'https://api.laomandi.com' },
+      { label: 'Seedance 官方视频 API', value: 'https://ark.cn-beijing.volces.com/api/v3' },
+    ],
+    capabilities: {
+      chat: false,
+      image: false,
+      video: true,
+    },
+    models: {
+      chat: [],
+      image: [],
+      video: ['doubao-seedance-2-0-260128'],
+    },
+  },
 };
 
 export const AI_PROVIDER_OPTIONS = Object.values(AI_PROVIDERS);
 
 export function isAiProviderId(value: unknown): value is AiProviderId {
-  return value === 'bltcy' || value === 'magicapi' || value === 'jiekou' || value === 'vapi' || value === 'mkeai';
+  return value === 'bltcy' || value === 'magicapi' || value === 'jiekou' || value === 'vapi' || value === 'mkeai' || value === 'laomandi';
 }
 
 export function normalizeAiProviderId(value: unknown): AiProviderId {
@@ -239,6 +262,10 @@ export function isVApiProvider(providerId: unknown): boolean {
 
 export function isMkeaiProvider(providerId: unknown): boolean {
   return normalizeAiProviderId(providerId) === 'mkeai';
+}
+
+export function isLaomandiProvider(providerId: unknown): boolean {
+  return normalizeAiProviderId(providerId) === 'laomandi';
 }
 
 export function getProviderImageModels(providerId: unknown): string[] {

@@ -32,6 +32,10 @@ export async function captureVideoThumbnailDataUrl(
 ): Promise<string | null> {
   if (typeof window === 'undefined' || !videoUrl) return null;
 
+  if (isCrossOriginHttpUrl(videoUrl)) {
+    return null;
+  }
+
   const maxWidth = options?.maxWidth ?? 640;
   const quality = options?.quality ?? 0.82;
   const seekTime = options?.seekTime ?? 0.1;
@@ -112,11 +116,18 @@ export async function captureVideoThumbnailDataUrl(
     video.muted = true;
     video.playsInline = true;
     video.preload = 'auto';
-    if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
-      video.crossOrigin = 'anonymous';
-    }
     video.addEventListener('loadeddata', scheduleSeekOrRender, { once: true });
     video.addEventListener('error', () => finish(null), { once: true });
     video.src = videoUrl;
   });
+}
+
+function isCrossOriginHttpUrl(value: string): boolean {
+  try {
+    const parsedUrl = new URL(value, window.location.href);
+    return (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:')
+      && parsedUrl.origin !== window.location.origin;
+  } catch {
+    return false;
+  }
 }

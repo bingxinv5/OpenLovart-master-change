@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { decodeDataUrlBytes, extractDataUrlBase64, isDataUrl } from '@/lib/data-url';
 import { debugLog } from '@/lib/debug-log';
-import { isJieKouProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
+import { isJieKouProvider, isLaomandiProvider, isMagicApiProvider, isMkeaiProvider, isVApiProvider } from '@/lib/ai-providers';
 import { encodeVideoTaskId, getVideoGenerationTransport } from '@/lib/video-generation-transport';
 import {
     getMaxImagesForVideoModel,
@@ -39,6 +39,8 @@ import {
     handleApiRouteError,
     getNestedValue,
     parseJsonResponse,
+    proxyVideoResultUrl,
+    resolveRequestOrigin,
     resolveAiServiceConfig,
 } from '../_shared/ai-service';
 
@@ -46,6 +48,7 @@ const MAX_VIDEO_REFERENCE_IMAGES = 9;
 const MAX_VIDEO_REFERENCE_VIDEOS = 3;
 const MAX_VIDEO_REFERENCE_AUDIOS = 3;
 const MAX_VIDEO_REFERENCE_IMAGE_BYTES = 15 * 1024 * 1024;
+const ARK_OFFICIAL_VIDEO_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 
 export async function POST(request: NextRequest) {
     try {
@@ -75,6 +78,8 @@ export async function POST(request: NextRequest) {
             ? model.trim()
             : isJieKouProvider(providerId)
                 ? 'jiekou-sora-2'
+            : isLaomandiProvider(providerId)
+                ? 'doubao-seedance-2-0-260128'
             : isMkeaiProvider(providerId)
                 ? 'mkeai-sora-2'
             : isVApiProvider(providerId)
@@ -83,7 +88,11 @@ export async function POST(request: NextRequest) {
                 ? 'sora-2'
                 : 'veo3.1';
         const selectedModel = resolveUpstreamVideoModel(requestedModel);
-        const transport = getVideoGenerationTransport(requestedModel);
+        if (isLaomandiProvider(providerId) && !isSdolsVideoModel(selectedModel)) {
+            throw new ApiRouteError('Laomandi 暂只支持官方 Seedance 视频模型', 400);
+        }
+
+        const transport = isLaomandiProvider(providerId) ? 'laomandi' : getVideoGenerationTransport(requestedModel);
         const normalizedPrompt = typeof prompt === 'string' ? prompt : '';
         const normalizedDuration = normalizeVideoDuration(duration, selectedModel);
         const normalizedImageEntries = normalizeSubmissionVideoImageEntries(images, referenceImages, selectedModel);
@@ -93,7 +102,7 @@ export async function POST(request: NextRequest) {
         const normalizedResolution = normalizeVideoResolution(selectedModel, resolution);
         const normalizedSeed = normalizeGenerationSeed(seed);
         const normalizedTools = normalizeVideoTools(tools);
-        const isDomesticOfficialTransport = transport === 'domestic-official';
+        const isDomesticOfficialTransport = transport === 'domestic-official' || transport === 'laomandi';
         const hasReferenceInputs = normalizedImageEntries.length > 0 || normalizedVideos.length > 0 || normalizedAudios.length > 0;
 
         if (!normalizedPrompt.trim() && !(isDomesticOfficialTransport && hasReferenceInputs)) {
@@ -203,7 +212,7 @@ export async function POST(request: NextRequest) {
         }
 
         const targetUrl = isDomesticOfficialTransport
-            ? `${baseUrl}/seedance/v3/contents/generations/tasks`
+            ? getOfficialVideoTaskUrl(baseUrl, providerId)
             : `${baseUrl}/v2/videos/generations`;
         let response: Response;
 
@@ -226,7 +235,7 @@ export async function POST(request: NextRequest) {
 
         if (!response.ok) {
             console.error('[generate-video] API error:', data);
-            throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+            throw createVideoSubmitError(data, response.status);
         }
 
         debugLog('[generate-video] Full response:', JSON.stringify(data));
@@ -246,7 +255,13 @@ export async function POST(request: NextRequest) {
         const videoUrl = extractVideoUrl(data);
 
         if (videoUrl) {
-            return NextResponse.json({ status: 'completed', taskId, videoUrl });
+            return NextResponse.json({
+                status: 'completed',
+                taskId,
+                videoUrl: proxyVideoResultUrl(videoUrl, resolveRequestOrigin(request.headers, request.nextUrl.origin), {
+                    filename: 'lovart-video-generate',
+                }),
+            });
         }
 
         if (taskId) {
@@ -262,6 +277,47 @@ export async function POST(request: NextRequest) {
     } catch (error: unknown) {
         return handleApiRouteError(error, '视频生成失败', 'generate-video');
     }
+}
+
+function getVideoSubmitErrorMessage(payload: unknown, status: number): string {
+    return getApiErrorMessage(payload, `上游视频接口返回错误 (${status})`);
+}
+
+function createVideoSubmitError(payload: unknown, status: number): Error {
+    const message = getVideoSubmitErrorMessage(payload, status);
+    if (isRealPersonInputImageError(message)) {
+        return new ApiRouteError(message, 422);
+    }
+
+    return new Error(message);
+}
+
+function isRealPersonInputImageError(message: string): boolean {
+    const lowerMessage = message.toLowerCase();
+    return lowerMessage.includes('may contain real person')
+        || (lowerMessage.includes('input image') && lowerMessage.includes('real person'))
+        || (message.includes('真人') && (message.includes('参考图') || message.includes('输入图')));
+}
+
+function getOfficialVideoTaskUrl(baseUrl: string, providerId: unknown): string {
+    if (isLaomandiProvider(providerId)) {
+        return `${resolveLaomandiVideoBaseUrl(baseUrl)}/contents/generations/tasks`;
+    }
+
+    return `${baseUrl}/seedance/v3/contents/generations/tasks`;
+}
+
+function resolveLaomandiVideoBaseUrl(baseUrl: string): string {
+    try {
+        const parsedUrl = new URL(baseUrl);
+        if (parsedUrl.hostname.toLowerCase() === 'api.laomandi.com') {
+            return ARK_OFFICIAL_VIDEO_BASE_URL;
+        }
+    } catch {
+        return ARK_OFFICIAL_VIDEO_BASE_URL;
+    }
+
+    return baseUrl.replace(/\/+$/, '');
 }
 
 async function submitMkeaiVideoGeneration(params: {
@@ -297,7 +353,7 @@ async function submitMkeaiVideoGeneration(params: {
     const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
     if (!response.ok) {
         console.error('[generate-video][mkeai] API error:', data);
-        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+        throw createVideoSubmitError(data, response.status);
     }
 
     debugLog('[generate-video][mkeai] Full response:', JSON.stringify(data));
@@ -404,7 +460,7 @@ async function submitVApiVideoGeneration(params: {
     const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
     if (!response.ok) {
         console.error('[generate-video][vapi] API error:', data);
-        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+        throw createVideoSubmitError(data, response.status);
     }
 
     debugLog('[generate-video][vapi] Full response:', JSON.stringify(data));
@@ -537,7 +593,7 @@ async function submitMagicApiVideoGeneration(params: {
         }
 
         console.error('[generate-video][magicapi] API error:', data);
-        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+        throw createVideoSubmitError(data, response.status);
     }
 
     debugLog('[generate-video][magicapi] Full response:', JSON.stringify(data));
@@ -605,7 +661,7 @@ async function submitJieKouVideoGeneration(params: {
     const data = (await parseJsonResponse<Record<string, unknown>>(response)) ?? {};
     if (!response.ok) {
         console.error('[generate-video][jiekou] API error:', data);
-        throw new Error(getApiErrorMessage(data, JSON.stringify(data)));
+        throw createVideoSubmitError(data, response.status);
     }
 
     debugLog('[generate-video][jiekou] Full response:', JSON.stringify(data));
@@ -1331,10 +1387,6 @@ function normalizeReferenceAssetList(value: unknown): string[] {
 
 function normalizeVideoResolution(model: string, value: unknown): '480p' | '720p' | '1080p' | undefined {
     if (value !== '480p' && value !== '720p' && value !== '1080p') {
-        return undefined;
-    }
-
-    if (isSdolsVideoModel(model) && value === '1080p') {
         return undefined;
     }
 

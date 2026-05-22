@@ -37,6 +37,11 @@ describe('generation-defaults adapter', () => {
         expect(defaults).toHaveProperty('enhancePrompt');
     });
 
+    it('uses MagicAPI image defaults and Laomandi video defaults by default', () => {
+        expect(getImageGenerationDefaults().model).toBe('gemini-3-pro-image-preview');
+        expect(getVideoGenerationDefaults().model).toBe('doubao-seedance-2-0-260128');
+    });
+
     // ── Image request resolver ──────────────────────────────
 
     it('resolveImageRequest fills missing fields from defaults', () => {
@@ -161,5 +166,14 @@ describe('generation-defaults adapter', () => {
         expect(defaults.aspectRatio).toBe('16:9');
         expect(defaults.duration).toBe('8s');
         expect(defaults.enhancePrompt).toBe(false);
+    });
+
+    it('can resolve Laomandi video defaults explicitly by provider', () => {
+        const defaults = getVideoGenerationDefaults('laomandi');
+
+        expect(defaults.model).toBe('doubao-seedance-2-0-260128');
+        expect(defaults.aspectRatio).toBe('16:9');
+        expect(defaults.duration).toBe('5s');
+        expect(defaults.enhancePrompt).toBe(true);
     });
 });

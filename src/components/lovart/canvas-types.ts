@@ -68,6 +68,9 @@ export interface CanvasElement {
     generatingTaskType?: 'image' | 'video';
     generatingProgress?: number;
     generatingError?: string;
+    generatingStartedAt?: number;
+    generatingLastProgressAt?: number;
+    generatingLongRunningSince?: number;
     sourceGenerationTaskId?: string;
     sourceGenerationTaskType?: 'image' | 'video';
     legacyMigrationVersion?: number;
@@ -130,6 +133,9 @@ export type CanvasGenerationStateProps = Pick<CanvasElement,
     | 'generatingTaskType'
     | 'generatingProgress'
     | 'generatingError'
+    | 'generatingStartedAt'
+    | 'generatingLastProgressAt'
+    | 'generatingLongRunningSince'
     | 'sourceGenerationTaskId'
     | 'sourceGenerationTaskType'
     | 'generationBatchId'

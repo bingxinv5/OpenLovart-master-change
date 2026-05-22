@@ -100,7 +100,7 @@ interface ImageGeneratorPanelProps {
 export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const { elementId, onGenerate, onRecoverTask, isGenerating: isGeneratingFromParent, style, canvasElements, onElementChange, onSubmittingChange, onAddElement, onRequestCanvasSelect, projectReferenceImages = [], onUseProjectReferenceImage } = props;
     const imageDefaults = useImageGenerationDefaults();
-    const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().providerId);
+    const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.image);
 
     // Read initial values from element
     const currentElement = findGeneratorElement(canvasElements, elementId);
@@ -201,7 +201,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     useEffect(() => {
         return subscribeApiSettingsChange(() => {
-            setApiProviderId(getApiSettings().providerId);
+            setApiProviderId(getApiSettings().featureProviders.image);
         });
     }, []);
 

@@ -17,6 +17,7 @@ export const EXTENDED_MAX_REFERENCE_IMAGES = 14;
 export const STANDARD_IMAGE_SIZE_OPTIONS = ['1K', '2K', '4K'] as const;
 export const MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] as const;
 export const MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS = [...MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS, '9:21'] as const;
+export const MAGICAPI_GPT_IMAGE_2_FAMILY_ASPECT_RATIO_OPTIONS = ['1:1', '16:9', '9:16', '21:9', '9:21'] as const;
 export const OPENAI_GPT_IMAGE_SELECTABLE_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '4:5', '5:4', '21:9', '9:21'] as const;
 export const OPENAI_GPT_IMAGE_QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
 export const OPENAI_GPT_IMAGE_AUTO_SIZE = 'auto';
@@ -58,40 +59,24 @@ export const MAGICAPI_GPT_IMAGE_SIZE_OPTIONS = [
   '3840x2880',
   '3840x2560',
   '2560x3840',
+  '3360x1440',
+  '1440x3360',
   '3840x2160',
   '2160x3840',
 ] as const;
 export const MAGICAPI_GPT_IMAGE_2_SIZE_OPTIONS = [
-  '1024x1024',
-  '1536x1152',
-  '1536x1024',
-  '1024x1536',
-  '1920x1080',
-  '1080x1920',
   '2048x2048',
-  '2048x1536',
-  '2560x1712',
-  '1712x2560',
   '2048x1152',
   '1152x2048',
   '2240x960',
   '960x2240',
 ] as const;
 export const MAGICAPI_GPT_IMAGE_2_PRO_SIZE_OPTIONS = [
-  '2048x2048',
-  '2048x1536',
-  '2560x1712',
-  '1712x2560',
-  '2048x1152',
-  '1152x2048',
-  '2240x960',
-  '960x2240',
   '2880x2880',
-  '3840x2880',
-  '3840x2560',
-  '2560x3840',
   '3840x2160',
   '2160x3840',
+  '3360x1440',
+  '1440x3360',
 ] as const;
 export const JIEKOU_IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'] as const;
 export const JIEKOU_NANO_BANANA_SIZE_OPTIONS = ['1x1', '2x3', '3x2', '3x4', '4x3', '4x5', '5x4', '9x16', '16x9', '21x9'] as const;
@@ -177,41 +162,26 @@ const GROK_SUPPORTED_ASPECT_RATIOS = new Set([
 ]);
 
 const MAGICAPI_GPT_IMAGE_SIZE_SET = new Set<string>(MAGICAPI_GPT_IMAGE_SIZE_OPTIONS);
-const MAGICAPI_GPT_IMAGE_2_OFFICIAL_SIZES = new Set<string>([
-  '1024x1024',
-  '1536x1024',
-  '1024x1536',
-]);
-const MAGICAPI_GPT_IMAGE_2_PRO_OFFICIAL_SIZES = new Set<string>([
-  ...MAGICAPI_GPT_IMAGE_2_OFFICIAL_SIZES,
-  '2048x2048',
-  '2048x1152',
-  '3840x2160',
-  '2160x3840',
-]);
+const MAGICAPI_GPT_IMAGE_2_SIZE_SET = new Set<string>(MAGICAPI_GPT_IMAGE_2_SIZE_OPTIONS);
+const MAGICAPI_GPT_IMAGE_2_PRO_SIZE_SET = new Set<string>(MAGICAPI_GPT_IMAGE_2_PRO_SIZE_OPTIONS);
+const MAGICAPI_GPT_IMAGE_2_OFFICIAL_SIZES = new Set<string>(MAGICAPI_GPT_IMAGE_2_SIZE_OPTIONS);
+const MAGICAPI_GPT_IMAGE_2_PRO_OFFICIAL_SIZES = new Set<string>(MAGICAPI_GPT_IMAGE_2_PRO_SIZE_OPTIONS);
 const JIEKOU_GPT_IMAGE_SIZE_SET = new Set<string>(JIEKOU_GPT_IMAGE_SIZE_OPTIONS);
 
-export const MAGICAPI_GPT_IMAGE_SIZE_BY_ASPECT_RATIO: Record<MagicApiGptImageAspectRatio, MagicApiGptImageSize> = {
-  '1:1': '1024x1024',
-  '4:3': '1536x1152',
-  '3:4': '1024x1536',
-  '3:2': '1536x1024',
-  '2:3': '1024x1536',
-  '16:9': '1920x1080',
-  '9:16': '1080x1920',
+export const MAGICAPI_GPT_IMAGE_2_SIZE_BY_ASPECT_RATIO: Partial<Record<MagicApiGptImageAspectRatio, MagicApiGptImageSize>> = {
+  '1:1': '2048x2048',
+  '16:9': '2048x1152',
+  '9:16': '1152x2048',
   '21:9': '2240x960',
   '9:21': '960x2240',
 };
 
 export const MAGICAPI_GPT_IMAGE_2_PRO_SIZE_BY_ASPECT_RATIO: Partial<Record<MagicApiGptImageAspectRatio, MagicApiGptImageSize>> = {
-  '1:1': '2048x2048',
-  '4:3': '2048x1536',
-  '3:2': '2560x1712',
-  '2:3': '1712x2560',
-  '16:9': '2048x1152',
-  '9:16': '1152x2048',
-  '21:9': '2240x960',
-  '9:21': '960x2240',
+  '1:1': '2880x2880',
+  '16:9': '3840x2160',
+  '9:16': '2160x3840',
+  '21:9': '3360x1440',
+  '9:21': '1440x3360',
 };
 
 export const JIEKOU_GPT_IMAGE_SIZE_BY_ASPECT_RATIO: Record<JieKouImageAspectRatio, JieKouGptImageSize> = {
@@ -286,9 +256,34 @@ export function isMagicApiGptImageAspectRatio(value: unknown): value is MagicApi
     && MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS.includes(value as MagicApiGptImageAspectRatio);
 }
 
+export function getMagicApiGptImageAspectRatioOptions(model: unknown): MagicApiGptImageAspectRatio[] {
+  if (model === 'gpt-image-2' || model === 'gpt-image-2-pro') {
+    return [...MAGICAPI_GPT_IMAGE_2_FAMILY_ASPECT_RATIO_OPTIONS];
+  }
+
+  return [...MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS];
+}
+
 export function isMagicApiGptImageSize(value: unknown): value is MagicApiGptImageSize {
   return isNonEmptyString(value)
     && MAGICAPI_GPT_IMAGE_SIZE_SET.has(value.trim());
+}
+
+function isMagicApiGptImageSizeForModel(model: unknown, value: unknown): value is MagicApiGptImageSize {
+  if (!isNonEmptyString(value)) {
+    return false;
+  }
+
+  const normalized = value.trim();
+  if (model === 'gpt-image-2-pro') {
+    return MAGICAPI_GPT_IMAGE_2_PRO_SIZE_SET.has(normalized);
+  }
+
+  if (model === 'gpt-image-2') {
+    return MAGICAPI_GPT_IMAGE_2_SIZE_SET.has(normalized);
+  }
+
+  return MAGICAPI_GPT_IMAGE_SIZE_SET.has(normalized);
 }
 
 export function isJieKouImageAspectRatio(value: unknown): value is JieKouImageAspectRatio {
@@ -559,19 +554,19 @@ export function resolveMagicApiOpenAiStyleImageSize(
   imageSize?: unknown,
 ): string {
   if (isOpenAiGptImageModel(model)) {
-    if (isMagicApiGptImageSize(imageSize)) {
+    if (isMagicApiGptImageSizeForModel(model, imageSize)) {
       return imageSize.trim();
     }
 
     if (model === 'gpt-image-2-pro' && isMagicApiGptImageAspectRatio(aspectRatio)) {
-      return MAGICAPI_GPT_IMAGE_2_PRO_SIZE_BY_ASPECT_RATIO[aspectRatio] || '2048x2048';
+      return MAGICAPI_GPT_IMAGE_2_PRO_SIZE_BY_ASPECT_RATIO[aspectRatio] || '2880x2880';
     }
 
-    if (isMagicApiGptImageAspectRatio(aspectRatio)) {
-      return MAGICAPI_GPT_IMAGE_SIZE_BY_ASPECT_RATIO[aspectRatio];
+    if (model === 'gpt-image-2' && isMagicApiGptImageAspectRatio(aspectRatio)) {
+      return MAGICAPI_GPT_IMAGE_2_SIZE_BY_ASPECT_RATIO[aspectRatio] || '2048x2048';
     }
 
-    return '1024x1024';
+    return model === 'gpt-image-2-pro' ? '2880x2880' : '2048x2048';
   }
 
   if (isGrokImageModel(model)) {

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
 import type { DirtyTracker } from '@/lib/editor-kernel';
-import { GENERATION_POLLING_CONFIG } from '@/lib/ai-client';
+import { GENERATION_POLLING_CONFIG, getGenerationPollingDelay } from '@/lib/ai-client';
 import { pollGenerationTask } from './generation-polling';
 import {
     applyGenerationFailure,
@@ -87,19 +87,37 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
         return urls[requestedIndex] ?? null;
     }, []);
 
-    const seedGenerationHealth = useCallback((elementId: string, progress: number) => {
+    const seedGenerationHealth = useCallback((
+        elementId: string,
+        progress: number,
+        timestamps: { startedAt?: number; lastProgressAt?: number } = {},
+    ) => {
         const now = Date.now();
         const existing = generationHealthRef.current[elementId];
+        const startedAt = typeof timestamps.startedAt === 'number' && timestamps.startedAt > 0
+            ? timestamps.startedAt
+            : now;
+        const lastProgressAt = typeof timestamps.lastProgressAt === 'number' && timestamps.lastProgressAt > 0
+            ? timestamps.lastProgressAt
+            : startedAt;
 
         if (!existing) {
             const next: GenerationHealthState = {
-                startedAt: now,
-                lastProgressAt: now,
+                startedAt,
+                lastProgressAt,
                 lastProgress: progress,
                 consecutiveErrors: 0,
             };
             generationHealthRef.current[elementId] = next;
             return next;
+        }
+
+        if (startedAt < existing.startedAt) {
+            existing.startedAt = startedAt;
+        }
+
+        if (lastProgressAt < existing.lastProgressAt) {
+            existing.lastProgressAt = lastProgressAt;
         }
 
         if (progress > existing.lastProgress) {
@@ -193,7 +211,10 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
         if (initialTasks.length === 0) return;
 
         for (const task of initialTasks) {
-            seedGenerationHealthRef.current(task.id, task.generatingProgress || 0);
+            seedGenerationHealthRef.current(task.id, task.generatingProgress || 0, {
+                startedAt: task.generatingStartedAt,
+                lastProgressAt: task.generatingLastProgressAt,
+            });
         }
 
         let cancelled = false;
@@ -216,8 +237,15 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
                     if (!el.generatingTaskId || !el.generatingTaskType) return;
 
                     try {
-                        const health = seedGenerationHealthRef.current(el.id, el.generatingProgress || 0);
-                        const staleTimeoutMs = GENERATION_POLLING_CONFIG.staleTimeoutMs[el.generatingTaskType];
+                        const health = seedGenerationHealthRef.current(el.id, el.generatingProgress || 0, {
+                            startedAt: el.generatingStartedAt,
+                            lastProgressAt: el.generatingLastProgressAt,
+                        });
+                        const nowBeforePoll = Date.now();
+                        if (health.nextPollAt && health.nextPollAt > nowBeforePoll) {
+                            return;
+                        }
+
                         const result = await pollGenerationTask(el.generatingTaskId, el.generatingTaskType);
 
                         if (cancelled) {
@@ -264,71 +292,141 @@ export function useGenerationPollingController(args: UseGenerationPollingControl
                         if (result.status === 'retryable-error') {
                             const now = Date.now();
                             health.consecutiveErrors += 1;
+                            health.firstRetryableErrorAt = health.firstRetryableErrorAt ?? now;
                             const exceededRetryLimit = health.consecutiveErrors >= GENERATION_POLLING_CONFIG.retryableErrorThreshold;
-                            const exceededTimeout = now - health.lastProgressAt >= staleTimeoutMs;
+                            const elapsedMs = now - health.startedAt;
+                            const exceededHardTimeout = elapsedMs >= GENERATION_POLLING_CONFIG.hardTimeoutMs[el.generatingTaskType];
+                            const isVideoTask = el.generatingTaskType === 'video';
+                            const retryableErrorMs = now - health.firstRetryableErrorAt;
+                            const exceededRetryableErrorTimeout = isVideoTask
+                                ? exceededRetryLimit && retryableErrorMs >= GENERATION_POLLING_CONFIG.videoRetryableErrorTimeoutMs
+                                : exceededRetryLimit;
 
-                            if (exceededRetryLimit || exceededTimeout) {
+                            if (exceededRetryableErrorTimeout || exceededHardTimeout) {
                                 failGenerationTaskRef.current(
                                     el.id,
                                     el.generatingTaskType,
-                                    result.error,
+                                    exceededHardTimeout
+                                        ? `${el.generatingTaskType === 'image' ? '图片' : '视频'}任务长时间未完成，请稍后用 task_id 恢复或重新生成`
+                                        : result.error,
                                 );
                                 return;
                             }
 
+                            const retryDelay = getGenerationPollingDelay(el.generatingTaskType, elapsedMs, !!el.generatingLongRunningSince);
+                            health.nextPollAt = now + (isVideoTask ? Math.max(retryDelay, GENERATION_POLLING_CONFIG.videoBackoffIntervalMs) : retryDelay);
                             console.warn(`[Poll ${el.generatingTaskType}] Retry ${health.consecutiveErrors}/${GENERATION_POLLING_CONFIG.retryableErrorThreshold}: ${result.error}`);
                             return;
                         }
 
                         const now = Date.now();
                         health.consecutiveErrors = 0;
+                        health.firstRetryableErrorAt = undefined;
                         const newProgress = result.progress;
+                        const previousProgress = health.lastProgress;
+                        const didAdvance = newProgress > previousProgress;
                         if (newProgress > health.lastProgress) {
                             health.lastProgress = newProgress;
                             health.lastProgressAt = now;
                         }
 
-                        if (now - health.lastProgressAt >= staleTimeoutMs) {
+                        const elapsedMs = now - health.startedAt;
+                        if (elapsedMs >= GENERATION_POLLING_CONFIG.hardTimeoutMs[el.generatingTaskType]) {
                             failGenerationTaskRef.current(
                                 el.id,
                                 el.generatingTaskType,
-                                `${el.generatingTaskType === 'image' ? '图片' : '视频'}生成超时，请重新点击生成`,
+                                `${el.generatingTaskType === 'image' ? '图片' : '视频'}任务长时间未完成，请稍后用 task_id 恢复或重新生成`,
                             );
                             return;
                         }
 
-                        if (newProgress !== el.generatingProgress) {
-                            setElements(prev => applyGenerationProgress(prev, el.id, newProgress));
+                        const staleMs = now - health.lastProgressAt;
+                        const staleTimeoutMs = GENERATION_POLLING_CONFIG.staleTimeoutMs[el.generatingTaskType];
+                        const shouldEnterLongRunning = !didAdvance
+                            && el.generatingTaskType === 'video'
+                            && (staleMs >= staleTimeoutMs || (!!el.generatingLongRunningSince && elapsedMs >= staleTimeoutMs));
+
+                        if (staleMs >= staleTimeoutMs && el.generatingTaskType !== 'video') {
+                            failGenerationTaskRef.current(
+                                el.id,
+                                el.generatingTaskType,
+                                '图片生成超时，请重新点击生成',
+                            );
+                            return;
+                        }
+
+                        if (shouldEnterLongRunning) {
+                            const longRunningSince = el.generatingLongRunningSince ?? now;
+                            if (!el.generatingLongRunningSince) {
+                                setElements(prev => applyGenerationProgress(prev, el.id, newProgress, { longRunningSince }));
+                                dirtyTrackerRef.current.markModified(el.id);
+                                const pid = currentProjectIdRef.current;
+                                if (pid) {
+                                    persistGenerationProgress(pid, el.id, newProgress, { longRunningSince });
+                                }
+                            }
+
+                            if (!health.longRunningNotifiedAt) {
+                                health.longRunningNotifiedAt = now;
+                                callbacksRef.current.showToast('视频生成耗时较长，服务商仍在处理中，已切换为低频轮询', 'info');
+                            }
+
+                            health.nextPollAt = now + getGenerationPollingDelay(el.generatingTaskType, elapsedMs, true);
+                            return;
+                        }
+
+                        if (newProgress !== el.generatingProgress || (didAdvance && !!el.generatingLongRunningSince)) {
+                            setElements(prev => applyGenerationProgress(prev, el.id, newProgress, {
+                                lastProgressAt: didAdvance ? now : undefined,
+                                clearLongRunning: didAdvance && !!el.generatingLongRunningSince,
+                            }));
                             dirtyTrackerRef.current.markModified(el.id);
                             const pid = currentProjectIdRef.current;
-                            if (pid) persistGenerationProgress(pid, el.id, newProgress);
+                            if (pid) {
+                                persistGenerationProgress(pid, el.id, newProgress, {
+                                    lastProgressAt: didAdvance ? now : undefined,
+                                    longRunningSince: didAdvance && !!el.generatingLongRunningSince ? null : undefined,
+                                });
+                            }
                         }
+
+                        health.nextPollAt = now + getGenerationPollingDelay(el.generatingTaskType, elapsedMs, !!el.generatingLongRunningSince);
                     } catch (error) {
                         const now = Date.now();
-                        const staleTimeoutMs = GENERATION_POLLING_CONFIG.staleTimeoutMs[el.generatingTaskType];
                         const health = generationHealthRef.current[el.id] ?? {
-                            startedAt: now,
-                            lastProgressAt: now,
+                            startedAt: el.generatingStartedAt ?? now,
+                            lastProgressAt: el.generatingLastProgressAt ?? now,
                             lastProgress: el.generatingProgress || 0,
                             consecutiveErrors: 0,
                         };
 
                         health.consecutiveErrors += 1;
+                        health.firstRetryableErrorAt = health.firstRetryableErrorAt ?? now;
                         generationHealthRef.current[el.id] = health;
 
                         const exceededRetryLimit = health.consecutiveErrors >= GENERATION_POLLING_CONFIG.retryableErrorThreshold;
-                        const exceededTimeout = now - health.lastProgressAt >= staleTimeoutMs;
-                        if (exceededRetryLimit || exceededTimeout) {
+                        const elapsedMs = now - health.startedAt;
+                        const exceededHardTimeout = elapsedMs >= GENERATION_POLLING_CONFIG.hardTimeoutMs[el.generatingTaskType];
+                        const isVideoTask = el.generatingTaskType === 'video';
+                        const retryableErrorMs = now - health.firstRetryableErrorAt;
+                        const exceededRetryableErrorTimeout = isVideoTask
+                            ? exceededRetryLimit && retryableErrorMs >= GENERATION_POLLING_CONFIG.videoRetryableErrorTimeoutMs
+                            : exceededRetryLimit;
+                        if (exceededRetryableErrorTimeout || exceededHardTimeout) {
                             failGenerationTaskRef.current(
                                 el.id,
                                 el.generatingTaskType,
-                                error instanceof Error
+                                exceededHardTimeout
+                                    ? `${el.generatingTaskType === 'image' ? '图片' : '视频'}任务长时间未完成，请稍后用 task_id 恢复或重新生成`
+                                    : error instanceof Error
                                     ? `状态查询异常：${error.message}`
                                     : '状态查询异常，请重新点击生成',
                             );
                             return;
                         }
 
+                        const retryDelay = getGenerationPollingDelay(el.generatingTaskType, elapsedMs, !!el.generatingLongRunningSince);
+                        health.nextPollAt = now + (isVideoTask ? Math.max(retryDelay, GENERATION_POLLING_CONFIG.videoBackoffIntervalMs) : retryDelay);
                         console.warn(`[Poll ${el.generatingTaskType}] Retry ${health.consecutiveErrors}/${GENERATION_POLLING_CONFIG.retryableErrorThreshold}:`, error);
                     }
                 }));

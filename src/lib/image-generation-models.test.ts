@@ -68,45 +68,29 @@ describe('image-generation-models', () => {
     expect(resolveMagicApiGeminiImageSize('gemini-2.5-flash-image-preview', '4K')).toBe('1K');
 
     expect(getMagicApiGptImageSizeOptions('gpt-image-2')).toEqual([
-      '1024x1024',
-      '1536x1152',
-      '1536x1024',
-      '1024x1536',
-      '1920x1080',
-      '1080x1920',
       '2048x2048',
-      '2048x1536',
-      '2560x1712',
-      '1712x2560',
       '2048x1152',
       '1152x2048',
       '2240x960',
       '960x2240',
     ]);
     expect(getMagicApiGptImageSizeOptions('gpt-image-2-pro')).toEqual([
-      '2048x2048',
-      '2048x1536',
-      '2560x1712',
-      '1712x2560',
-      '2048x1152',
-      '1152x2048',
-      '2240x960',
-      '960x2240',
       '2880x2880',
-      '3840x2880',
-      '3840x2560',
-      '2560x3840',
       '3840x2160',
       '2160x3840',
+      '3360x1440',
+      '1440x3360',
     ]);
     expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2', '21:9')).toBe('2240x960');
     expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2', '9:21')).toBe('960x2240');
-    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2-pro', '21:9')).toBe('2240x960');
-    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2-pro', '9:21')).toBe('960x2240');
-    expect(isMagicApiGptImageOfficialSize('gpt-image-2', '3840x2160')).toBe(false);
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2', '3:2', '2560x1712')).toBe('2048x2048');
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2-pro', '21:9')).toBe('3360x1440');
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2-pro', '9:21')).toBe('1440x3360');
+    expect(resolveMagicApiOpenAiStyleImageSize('gpt-image-2-pro', '1:1', '2048x2048')).toBe('2880x2880');
+    expect(isMagicApiGptImageOfficialSize('gpt-image-2', '2240x960')).toBe(true);
     expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '3840x2160')).toBe(true);
-    expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '2240x960')).toBe(false);
-    expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '3840x2880')).toBe(false);
+    expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '3360x1440')).toBe(true);
+    expect(isMagicApiGptImageOfficialSize('gpt-image-2-pro', '2048x2048')).toBe(false);
   });
 
   it('exposes official and curated gpt-image-2 preset sizes', () => {

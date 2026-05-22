@@ -72,6 +72,9 @@ export type GenerationHealthState = {
     lastProgressAt: number;
     lastProgress: number;
     consecutiveErrors: number;
+    nextPollAt?: number;
+    longRunningNotifiedAt?: number;
+    firstRetryableErrorAt?: number;
 };
 
 export type ElementExportFormat = 'png' | 'jpg' | 'svg' | 'original';

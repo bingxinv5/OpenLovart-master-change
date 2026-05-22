@@ -1,9 +1,9 @@
 'use client';
 
 import {
-  MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS,
   MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS,
   getMagicApiGeminiImageSizeOptions,
+  getMagicApiGptImageAspectRatioOptions,
   getMagicApiGptImageSizeOptions,
   isOpenAiGptImageModel,
   isGeminiNativeImageModel,
@@ -120,6 +120,13 @@ export const DEFAULT_IMAGE_PROVIDER_DEFAULTS: Record<AiProviderId, ImageGenerati
     quality: 'auto',
     generateCount: 1,
   },
+  laomandi: {
+    model: 'gemini-3.1-flash-image-preview',
+    aspectRatio: '1:1',
+    imageSize: '1K',
+    quality: 'auto',
+    generateCount: 1,
+  },
 };
 
 export const DEFAULT_VIDEO_PROVIDER_DEFAULTS: Record<AiProviderId, VideoGenerationDefaults> = {
@@ -152,6 +159,12 @@ export const DEFAULT_VIDEO_PROVIDER_DEFAULTS: Record<AiProviderId, VideoGenerati
     aspectRatio: '16:9',
     duration: '8s',
     enhancePrompt: false,
+  },
+  laomandi: {
+    model: 'doubao-seedance-2-0-260128',
+    aspectRatio: '16:9',
+    duration: '5s',
+    enhancePrompt: true,
   },
 };
 
@@ -264,6 +277,7 @@ function resolveMagicApiDefaultImageSize(
   rawImageSize: unknown,
   aspectRatio: ImageGenerationDefaults['aspectRatio'],
   fallbackImageSize: string,
+  fallbackAspectRatio: ImageGenerationDefaults['aspectRatio'],
 ): string {
   if (isOpenAiGptImageModel(model)) {
     const options = getMagicApiGptImageSizeOptions(model);
@@ -273,7 +287,14 @@ function resolveMagicApiDefaultImageSize(
     if (options.includes(fallbackImageSize as (typeof options)[number])) {
       return fallbackImageSize;
     }
-    return options[0] || '1024x1024';
+
+    const aspectRatioOptions = getMagicApiGptImageAspectRatioOptions(model);
+    const targetAspectRatio = aspectRatioOptions.includes(aspectRatio as (typeof aspectRatioOptions)[number])
+      ? aspectRatio
+      : aspectRatioOptions.includes(fallbackAspectRatio as (typeof aspectRatioOptions)[number])
+        ? fallbackAspectRatio
+        : aspectRatioOptions[0] || '1:1';
+    return resolveMagicApiOpenAiStyleImageSize(model, targetAspectRatio);
   }
 
   if (isGeminiNativeImageModel(model)) {
@@ -289,7 +310,9 @@ function resolveMagicApiDefaultImageSize(
 
   return resolveMagicApiOpenAiStyleImageSize(
     model,
-    aspectRatio === 'auto' ? '16:9' : aspectRatio,
+    aspectRatio === 'auto'
+      ? (fallbackAspectRatio === 'auto' ? '16:9' : fallbackAspectRatio)
+      : aspectRatio,
     rawImageSize,
   );
 }
@@ -300,9 +323,10 @@ function resolveDefaultImageSize(
   rawImageSize: unknown,
   aspectRatio: ImageGenerationDefaults['aspectRatio'],
   fallbackImageSize: string,
+  fallbackAspectRatio: ImageGenerationDefaults['aspectRatio'],
 ): string {
   if (isMagicApiProvider(providerId)) {
-    return resolveMagicApiDefaultImageSize(model, rawImageSize, aspectRatio, fallbackImageSize);
+    return resolveMagicApiDefaultImageSize(model, rawImageSize, aspectRatio, fallbackImageSize, fallbackAspectRatio);
   }
 
   if (isJieKouProvider(providerId)) {
@@ -337,7 +361,7 @@ function resolveDefaultAspectRatio(
 ): ImageGenerationDefaults['aspectRatio'] {
   if (isMagicApiProvider(providerId)) {
     const allowedAspectRatios = isOpenAiGptImageModel(model)
-      ? (MAGICAPI_GPT_IMAGE_ASPECT_RATIO_OPTIONS as readonly string[])
+      ? getMagicApiGptImageAspectRatioOptions(model)
       : (MAGICAPI_IMAGE_ASPECT_RATIO_OPTIONS as readonly string[]);
 
     if (allowedAspectRatios.includes(parsedAspectRatio)) {
@@ -392,7 +416,7 @@ function sanitizeImageDefaults(
   const parsedAspectRatio = isImageDefaultAspectRatio(parsed.aspectRatio)
     ? parsed.aspectRatio
     : fallback.aspectRatio;
-  const imageSize = resolveDefaultImageSize(providerId, model, parsed.imageSize, parsedAspectRatio, fallback.imageSize);
+  const imageSize = resolveDefaultImageSize(providerId, model, parsed.imageSize, parsedAspectRatio, fallback.imageSize, fallback.aspectRatio);
   const quality = resolveDefaultQuality(providerId, model, parsed.quality ?? fallback.quality);
   const aspectRatio = resolveDefaultAspectRatio(providerId, model, imageSize, parsedAspectRatio, fallback.aspectRatio);
   const generateCount = parsed.generateCount === 1 || parsed.generateCount === 2 || parsed.generateCount === 3 || parsed.generateCount === 4

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
-import { getCachedVideoThumbnailDataUrl, hasVideoSourceFailed, markVideoSourceFailed } from '@/lib/video-load-state';
+import { getCachedVideoThumbnailDataUrl, hasVideoSourceFailed, markVideoSourceFailed, markVideoSourceLoaded } from '@/lib/video-load-state';
+import { resolveVideoPlaybackSource } from '@/lib/video-playback-source';
 import { renderPathPoints } from './canvas-ui-utils';
 import type { CanvasElement } from './canvas-types';
 import type { ElementHandlers } from './CanvasElementRenderer';
@@ -71,14 +72,16 @@ export function StoryboardPlannerElementRenderer({ el, isGeneratorSubmitting }: 
 
 export function VideoGeneratorElementRenderer({ el, isGeneratorSubmitting }: { el: CanvasElement; isGeneratorSubmitting: boolean }) {
     const isBusy = !!(el.generatingTaskId || isGeneratorSubmitting);
+    const progress = el.generatingProgress || 0;
+    const isLongRunning = !!el.generatingLongRunningSince && !!el.generatingTaskId;
 
     return (
         <div className={`canvas-tool-node canvas-tool-node-video w-full h-full border-2 rounded-xl flex flex-col items-center justify-center ${isBusy ? 'is-busy' : ''}`}>
             {isBusy ? (
                 <>
                     <div className="canvas-tool-node-spinner animate-spin rounded-full h-12 w-12 border-4 mb-3" />
-                    <div className="text-sm font-medium">{isGeneratorSubmitting && !el.generatingTaskId ? '正在提交视频请求...' : '正在生成视频...'}</div>
-                    {(el.generatingProgress || 0) > 0 && <div className="text-xs opacity-70 mt-1">{el.generatingProgress}%</div>}
+                    <div className="text-sm font-medium">{isGeneratorSubmitting && !el.generatingTaskId ? '正在提交视频请求...' : isLongRunning ? '视频生成耗时较长...' : '正在生成视频...'}</div>
+                    {progress > 0 && <div className="text-xs opacity-70 mt-1">{isLongRunning ? `${progress}% · 服务商处理中` : `${progress}%`}</div>}
                 </>
             ) : (
                 <>
@@ -146,7 +149,15 @@ function CanvasVideoPreview({ src }: { src: string }) {
                 muted
                 playsInline
                 className="pointer-events-none h-full w-full object-cover"
-                onLoadedData={() => setIsFrameReady(true)}
+                onLoadedMetadata={() => {
+                    markVideoSourceLoaded(src);
+                    setHasLoadError(false);
+                }}
+                onLoadedData={() => {
+                    markVideoSourceLoaded(src);
+                    setIsFrameReady(true);
+                    setHasLoadError(false);
+                }}
                 onError={() => {
                     markVideoSourceFailed(src);
                     setHasLoadError(true);
@@ -162,9 +173,11 @@ function CanvasVideoPreview({ src }: { src: string }) {
 }
 
 export function VideoElementRenderer({ el }: { el: CanvasElement }) {
+    const src = el.content ? resolveVideoPlaybackSource(el.content, { filename: `lovart-canvas-video-${el.id}` }) : '';
+
     return (
         <div className="relative w-full h-full rounded-lg overflow-hidden bg-gray-900 flex items-center justify-center">
-            {el.content ? <CanvasVideoPreview key={el.content} src={el.content} /> : <div className="flex flex-col items-center gap-2"><div className="animate-spin rounded-full h-8 w-8 border-2 border-white/30 border-t-white/80" /><div className="text-white/60 text-xs">转码中...</div></div>}
+            {src ? <CanvasVideoPreview key={src} src={src} /> : <div className="flex flex-col items-center gap-2"><div className="animate-spin rounded-full h-8 w-8 border-2 border-white/30 border-t-white/80" /><div className="text-white/60 text-xs">转码中...</div></div>}
         </div>
     );
 }

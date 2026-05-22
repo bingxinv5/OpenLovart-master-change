@@ -1,12 +1,13 @@
 import { isMkeaiSoraVideoModel, isVApiSoraVideoModel } from './video-generation-models';
 
-export type VideoGenerationTransport = 'standard' | 'domestic-official' | 'magicapi' | 'jiekou' | 'vapi' | 'mkeai';
+export type VideoGenerationTransport = 'standard' | 'domestic-official' | 'magicapi' | 'jiekou' | 'vapi' | 'mkeai' | 'laomandi';
 
 const DOMESTIC_OFFICIAL_TASK_PREFIX = 'domestic-official:';
 const MAGICAPI_TASK_PREFIX = 'magicapi:';
 const JIEKOU_TASK_PREFIX = 'jiekou:';
 const VAPI_TASK_PREFIX = 'vapi:';
 const MKEAI_TASK_PREFIX = 'mkeai:';
+const LAOMANDI_TASK_PREFIX = 'laomandi:';
 
 export function getVideoGenerationTransport(model: string | null | undefined): VideoGenerationTransport {
     const normalized = typeof model === 'string' ? model.trim().toLowerCase() : '';
@@ -60,6 +61,12 @@ export function encodeVideoTaskId(taskId: string, transport: VideoGenerationTran
             : `${MKEAI_TASK_PREFIX}${normalized}`;
     }
 
+    if (transport === 'laomandi') {
+        return normalized.startsWith(LAOMANDI_TASK_PREFIX)
+            ? normalized
+            : `${LAOMANDI_TASK_PREFIX}${normalized}`;
+    }
+
     return normalized.startsWith(DOMESTIC_OFFICIAL_TASK_PREFIX)
         ? normalized
         : `${DOMESTIC_OFFICIAL_TASK_PREFIX}${normalized}`;
@@ -102,6 +109,13 @@ export function parseVideoTaskId(taskId: string | null | undefined): {
         return {
             transport: 'mkeai',
             upstreamTaskId: normalized.slice(MKEAI_TASK_PREFIX.length),
+        };
+    }
+
+    if (normalized.startsWith(LAOMANDI_TASK_PREFIX)) {
+        return {
+            transport: 'laomandi',
+            upstreamTaskId: normalized.slice(LAOMANDI_TASK_PREFIX.length),
         };
     }
 

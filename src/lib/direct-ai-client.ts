@@ -8,15 +8,16 @@
  * 本模块专注于请求 / 响应 / 错误翻译。
  */
 
-import { getApiSettings, getEffectiveApiBaseUrl } from './api-settings';
+import { getApiSettings, getEffectiveProviderApiBaseUrl, getFeatureApiSettings } from './api-settings';
 
 // ── Config resolution (client-side) ──────────────────────────
 
 export function getAiServiceConfig(): { baseUrl: string; apiKey: string } {
     const settings = getApiSettings();
+    const imageSettings = getFeatureApiSettings('image', settings);
     return {
-        baseUrl: getEffectiveApiBaseUrl(settings),
-        apiKey: settings.apiKey,
+        baseUrl: getEffectiveProviderApiBaseUrl(imageSettings.providerId, imageSettings),
+        apiKey: imageSettings.apiKey,
     };
 }
 

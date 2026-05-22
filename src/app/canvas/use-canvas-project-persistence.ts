@@ -297,6 +297,9 @@ export function useCanvasProjectPersistence({
                                 generatingTaskId: pending.taskId,
                                 generatingTaskType: pending.taskType,
                                 generatingProgress: pending.progress,
+                                generatingStartedAt: pending.startedAt,
+                                generatingLastProgressAt: pending.lastProgressAt,
+                                generatingLongRunningSince: pending.longRunningSince,
                             };
                         }
                         return element;

@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { Check, Copy, Download, Loader2, RefreshCw } from 'lucide-react';
-import { hasVideoSourceFailed, markVideoSourceFailed } from '@/lib/video-load-state';
+import { clearVideoSourceFailure, hasVideoSourceFailed, markVideoSourceFailed, markVideoSourceLoaded } from '@/lib/video-load-state';
+import { resolveVideoPlaybackSource } from '@/lib/video-playback-source';
 import { WorkbenchImage } from './WorkbenchImage';
 import { suggestions } from './ai-designer-panel-constants';
 import type { ChatMessage } from './ai-designer-panel-types';
@@ -222,28 +223,49 @@ export function AiDesignerMessageList({
 }
 
 function GeneratedVideoPreview({ src }: { src: string }) {
-  const [hasLoadError, setHasLoadError] = React.useState(() => hasVideoSourceFailed(src));
+  const playbackSrc = React.useMemo(() => resolveVideoPlaybackSource(src, { filename: 'lovart-chat-video' }), [src]);
+  const [hasLoadError, setHasLoadError] = React.useState(() => hasVideoSourceFailed(playbackSrc));
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
 
   React.useEffect(() => {
-    setHasLoadError(hasVideoSourceFailed(src));
-  }, [src]);
+    setHasLoadError(hasVideoSourceFailed(playbackSrc));
+    setLoadAttempt(0);
+  }, [playbackSrc]);
 
-  if (hasLoadError || hasVideoSourceFailed(src)) {
+  const retryLoad = () => {
+    clearVideoSourceFailure(playbackSrc);
+    setHasLoadError(false);
+    setLoadAttempt((value) => value + 1);
+  };
+
+  if (hasLoadError || hasVideoSourceFailed(playbackSrc)) {
     return (
-      <div className="flex h-44 max-w-full items-center justify-center rounded-xl border border-[var(--canvas-border)] bg-slate-950 text-sm text-white/65 shadow-sm">
-        视频不可用
+      <div className="flex h-44 max-w-full flex-col items-center justify-center gap-2 rounded-xl border border-[var(--canvas-border)] bg-slate-950 text-sm text-white/65 shadow-sm">
+        <span>视频不可用</span>
+        <button type="button" onClick={retryLoad} className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/75 hover:border-white/30 hover:text-white">
+          重试
+        </button>
       </div>
     );
   }
 
   return (
     <video
-      src={src}
+      key={`${playbackSrc}:${loadAttempt}`}
+      src={playbackSrc}
       controls
       preload="metadata"
       className="rounded-xl max-w-full max-h-[400px] border border-[var(--canvas-border)] shadow-sm"
+      onLoadedMetadata={() => {
+        markVideoSourceLoaded(playbackSrc);
+        setHasLoadError(false);
+      }}
+      onLoadedData={() => {
+        markVideoSourceLoaded(playbackSrc);
+        setHasLoadError(false);
+      }}
       onError={() => {
-        markVideoSourceFailed(src);
+        markVideoSourceFailed(playbackSrc);
         setHasLoadError(true);
       }}
     />

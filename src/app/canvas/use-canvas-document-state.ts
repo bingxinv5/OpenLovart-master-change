@@ -307,6 +307,9 @@ export function useCanvasDocumentState({
                             taskType: updated.generatingTaskType || 'image',
                             progress: updated.generatingProgress || 0,
                             savedPrompt: updated.savedPrompt,
+                            startedAt: updated.generatingStartedAt,
+                            lastProgressAt: updated.generatingLastProgressAt,
+                            longRunningSince: updated.generatingLongRunningSince,
                         });
                     } else if (!updated.generatingTaskId) {
                         removeGeneration(pid, id);
@@ -336,6 +339,9 @@ export function useCanvasDocumentState({
                     taskType: element.generatingTaskType || 'image',
                     progress: element.generatingProgress || 0,
                     savedPrompt: element.savedPrompt,
+                    startedAt: element.generatingStartedAt,
+                    lastProgressAt: element.generatingLastProgressAt,
+                    longRunningSince: element.generatingLongRunningSince,
                 });
             }
         }

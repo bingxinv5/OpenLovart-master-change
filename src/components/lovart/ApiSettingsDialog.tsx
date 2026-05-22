@@ -2,10 +2,17 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings, Eye, EyeOff, Check, X, Trash2, HardDrive, SlidersHorizontal, Sparkles, User as UserIcon } from 'lucide-react';
+import { Settings, Eye, EyeOff, Check, X, Trash2, HardDrive, SlidersHorizontal, Sparkles, User as UserIcon, MessageSquareText, ImageIcon, Film } from 'lucide-react';
 import { useUser } from '@/lib/mock-clerk';
-import { clearApiSettings, getApiSettings, saveApiSettings, type ApiProviderSettings } from '@/lib/api-settings';
-import { AI_PROVIDER_OPTIONS, DEFAULT_AI_PROVIDER_ID, normalizeAiProviderId, type AiProviderId } from '@/lib/ai-providers';
+import {
+    DEFAULT_AI_FEATURE_PROVIDERS,
+    clearApiSettings,
+    getApiSettings,
+    saveApiSettings,
+    type AiFeatureId,
+    type ApiFeatureSettings,
+} from '@/lib/api-settings';
+import { AI_PROVIDER_OPTIONS, normalizeAiProviderId } from '@/lib/ai-providers';
 import {
     clearCdnCacheDirectory,
     getCdnCacheSettings,
@@ -51,7 +58,7 @@ import {
     type ImageModel,
 } from './generator-model-options';
 
-type SettingsTab = 'api' | 'workspace' | 'defaults' | 'account';
+type SettingsTab = 'workspace' | 'defaults' | 'chatApi' | 'imageApi' | 'videoApi' | 'api' | 'account';
 
 type SettingsCenterContentProps = {
     mode?: 'dialog' | 'page';
@@ -110,25 +117,19 @@ function getErrorMessage(error: unknown) {
     return error instanceof Error ? error.message : '操作失败，请稍后重试';
 }
 
-function createEmptyProviderSettings(): Record<AiProviderId, ApiProviderSettings> {
-    return AI_PROVIDER_OPTIONS.reduce((acc, provider) => {
-        acc[provider.id] = { baseUrl: '', apiKey: '' };
-        return acc;
-    }, {} as Record<AiProviderId, ApiProviderSettings>);
-}
-
-function hasCustomProviderSettings(settings: Record<AiProviderId, ApiProviderSettings>) {
-    return Object.values(settings).some((providerSettings) => !!providerSettings.baseUrl || !!providerSettings.apiKey);
+function hasCustomFeatureApiSettings(featureSettings: Record<AiFeatureId, ApiFeatureSettings>) {
+    return Object.entries(featureSettings).some(([featureId, settings]) => (
+        settings.providerId !== DEFAULT_AI_FEATURE_PROVIDERS[featureId as AiFeatureId]
+        || !!settings.baseUrl
+        || !!settings.apiKey
+    ));
 }
 
 export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCenterContentProps) {
     const { user } = useUser();
     const [activeTab, setActiveTab] = useState<SettingsTab>('workspace');
-    const [apiProviderId, setApiProviderId] = useState<AiProviderId>(() => getApiSettings().providerId);
-    const [providerSettings, setProviderSettings] = useState<Record<AiProviderId, ApiProviderSettings>>(() => getApiSettings().providers);
-    const [baseUrl, setBaseUrl] = useState(() => getApiSettings().baseUrl);
-    const [apiKey, setApiKey] = useState(() => getApiSettings().apiKey);
-    const [showKey, setShowKey] = useState(false);
+    const [featureApiSettings, setFeatureApiSettings] = useState<Record<AiFeatureId, ApiFeatureSettings>>(() => getApiSettings().featureSettings);
+    const [revealedKeyFeature, setRevealedKeyFeature] = useState<AiFeatureId | null>(null);
     const [settings, setSettings] = useState<WorkbenchSettings>(() => getWorkbenchSettings());
     const [saved, setSaved] = useState(false);
     const [storageEstimate, setStorageEstimate] = useState<StorageEstimateInfo | null>(null);
@@ -218,19 +219,50 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
     const tabs = useMemo(() => ([
         { key: 'workspace' as const, label: '工作台', icon: HardDrive },
         { key: 'defaults' as const, label: '生成默认值', icon: Sparkles },
+        { key: 'chatApi' as const, label: 'AI聊天模型API', icon: MessageSquareText },
+        { key: 'imageApi' as const, label: 'AI生图模型API', icon: ImageIcon },
+        { key: 'videoApi' as const, label: 'AI视频模型API', icon: Film },
         { key: 'api' as const, label: 'API', icon: SlidersHorizontal },
         { key: 'account' as const, label: '账户', icon: UserIcon },
     ]), []);
 
-    const currentProvider = AI_PROVIDER_OPTIONS.find((provider) => provider.id === apiProviderId) || AI_PROVIDER_OPTIONS[0];
-    const activeImageDefaults = getImageDefaultsForProvider(settings, apiProviderId);
-    const activeVideoDefaults = getVideoDefaultsForProvider(settings, apiProviderId);
-    const imageDefaultModelOptions = getImageModelOptionsForProvider(apiProviderId);
-    const videoDefaultModelOptions = getVideoModelOptionsForProvider(apiProviderId);
+    const imageProviderId = featureApiSettings.image.providerId;
+    const videoProviderId = featureApiSettings.video.providerId;
+    const imageProvider = AI_PROVIDER_OPTIONS.find((provider) => provider.id === imageProviderId) || AI_PROVIDER_OPTIONS[0];
+    const videoProvider = AI_PROVIDER_OPTIONS.find((provider) => provider.id === videoProviderId) || AI_PROVIDER_OPTIONS[0];
+    const activeFeatureId: AiFeatureId | null = activeTab === 'chatApi'
+        ? 'chat'
+        : activeTab === 'imageApi'
+            ? 'image'
+            : activeTab === 'videoApi'
+                ? 'video'
+                : null;
+    const activeFeatureTitle = activeFeatureId === 'chat'
+        ? 'AI 聊天模型 API'
+        : activeFeatureId === 'image'
+            ? 'AI 生图模型 API'
+            : activeFeatureId === 'video'
+                ? 'AI 视频模型 API'
+                : '';
+    const activeFeatureDescription = activeFeatureId === 'chat'
+        ? '为 AI 聊天单独配置平台路由与 API Key。'
+        : activeFeatureId === 'image'
+            ? '为 AI 生图单独配置平台路由与 API Key。'
+            : activeFeatureId === 'video'
+                ? '为 AI 视频单独配置平台路由与 API Key。'
+                : '';
+    const activeFeatureSettings = activeFeatureId ? featureApiSettings[activeFeatureId] : null;
+    const activeFeatureProvider = activeFeatureSettings
+        ? AI_PROVIDER_OPTIONS.find((provider) => provider.id === activeFeatureSettings.providerId) || AI_PROVIDER_OPTIONS[0]
+        : null;
+    const activeImageDefaults = getImageDefaultsForProvider(settings, imageProviderId);
+    const activeVideoDefaults = getVideoDefaultsForProvider(settings, videoProviderId);
+    const imageDefaultModelOptions = getImageModelOptionsForProvider(imageProviderId);
+    const videoDefaultModelOptions = getVideoModelOptionsForProvider(videoProviderId);
     const videoDefaultAspectRatioOptions = getVideoAspectRatioOptions(activeVideoDefaults.model);
     const videoDefaultDurationOptions = getVideoDurationOptions(activeVideoDefaults.model);
     const imageDefaultOptionState = resolveImageGeneratorModelOptions({
-        providerId: apiProviderId,
+        providerId: imageProviderId,
         model: activeImageDefaults.model as ImageModel,
         imageSize: activeImageDefaults.imageSize,
         aspectRatio: activeImageDefaults.aspectRatio,
@@ -244,36 +276,38 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
     const imageDefaultQualityOptions = imageDefaultOptionState.availableImageQualities;
     const derivedOpenAiGptImageDefaultAspectRatio = imageDefaultOptionState.displayedAspectRatio;
 
-    const hasCustomSettings = apiProviderId !== DEFAULT_AI_PROVIDER_ID
-        || hasCustomProviderSettings({ ...providerSettings, [apiProviderId]: { baseUrl, apiKey } })
+    const hasCustomSettings = hasCustomFeatureApiSettings(featureApiSettings)
         || hasCustomWorkbenchSettings(settings)
         || !!cdnCacheSettings?.isCustomDirectory
         || !!upscaleServiceSettings?.isCustomBaseUrl;
 
-    const handleProviderChange = (value: string) => {
+    const updateFeatureApiSettings = (featureId: AiFeatureId, updater: (current: ApiFeatureSettings) => ApiFeatureSettings) => {
+        setFeatureApiSettings((prev) => ({
+            ...prev,
+            [featureId]: updater(prev[featureId]),
+        }));
+    };
+
+    const handleFeatureProviderChange = (featureId: AiFeatureId, value: string) => {
         const nextProviderId = normalizeAiProviderId(value);
-        const nextProviderSettings = {
-            ...providerSettings,
-            [apiProviderId]: { baseUrl, apiKey },
-        };
-        const nextSettings = nextProviderSettings[nextProviderId] || { baseUrl: '', apiKey: '' };
-        setProviderSettings(nextProviderSettings);
-        setApiProviderId(nextProviderId);
-        setBaseUrl(nextSettings.baseUrl);
-        setApiKey(nextSettings.apiKey);
+        updateFeatureApiSettings(featureId, () => ({
+            providerId: nextProviderId,
+            baseUrl: '',
+            apiKey: '',
+        }));
     };
 
     const updateActiveImageDefaults = (updater: (current: ImageGenerationDefaults) => ImageGenerationDefaults) => {
         setSettings((prev) => {
-            const currentImageDefaults = getImageDefaultsForProvider(prev, apiProviderId);
-            return setImageDefaultsForProvider(prev, apiProviderId, updater(currentImageDefaults));
+            const currentImageDefaults = getImageDefaultsForProvider(prev, imageProviderId);
+            return setImageDefaultsForProvider(prev, imageProviderId, updater(currentImageDefaults));
         });
     };
 
     const updateActiveVideoDefaults = (updater: (current: VideoGenerationDefaults) => VideoGenerationDefaults) => {
         setSettings((prev) => {
-            const currentVideoDefaults = getVideoDefaultsForProvider(prev, apiProviderId);
-            return setVideoDefaultsForProvider(prev, apiProviderId, updater(currentVideoDefaults));
+            const currentVideoDefaults = getVideoDefaultsForProvider(prev, videoProviderId);
+            return setVideoDefaultsForProvider(prev, videoProviderId, updater(currentVideoDefaults));
         });
     };
 
@@ -290,25 +324,32 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
         });
     };
 
-    const handleBaseUrlPreset = (value: string) => {
-        setBaseUrl(value);
-        setProviderSettings((prev) => ({
-            ...prev,
-            [apiProviderId]: { baseUrl: value, apiKey },
+    const handleBaseUrlPreset = (featureId: AiFeatureId, value: string) => {
+        updateFeatureApiSettings(featureId, (current) => ({
+            ...current,
+            baseUrl: value,
         }));
     };
 
     const handleSave = () => {
-        const nextProviderSettings = {
-            ...providerSettings,
-            [apiProviderId]: { baseUrl: baseUrl.trim(), apiKey: apiKey.trim() },
-        };
-        setProviderSettings(nextProviderSettings);
         saveApiSettings({
-            providerId: apiProviderId,
-            baseUrl: baseUrl.trim(),
-            apiKey: apiKey.trim(),
-            providers: nextProviderSettings,
+            featureSettings: {
+                chat: {
+                    providerId: featureApiSettings.chat.providerId,
+                    baseUrl: featureApiSettings.chat.baseUrl.trim(),
+                    apiKey: featureApiSettings.chat.apiKey.trim(),
+                },
+                image: {
+                    providerId: featureApiSettings.image.providerId,
+                    baseUrl: featureApiSettings.image.baseUrl.trim(),
+                    apiKey: featureApiSettings.image.apiKey.trim(),
+                },
+                video: {
+                    providerId: featureApiSettings.video.providerId,
+                    baseUrl: featureApiSettings.video.baseUrl.trim(),
+                    apiKey: featureApiSettings.video.apiKey.trim(),
+                },
+            },
         });
         saveWorkbenchSettings(settings);
         showSavedState();
@@ -316,10 +357,8 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
 
     const handleReset = async () => {
         clearApiSettings();
-        setApiProviderId(DEFAULT_AI_PROVIDER_ID);
-        setProviderSettings(createEmptyProviderSettings());
-        setBaseUrl('');
-        setApiKey('');
+        setFeatureApiSettings(getApiSettings().featureSettings);
+        setRevealedKeyFeature(null);
         setSettings(DEFAULT_WORKBENCH_SETTINGS);
         saveWorkbenchSettings(DEFAULT_WORKBENCH_SETTINGS);
 
@@ -726,7 +765,7 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
 
                     {activeTab === 'defaults' && (
                         <div className="space-y-4">
-                            <SettingsSection title="图片生成默认值" description={`新建图片生成器节点时使用当前平台默认值：${currentProvider.label}。`}>
+                            <SettingsSection title="图片生成默认值" description={`新建图片生成器节点时使用生图平台默认值：${imageProvider.label}。`}>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <LabeledField label="默认模型">
                                         <select title="图片默认模型" data-testid="settings-image-model" className={selectClassName()} value={activeImageDefaults.model} onChange={(event) => updateActiveImageDefaults((current) => ({
@@ -798,7 +837,7 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                 )}
                             </SettingsSection>
 
-                            <SettingsSection title="视频生成默认值" description="新建视频生成器节点时默认带入模型、比例、时长与提示增强选项。">
+                            <SettingsSection title="视频生成默认值" description={`新建视频生成器节点时使用视频平台默认值：${videoProvider.label}。`}>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <LabeledField label="默认模型">
                                         <select title="视频默认模型" data-testid="settings-video-model" className={selectClassName()} value={activeVideoDefaults.model} onChange={(event) => updateActiveVideoDefaultModel(event.target.value as WorkbenchSettings['videoDefaults']['model'])}>
@@ -835,37 +874,37 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                         </div>
                     )}
 
-                    {activeTab === 'api' && (
+                    {activeFeatureId && activeFeatureSettings && activeFeatureProvider && (
                         <div className="space-y-4">
-                            <SettingsSection title="AI 接口设置" description="按平台分别保存基础地址与密钥，生成请求会随当前平台路由。">
-                                <LabeledField label="API 平台" hint={currentProvider.capabilities.geminiNativeImage ? '支持 Gemini 原生生图' : '默认兼容通道'}>
+                            <SettingsSection title={activeFeatureTitle} description={activeFeatureDescription}>
+                                <LabeledField label="API 平台" hint={activeFeatureProvider.capabilities.geminiNativeImage ? '支持 Gemini 原生生图' : '按当前功能独立生效'}>
                                     <select
-                                        data-testid="settings-api-provider"
-                                        title="API 平台"
+                                        data-testid={`settings-${activeFeatureId}-provider`}
+                                        title={`${activeFeatureTitle} 平台`}
                                         className={selectClassName()}
-                                        value={apiProviderId}
-                                        onChange={(event) => handleProviderChange(event.target.value)}
+                                        value={activeFeatureSettings.providerId}
+                                        onChange={(event) => handleFeatureProviderChange(activeFeatureId, event.target.value)}
                                     >
-                                        {AI_PROVIDER_OPTIONS.map((provider) => (
+                                        {AI_PROVIDER_OPTIONS.filter((provider) => provider.capabilities[activeFeatureId]).map((provider) => (
                                             <option key={provider.id} value={provider.id}>{provider.label}</option>
                                         ))}
                                     </select>
                                 </LabeledField>
 
                                 <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2.5 text-[11px] leading-4 text-gray-500">
-                                    <div className="font-medium text-gray-700">{currentProvider.label}</div>
-                                    <div className="mt-1">{currentProvider.description}</div>
-                                    <div className="mt-1 break-all">默认地址：{currentProvider.defaultBaseUrl}</div>
+                                    <div className="font-medium text-gray-700">{activeFeatureProvider.label}</div>
+                                    <div className="mt-1">{activeFeatureProvider.description}</div>
+                                    <div className="mt-1 break-all">默认地址：{activeFeatureProvider.defaultBaseUrl}</div>
                                 </div>
 
-                                {currentProvider.baseUrlOptions && currentProvider.baseUrlOptions.length > 0 && (
+                                {activeFeatureProvider.baseUrlOptions && activeFeatureProvider.baseUrlOptions.length > 0 && (
                                     <div className="flex flex-wrap gap-2">
-                                        {currentProvider.baseUrlOptions.map((option) => (
+                                        {activeFeatureProvider.baseUrlOptions.map((option) => (
                                             <button
                                                 key={option.value}
                                                 type="button"
-                                                onClick={() => handleBaseUrlPreset(option.value)}
-                                                className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium transition ${baseUrl === option.value ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
+                                                onClick={() => handleBaseUrlPreset(activeFeatureId, option.value)}
+                                                className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium transition ${activeFeatureSettings.baseUrl === option.value ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
                                             >
                                                 {option.label}
                                             </button>
@@ -873,29 +912,56 @@ export function SettingsCenterContent({ mode = 'dialog', onClose }: SettingsCent
                                     </div>
                                 )}
 
-                                <LabeledField label="API Base URL" hint="留空时使用当前平台默认地址">
-                                    <input
-                                        data-testid="settings-api-base-url"
-                                        className={inputClassName()}
-                                        type="url"
-                                        value={baseUrl}
-                                        onChange={(event) => setBaseUrl(event.target.value)}
-                                        placeholder={currentProvider.defaultBaseUrl}
-                                    />
-                                </LabeledField>
-                                <LabeledField label="API Key" hint="仅保存在当前浏览器 localStorage">
-                                    <div className="relative">
-                                        <input data-testid="settings-api-key" className={`${inputClassName()} pr-10 font-mono`} type={showKey ? 'text' : 'password'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-xxxxxxxxxxxxxxxx" />
-                                        <button title={showKey ? '隐藏 API Key' : '显示 API Key'} data-testid="settings-api-key-toggle" type="button" onClick={() => setShowKey((prev) => !prev)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700">
-                                            {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                                        </button>
-                                    </div>
-                                </LabeledField>
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <LabeledField label="API Base URL" hint="留空时使用当前平台默认地址">
+                                        <input
+                                            data-testid={`settings-${activeFeatureId}-base-url`}
+                                            className={inputClassName()}
+                                            type="url"
+                                            value={activeFeatureSettings.baseUrl}
+                                            onChange={(event) => updateFeatureApiSettings(activeFeatureId, (current) => ({
+                                                ...current,
+                                                baseUrl: event.target.value,
+                                            }))}
+                                            placeholder={activeFeatureProvider.defaultBaseUrl}
+                                        />
+                                    </LabeledField>
+
+                                    <LabeledField label="API Key" hint="仅保存在当前浏览器 localStorage">
+                                        <div className="relative">
+                                            <input
+                                                data-testid={`settings-${activeFeatureId}-api-key`}
+                                                className={`${inputClassName()} pr-10 font-mono`}
+                                                type={revealedKeyFeature === activeFeatureId ? 'text' : 'password'}
+                                                value={activeFeatureSettings.apiKey}
+                                                onChange={(event) => updateFeatureApiSettings(activeFeatureId, (current) => ({
+                                                    ...current,
+                                                    apiKey: event.target.value,
+                                                }))}
+                                                placeholder="sk-xxxxxxxxxxxxxxxx"
+                                            />
+                                            <button
+                                                title={revealedKeyFeature === activeFeatureId ? '隐藏 API Key' : '显示 API Key'}
+                                                data-testid={`settings-${activeFeatureId}-api-key-toggle`}
+                                                type="button"
+                                                onClick={() => setRevealedKeyFeature((prev) => prev === activeFeatureId ? null : activeFeatureId)}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                            >
+                                                {revealedKeyFeature === activeFeatureId ? <EyeOff size={14} /> : <Eye size={14} />}
+                                            </button>
+                                        </div>
+                                    </LabeledField>
+                                </div>
+
                                 <div className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2.5 text-[11px] leading-4 text-amber-600">
-                                    密钥仅用于当前设备，不会同步到其他服务；切换平台会使用对应平台保存的 Base URL 和 Key。
+                                    这里的配置只作用于 {activeFeatureTitle}。聊天、生图、视频三类功能互不共享 API Key 和 Base URL。
                                 </div>
                             </SettingsSection>
+                        </div>
+                    )}
 
+                    {activeTab === 'api' && (
+                        <div className="space-y-4">
                             <SettingsSection title="Upscayl 服务" description="配置分镜切割 AI 放大的服务地址，只影响当前机器运行实例。">
                                 {upscaleServiceLoading ? (
                                     <div data-testid="settings-upscale-loading" className="rounded-lg bg-gray-50/80 px-4 py-3 text-[12px] text-gray-400">

@@ -36,7 +36,7 @@ describe('video-status route', () => {
         expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1/videos/video_123');
         await expect(response.json()).resolves.toEqual({
             status: 'completed',
-            videoUrl: 'https://example.com/output.mp4',
+            videoUrl: 'http://localhost:3000/api/proxy-download?url=https%3A%2F%2Fexample.com%2Foutput.mp4&filename=lovart-video-status&inline=1',
         });
     });
 
@@ -108,7 +108,7 @@ describe('video-status route', () => {
         expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v3/async/task-result?task_id=jk-video-1');
         await expect(response.json()).resolves.toEqual({
             status: 'completed',
-            videoUrl: 'https://example.com/jiekou-video.mp4',
+            videoUrl: 'http://localhost:3000/api/proxy-download?url=https%3A%2F%2Fexample.com%2Fjiekou-video.mp4&filename=lovart-video-status&inline=1',
         });
     });
 
@@ -176,7 +176,7 @@ describe('video-status route', () => {
         expect(fetchSpy.mock.calls[1]?.[0]).toBe('http://localhost:3001/v1/videos/video_vapi_1/content');
         await expect(response.json()).resolves.toEqual({
             status: 'completed',
-            videoUrl: 'https://example.com/vapi-video.mp4',
+            videoUrl: 'http://localhost:3000/api/proxy-download?url=https%3A%2F%2Fexample.com%2Fvapi-video.mp4&filename=lovart-video-status&inline=1',
         });
     });
 
@@ -207,7 +207,54 @@ describe('video-status route', () => {
         expect(fetchSpy.mock.calls[1]?.[0]).toBe('http://localhost:3001/v1/videos/video_mkeai_1/content');
         await expect(response.json()).resolves.toEqual({
             status: 'completed',
-            videoUrl: 'https://example.com/mkeai-video.mp4',
+            videoUrl: 'http://localhost:3000/api/proxy-download?url=https%3A%2F%2Fexample.com%2Fmkeai-video.mp4&filename=lovart-video-status&inline=1',
+        });
+    });
+
+    it('queries Laomandi prefixed tasks through the official Seedance status endpoint', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            data: {
+                status: 'succeeded',
+                output: {
+                    video_url: 'https://example.com/laomandi-video.mp4',
+                },
+            },
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await GET(createRequest('laomandi:cgt-laomandi-1'));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/contents/generations/tasks/cgt-laomandi-1');
+        await expect(response.json()).resolves.toEqual({
+            status: 'completed',
+            videoUrl: 'http://localhost:3000/api/proxy-download?url=https%3A%2F%2Fexample.com%2Flaomandi-video.mp4&filename=lovart-video-status&inline=1',
+        });
+    });
+
+    it('maps Laomandi status polling from the assets base URL to the Ark official endpoint', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+            status: 'running',
+        }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+        }));
+
+        const response = await GET(createRequest('laomandi:cgt-laomandi-ark-1', {
+            'x-ai-provider': 'laomandi',
+            'x-ai-base-url': 'https://api.laomandi.com',
+        }));
+
+        expect(response.status).toBe(200);
+        expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/cgt-laomandi-ark-1');
+        await expect(response.json()).resolves.toEqual({
+            status: 'processing',
+            progress: 50,
         });
     });
 });

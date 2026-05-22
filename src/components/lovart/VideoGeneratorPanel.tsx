@@ -89,6 +89,14 @@ import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } fr
 
 type PromptSelection = TextareaSelection;
 
+function isExpectedVideoGenerationRejection(message: string): boolean {
+    return message.includes('参考图被上游安全策略拒绝')
+        || message.includes('内容被安全策略拦截')
+        || message.includes('API 密钥错误')
+        || message.includes('额度不足')
+        || message.includes('请求过于频繁');
+}
+
 interface VideoGeneratorPanelProps {
     elementId: string;
     onGenerate: (result: { videoUrl: string; taskId?: string | null }) => Promise<void>;
@@ -122,7 +130,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         onRecordProjectMediaItem,
     } = props;
     const videoDefaults = useVideoGenerationDefaults();
-    const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().providerId);
+    const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.video);
 
     // Read initial values from element
     const currentElement = findGeneratorElement(canvasElements, elementId);
@@ -210,7 +218,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     useEffect(() => {
         return subscribeApiSettingsChange(() => {
-            setApiProviderId(getApiSettings().providerId);
+            setApiProviderId(getApiSettings().featureProviders.video);
         });
     }, []);
 
@@ -823,8 +831,9 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         } catch (error) {
             const isInterrupted = !submissionAccepted && isRecoverableGenerationSubmissionError(error);
             const classifiedMessage = classifyGenerationError('video', error);
+            const shouldWarnOnly = isInterrupted || isExpectedVideoGenerationRejection(classifiedMessage);
             submissionOutcome = isInterrupted ? 'interrupted' : 'failed';
-            (isInterrupted ? console.warn : console.error)('[VideoGen] Error:', error);
+            (shouldWarnOnly ? console.warn : console.error)('[VideoGen] Error:', shouldWarnOnly ? classifiedMessage : error);
             setErrorMsg(isInterrupted ? withSubmissionRecoveryHint(classifiedMessage) : classifiedMessage);
         } finally {
             setIsSubmitting(false);

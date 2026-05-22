@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { hasVideoSourceFailed, markVideoSourceFailed } from '@/lib/video-load-state';
+import { clearVideoSourceFailure, hasVideoSourceFailed, markVideoSourceFailed, markVideoSourceLoaded } from '@/lib/video-load-state';
+import { resolveVideoPlaybackSource } from '@/lib/video-playback-source';
 import { WorkbenchImage } from './WorkbenchImage';
 import type { CanvasElement } from './canvas-types';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
@@ -185,11 +186,20 @@ export function useImageHoverPreview({
     return { element, metrics };
 }
 
-function VideoUnavailablePanel() {
+function VideoUnavailablePanel({ onRetry }: { onRetry?: () => void }) {
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-950 text-white/70">
             <span className="text-sm font-medium">视频不可用</span>
             <span className="text-xs text-white/45">源文件无法加载</span>
+            {onRetry && (
+                <button
+                    type="button"
+                    onClick={onRetry}
+                    className="mt-2 rounded-full border border-white/15 px-3 py-1 text-xs text-white/75 transition-colors hover:border-white/30 hover:text-white"
+                >
+                    重试
+                </button>
+            )}
         </div>
     );
 }
@@ -203,19 +213,23 @@ function ManagedVideoPlayer({
     className: string;
     autoPlay?: boolean;
 }) {
-    const [hasLoadError, setHasLoadError] = useState(() => hasVideoSourceFailed(src));
+    const [failedSrc, setFailedSrc] = useState<string | null>(() => hasVideoSourceFailed(src) ? src : null);
+    const [loadAttempt, setLoadAttempt] = useState(0);
+    const hasLoadError = failedSrc === src || hasVideoSourceFailed(src);
 
-    useEffect(() => {
-        setHasLoadError(hasVideoSourceFailed(src));
-    }, [src]);
+    const retryLoad = () => {
+        clearVideoSourceFailure(src);
+        setFailedSrc(null);
+        setLoadAttempt((value) => value + 1);
+    };
 
     if (hasLoadError || hasVideoSourceFailed(src)) {
-        return <VideoUnavailablePanel />;
+        return <VideoUnavailablePanel onRetry={retryLoad} />;
     }
 
     return (
         <video
-            key={src}
+            key={`${src}:${loadAttempt}`}
             src={src}
             className={className}
             controls
@@ -223,9 +237,17 @@ function ManagedVideoPlayer({
             loop
             playsInline
             preload="metadata"
+            onLoadedMetadata={() => {
+                markVideoSourceLoaded(src);
+                setFailedSrc(null);
+            }}
+            onLoadedData={() => {
+                markVideoSourceLoaded(src);
+                setFailedSrc(null);
+            }}
             onError={() => {
                 markVideoSourceFailed(src);
-                setHasLoadError(true);
+                setFailedSrc(src);
             }}
         />
     );
@@ -247,7 +269,7 @@ export function VideoPlaybackOverlay({
     return (
         <>
             {elements.filter((element) => !element.hidden && element.type === 'video' && element.content && activeVideoId === element.id).map((element) => {
-                const src = element.content;
+                const src = resolveVideoPlaybackSource(element.content, { filename: `lovart-video-${element.id}` });
                 if (!src) return null;
 
                 const screenX = element.x * scale + pan.x;
@@ -487,7 +509,7 @@ export function MediaLightboxPreviewOverlay({
                         />
                     ) : (
                         <ManagedVideoPlayer
-                            src={activeElement.content}
+                            src={resolveVideoPlaybackSource(activeElement.content, { filename: `lovart-video-${activeElement.id}` })}
                             className="block h-full w-full bg-slate-950 object-contain"
                             autoPlay
                         />

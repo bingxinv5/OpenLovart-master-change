@@ -148,36 +148,21 @@ describe('generator model options', () => {
         const standardOptions = resolveImageGeneratorModelOptions({
             providerId: 'magicapi',
             model: 'gpt-image-2',
-            imageSize: '2560x1712',
-            aspectRatio: '3:2',
+            imageSize: '2240x960',
+            aspectRatio: '21:9',
             quality: 'high',
             generateCount: 1,
             referenceImageCount: 0,
         });
-        expect(standardOptions.displayedAspectRatio).toBe('3:2');
-        expect(standardOptions.settingsSummary).toBe('2560x1712 · 高 · 3:2 · ×1');
-        expect(standardOptions.availableAspectRatios).toEqual(['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9', '9:21']);
+        expect(standardOptions.displayedAspectRatio).toBe('21:9');
+        expect(standardOptions.settingsSummary).toBe('2240x960 · 高 · 21:9 · ×1');
+        expect(standardOptions.availableAspectRatios).toEqual(['1:1', '16:9', '9:16', '21:9', '9:21']);
         expect(standardOptions.availableImageSizes).toEqual([
-            '1024x1024',
-            '1536x1152',
-            '1536x1024',
-            '1024x1536',
-            '1920x1080',
-            '1080x1920',
             '2048x2048',
-            '2048x1536',
-            '2560x1712',
-            '1712x2560',
             '2048x1152',
             '1152x2048',
             '2240x960',
             '960x2240',
-            '2880x2880',
-            '3840x2880',
-            '3840x2560',
-            '2560x3840',
-            '3840x2160',
-            '2160x3840',
         ]);
 
         const gptOptions = resolveImageGeneratorModelOptions({
@@ -189,21 +174,13 @@ describe('generator model options', () => {
             generateCount: 1,
             referenceImageCount: 0,
         });
+        expect(gptOptions.availableAspectRatios).toEqual(['1:1', '16:9', '9:16', '21:9', '9:21']);
         expect(gptOptions.availableImageSizes).toEqual([
-            '2048x2048',
-            '2048x1536',
-            '2560x1712',
-            '1712x2560',
-            '2048x1152',
-            '1152x2048',
-            '2240x960',
-            '960x2240',
             '2880x2880',
-            '3840x2880',
-            '3840x2560',
-            '2560x3840',
             '3840x2160',
             '2160x3840',
+            '3360x1440',
+            '1440x3360',
         ]);
         expect(gptOptions.availableImageQualities).toEqual(['high']);
     });
@@ -230,9 +207,9 @@ describe('generator model options', () => {
     });
 
     it('derives domestic video model option lists and copy', () => {
-        expect(getVideoAspectRatioOptions('doubao-seedance-2-0-260128')).toEqual(['16:9', '9:16', '1:1', '4:3', '3:4']);
+        expect(getVideoAspectRatioOptions('doubao-seedance-2-0-260128')).toEqual(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21']);
         expect(getVideoDurationOptions('doubao-seedance-2-0-260128')).toEqual(['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s']);
-        expect(getVideoResolutionOptions('doubao-seedance-2-0-260128')).toEqual(['480p', '720p']);
+        expect(getVideoResolutionOptions('doubao-seedance-2-0-260128')).toEqual(['480p', '720p', '1080p']);
         expect(getVideoAddImageTitle('doubao-seedance-2-0-260128', 'first-last-frame')).toBe('添加首尾帧图片');
         expect(getVideoAddImageTitle('doubao-seedance-2-0-260128', 'omni-reference')).toBe('添加全能参考素材');
     });
@@ -250,8 +227,8 @@ describe('generator model options', () => {
         expect(getVideoDurationOptions('grok-video-3-pro')).toEqual(['10s']);
         expect(getVideoResolutionOptions('grok-video-3-pro')).toEqual(['720p', '1080p']);
         expect(getVideoDurationOptions('doubao-seed-2-0-pro-260215')).toEqual(['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s']);
-        expect(getVideoAspectRatioOptions('doubao-seed-2-0-pro-260215')).toEqual(['16:9', '9:16', '1:1', '4:3', '3:4']);
-        expect(getVideoResolutionOptions('doubao-seed-2-0-pro-260215')).toEqual(['480p', '720p']);
+        expect(getVideoAspectRatioOptions('doubao-seed-2-0-pro-260215')).toEqual(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21']);
+        expect(getVideoResolutionOptions('doubao-seed-2-0-pro-260215')).toEqual(['480p', '720p', '1080p']);
         expect(getVideoDurationOptions('veo_3_1')).toEqual(['5s', '8s']);
         expect(getVideoDurationOptions('veo_3_1-fast')).toEqual(['5s', '8s']);
         expect(getVideoDurationOptions('veo_3_1-components')).toEqual(['5s', '8s']);

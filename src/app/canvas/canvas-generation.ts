@@ -1,6 +1,7 @@
 import type { GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
 import type {
     CanvasElement,
+    CanvasGenerationStateProps,
     CanvasGeneratorElement,
     CanvasImageElement,
     CanvasImageGeneratorElement,
@@ -186,6 +187,7 @@ export function buildGenerationQueueItems(
             const isStoryboardPlanner = element.type === 'storyboard-planner';
             const isCanvasImage = element.type === 'image';
             const isCanvasVideo = element.type === 'video';
+            const isLongRunningVideo = kind === 'video' && hasAcceptedTask && !!element.generatingLongRunningSince && !element.generatingError;
             const tone: GenerationQueueItem['tone'] = element.generatingError
                 ? 'failed'
                 : isSubmitting
@@ -200,6 +202,8 @@ export function buildGenerationQueueItems(
                 ? '失败'
                 : isSubmitting
                     ? '提交中'
+                    : isLongRunningVideo
+                        ? '长耗时等待'
                     : progress <= 0
                         ? '排队中'
                         : progress < 85
@@ -224,7 +228,9 @@ export function buildGenerationQueueItems(
                         : `${kind === 'image' ? '图像生成器' : '视频生成器'} · 结果将显示在当前生成器位置`,
                 metaChips: element.generatingError
                     ? [...buildQueueMetaChips(element, kind), errorSummary].slice(0, 4)
-                    : buildQueueMetaChips(element, kind),
+                    : isLongRunningVideo
+                        ? [...buildQueueMetaChips(element, kind), '服务商处理中'].slice(0, 4)
+                        : buildQueueMetaChips(element, kind),
                 statusHint: element.generatingError
                     ? isStoryboardPlanner
                         ? `${errorSummary}，可调整提示词后重新生成`
@@ -237,6 +243,8 @@ export function buildGenerationQueueItems(
                                 : isCanvasVideo
                                     ? '视频编辑请求已提交，正在创建任务'
                             : '参数已提交，正在创建任务'
+                        : isLongRunningVideo
+                            ? '视频任务耗时较长，服务商仍在处理中，可继续等待或稍后恢复任务'
                         : progress <= 0
                             ? isStoryboardPlanner
                                 ? '宫格图任务排队中，等待服务端执行'
@@ -362,8 +370,27 @@ export function applyGenerationProgress(
     elements: CanvasElement[],
     elementId: string,
     progress: number,
+    options: {
+        lastProgressAt?: number;
+        longRunningSince?: number;
+        clearLongRunning?: boolean;
+    } = {},
 ): CanvasElement[] {
-    return applyElementGenerationPatch(elements, elementId, { generatingProgress: progress });
+    const patch: Partial<CanvasGenerationStateProps> = {
+        generatingProgress: progress,
+    };
+
+    if (options.lastProgressAt !== undefined) {
+        patch.generatingLastProgressAt = options.lastProgressAt;
+    }
+
+    if (options.clearLongRunning) {
+        patch.generatingLongRunningSince = undefined;
+    } else if (options.longRunningSince !== undefined) {
+        patch.generatingLongRunningSince = options.longRunningSince;
+    }
+
+    return applyElementGenerationPatch(elements, elementId, patch);
 }
 
 export function applyGenerationFailure(

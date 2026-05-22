@@ -6,7 +6,7 @@ import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSu
 import { runImageGenerationFlow } from '@/components/lovart/image-generation-flow';
 import { runVideoGenerationFlow } from '@/components/lovart/video-generation-flow';
 import type { StoryboardPlanResponse } from '@/lib/ai-client';
-import { getImageGenerationDefaults } from '@/lib/generation-defaults';
+import { getImageGenerationDefaults, getVideoGenerationDefaults } from '@/lib/generation-defaults';
 import { createGenerationIdlePatch, createGenerationTaskPatch } from '@/lib/generation-task-state';
 import type { WorkbenchSettings } from '@/lib/workbench-settings';
 import { buildStoryboardExportBlob, type StoryboardExportOptions } from '@/lib/storyboard-export';
@@ -122,7 +122,6 @@ export function useCanvasStoryboardActions({
     setElements,
     setSelectedIds,
     setGeneratorSubmittingMap,
-    workbenchSettings,
     getPlacementPosition,
     buildImageElement,
     buildGeneratorElement,
@@ -385,10 +384,11 @@ export function useCanvasStoryboardActions({
             return false;
         }
 
-        const model = currentElement.selectedModel || workbenchSettings.videoDefaults.model;
-        const aspectRatio = currentElement.selectedAspectRatio || workbenchSettings.videoDefaults.aspectRatio;
-        const duration = currentElement.selectedDuration || workbenchSettings.videoDefaults.duration;
-        const enhancePrompt = currentElement.selectedEnhancePrompt ?? workbenchSettings.videoDefaults.enhancePrompt;
+        const videoDefaults = getVideoGenerationDefaults();
+        const model = currentElement.selectedModel || videoDefaults.model;
+        const aspectRatio = currentElement.selectedAspectRatio || videoDefaults.aspectRatio;
+        const duration = currentElement.selectedDuration || videoDefaults.duration;
+        const enhancePrompt = currentElement.selectedEnhancePrompt ?? videoDefaults.enhancePrompt;
         const images = await resolveElementFrameImages(currentElement);
         const projectId = currentProjectIdRef.current;
 
@@ -474,7 +474,7 @@ export function useCanvasStoryboardActions({
         } finally {
             setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, false));
         }
-    }, [announcePassiveCompletedResult, currentProjectIdRef, dirtyTrackerRef, elementsMapRef, persistGeneratedAssetToDisk, recordProjectMediaItem, resolveElementFrameImages, setElements, setGeneratorSubmittingMap, workbenchSettings.videoDefaults.aspectRatio, workbenchSettings.videoDefaults.duration, workbenchSettings.videoDefaults.enhancePrompt, workbenchSettings.videoDefaults.model]);
+    }, [announcePassiveCompletedResult, currentProjectIdRef, dirtyTrackerRef, elementsMapRef, persistGeneratedAssetToDisk, recordProjectMediaItem, resolveElementFrameImages, setElements, setGeneratorSubmittingMap]);
 
     const handleGenerateStoryboardSelection = useCallback((ids: string[]) => {
         const targets = ids
@@ -561,6 +561,7 @@ export function useCanvasStoryboardActions({
         const batchTitle = frameNames.length === 1
             ? `${frameNames[0]} · 批量出视频`
             : `${orderedTargets.length} 张分镜 · 批量出视频`;
+        const videoDefaults = getVideoGenerationDefaults();
         const generatorSnapshots = orderedTargets.map((element, index) => {
             const nextElement = orderedTargets[index + 1];
             const frameImages = [
@@ -589,10 +590,10 @@ export function useCanvasStoryboardActions({
                 referenceImageId: element.id,
                 parentFrameId: element.parentFrameId,
                 savedPrompt: element.savedPrompt,
-                selectedModel: workbenchSettings.videoDefaults.model,
-                selectedAspectRatio: workbenchSettings.videoDefaults.aspectRatio,
-                selectedDuration: workbenchSettings.videoDefaults.duration,
-                selectedEnhancePrompt: workbenchSettings.videoDefaults.enhancePrompt,
+                selectedModel: videoDefaults.model,
+                selectedAspectRatio: videoDefaults.aspectRatio,
+                selectedDuration: videoDefaults.duration,
+                selectedEnhancePrompt: videoDefaults.enhancePrompt,
                 savedFrameImages: JSON.stringify(frameImages),
                 generationBatchId: batchId,
                 generationBatchTitle: batchTitle,
@@ -625,7 +626,7 @@ export function useCanvasStoryboardActions({
 
             showToast('分镜批量出视频提交失败，请检查参数后重试', 'error');
         })();
-    }, [addElementsWithOptionalAutoGroup, buildGeneratorElement, elementsMapRef, showToast, submitStoryboardVideoGeneratorElement, workbenchSettings.videoDefaults.aspectRatio, workbenchSettings.videoDefaults.duration, workbenchSettings.videoDefaults.enhancePrompt, workbenchSettings.videoDefaults.model]);
+    }, [addElementsWithOptionalAutoGroup, buildGeneratorElement, elementsMapRef, showToast, submitStoryboardVideoGeneratorElement]);
 
     const handleStoryboardExportItemsChange = useCallback((
         orderedItems: Array<{

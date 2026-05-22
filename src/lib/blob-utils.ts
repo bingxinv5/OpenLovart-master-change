@@ -52,6 +52,7 @@ export function cachedDataUrlToBlobUrl(
  *
  * 优先在浏览器端直接 fetch（速度更快、绕过服务端网络限制），
  * 若因 CORS 等原因失败则自动回退到后端 proxy-download 路由。
+ * 视频 URL 通常不开放跨域读取，直接走服务端代理以避免控制台 CORS 噪音。
  *
  * @param url      远程资源 URL（http/https）
  * @param filename 回退到 proxy 时使用的文件名标签
@@ -103,12 +104,40 @@ function isLocalProxyOrCacheUrl(url: string): boolean {
   }
 }
 
+function isLikelyRemoteVideoUrl(url: string, filename: string): boolean {
+  const value = `${url} ${filename}`.toLowerCase();
+  return /\.(mp4|webm|mov|m4v)(?:[?#]|\s|$)/.test(value)
+    || value.includes('video')
+    || value.includes('doubao-seedance');
+}
+
+async function fetchViaProxyDownload(url: string, filename: string, timeout: number): Promise<Blob | null> {
+  try {
+    const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
+    const proxyRes = await fetch(proxyUrl, {
+      signal: AbortSignal.timeout(timeout),
+    });
+    if (proxyRes.ok) {
+      return await proxyRes.blob();
+    }
+  } catch {
+    // 代理也失败
+  }
+
+  return null;
+}
+
 async function _fetchRemoteBlobImpl(
   url: string,
   filename: string,
   timeout: number,
 ): Promise<Blob | null> {
   const localProxyOrCacheUrl = isLocalProxyOrCacheUrl(url);
+  const proxyFirst = !localProxyOrCacheUrl && isLikelyRemoteVideoUrl(url, filename);
+
+  if (proxyFirst) {
+    return await fetchViaProxyDownload(url, filename, timeout);
+  }
 
   // 0️⃣ 优先检查服务端本地缓存（命中时最快，且对所有员工共享）
   if (!localProxyOrCacheUrl) {
@@ -159,19 +188,7 @@ async function _fetchRemoteBlobImpl(
   }
 
   // 2️⃣ 回退到服务端代理（proxy-download 也会自动写缓存）
-  try {
-    const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
-    const proxyRes = await fetch(proxyUrl, {
-      signal: AbortSignal.timeout(timeout),
-    });
-    if (proxyRes.ok) {
-      return await proxyRes.blob();
-    }
-  } catch {
-    // 代理也失败
-  }
-
-  return null;
+  return await fetchViaProxyDownload(url, filename, timeout);
 }
 
 /**

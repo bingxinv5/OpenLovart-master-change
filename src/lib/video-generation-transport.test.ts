@@ -56,6 +56,16 @@ describe('video-generation-transport', () => {
         });
     });
 
+    it('encodes and parses Laomandi official video task ids', () => {
+        const encoded = encodeVideoTaskId('cgt-laomandi-123', 'laomandi');
+
+        expect(encoded).toBe('laomandi:cgt-laomandi-123');
+        expect(parseVideoTaskId(encoded)).toEqual({
+            transport: 'laomandi',
+            upstreamTaskId: 'cgt-laomandi-123',
+        });
+    });
+
     it('recognizes raw official task ids for manual recovery fallback', () => {
         expect(looksLikeDomesticOfficialTaskId('cgt-20260408182454-5dqsn')).toBe(true);
         expect(looksLikeDomesticOfficialTaskId('veo-task-123')).toBe(false);

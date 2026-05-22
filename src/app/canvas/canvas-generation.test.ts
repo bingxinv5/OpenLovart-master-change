@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyElementGenerationPatch, applyVideoGenerationSuccess } from './canvas-generation';
+import { applyElementGenerationPatch, applyGenerationProgress, applyVideoGenerationSuccess, buildGenerationQueueItems } from './canvas-generation';
 
 describe('applyElementGenerationPatch', () => {
     it('only applies generation fields to generator or media elements', () => {
@@ -62,6 +62,66 @@ describe('applyVideoGenerationSuccess', () => {
         expect(result).toMatchObject({
             sourceGenerationTaskId: 'task-existing-video',
             sourceGenerationTaskType: 'video',
+        });
+    });
+});
+
+describe('long-running video generation state', () => {
+    it('marks video queue items as long-running instead of failed', () => {
+        const items = buildGenerationQueueItems([
+            {
+                id: 'video-generator-1',
+                type: 'video-generator',
+                x: 10,
+                y: 20,
+                width: 480,
+                height: 270,
+                savedPrompt: '长视频任务',
+                generatingTaskId: 'task-video-1',
+                generatingTaskType: 'video',
+                generatingProgress: 50,
+                generatingLongRunningSince: 1_000,
+            },
+        ] as never, {});
+
+        expect(items[0]).toMatchObject({
+            statusLabel: '长耗时等待',
+            tone: 'running',
+            progress: 50,
+        });
+        expect(items[0]?.metaChips).toContain('服务商处理中');
+    });
+
+    it('can set and clear long-running metadata while updating progress', () => {
+        const elements = [
+            {
+                id: 'video-generator-1',
+                type: 'video-generator',
+                x: 10,
+                y: 20,
+                width: 480,
+                height: 270,
+                generatingTaskId: 'task-video-1',
+                generatingTaskType: 'video',
+            },
+        ];
+
+        const [longRunning] = applyGenerationProgress(elements as never, 'video-generator-1', 50, {
+            longRunningSince: 2_000,
+        });
+        expect(longRunning).toMatchObject({
+            generatingProgress: 50,
+            generatingLongRunningSince: 2_000,
+        });
+
+        const [advanced] = applyGenerationProgress([longRunning] as never, 'video-generator-1', 80, {
+            lastProgressAt: 3_000,
+            clearLongRunning: true,
+        });
+        expect(advanced).toMatchObject({
+            generatingProgress: 80,
+            generatingLastProgressAt: 3_000,
+            generatingLongRunningSince: undefined,
         });
     });
 });

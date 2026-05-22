@@ -33,11 +33,11 @@ import type { ImageGenerationRequest, VideoGenerationRequest } from './ai-client
 
 export type { ImageGenerationDefaults, VideoGenerationDefaults };
 
-export function getImageGenerationDefaults(providerId: AiProviderId = getApiSettings().providerId): ImageGenerationDefaults {
+export function getImageGenerationDefaults(providerId: AiProviderId = getApiSettings().featureProviders.image): ImageGenerationDefaults {
     return getImageDefaultsForProvider(getWorkbenchSettings(), providerId);
 }
 
-export function getVideoGenerationDefaults(providerId: AiProviderId = getApiSettings().providerId): VideoGenerationDefaults {
+export function getVideoGenerationDefaults(providerId: AiProviderId = getApiSettings().featureProviders.video): VideoGenerationDefaults {
     return getVideoDefaultsForProvider(getWorkbenchSettings(), providerId);
 }
 

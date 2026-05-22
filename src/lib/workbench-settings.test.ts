@@ -85,6 +85,13 @@ describe('workbench-settings', () => {
       quality: 'auto',
       generateCount: 1,
     });
+    expect(getImageDefaultsForProvider(normalized, 'laomandi')).toEqual({
+      model: 'gemini-3.1-flash-image-preview',
+      aspectRatio: '1:1',
+      imageSize: '1K',
+      quality: 'auto',
+      generateCount: 1,
+    });
     expect(getVideoDefaultsForProvider(normalized, 'jiekou')).toEqual({
       model: 'jiekou-sora-2',
       aspectRatio: '16:9',
@@ -102,6 +109,12 @@ describe('workbench-settings', () => {
       aspectRatio: '16:9',
       duration: '8s',
       enhancePrompt: false,
+    });
+    expect(getVideoDefaultsForProvider(normalized, 'laomandi')).toEqual({
+      model: 'doubao-seedance-2-0-260128',
+      aspectRatio: '16:9',
+      duration: '5s',
+      enhancePrompt: true,
     });
   });
 
@@ -152,6 +165,25 @@ describe('workbench-settings', () => {
           ...DEFAULT_WORKBENCH_SETTINGS.imageProviderDefaults.magicapi,
           model: 'gpt-image-2-pro',
           aspectRatio: '9:21',
+          imageSize: '1440x3360',
+          quality: 'high',
+        },
+      },
+    });
+
+    const magicDefaults = getImageDefaultsForProvider(normalized, 'magicapi');
+    expect(magicDefaults.model).toBe('gpt-image-2-pro');
+    expect(magicDefaults.aspectRatio).toBe('9:21');
+    expect(magicDefaults.imageSize).toBe('1440x3360');
+  });
+
+  it('remaps removed MagicAPI GPT sizes to the remaining size for the same aspect ratio', () => {
+    const normalized = normalizeWorkbenchSettings({
+      imageProviderDefaults: {
+        magicapi: {
+          ...DEFAULT_WORKBENCH_SETTINGS.imageProviderDefaults.magicapi,
+          model: 'gpt-image-2-pro',
+          aspectRatio: '9:21',
           imageSize: '960x2240',
           quality: 'high',
         },
@@ -161,7 +193,26 @@ describe('workbench-settings', () => {
     const magicDefaults = getImageDefaultsForProvider(normalized, 'magicapi');
     expect(magicDefaults.model).toBe('gpt-image-2-pro');
     expect(magicDefaults.aspectRatio).toBe('9:21');
-    expect(magicDefaults.imageSize).toBe('960x2240');
+    expect(magicDefaults.imageSize).toBe('1440x3360');
+  });
+
+  it('remaps removed MagicAPI gpt-image-2 sizes to the remaining size for the same aspect ratio', () => {
+    const normalized = normalizeWorkbenchSettings({
+      imageProviderDefaults: {
+        magicapi: {
+          ...DEFAULT_WORKBENCH_SETTINGS.imageProviderDefaults.magicapi,
+          model: 'gpt-image-2',
+          aspectRatio: '21:9',
+          imageSize: '1344x576',
+          quality: 'high',
+        },
+      },
+    });
+
+    const magicDefaults = getImageDefaultsForProvider(normalized, 'magicapi');
+    expect(magicDefaults.model).toBe('gpt-image-2');
+    expect(magicDefaults.aspectRatio).toBe('21:9');
+    expect(magicDefaults.imageSize).toBe('2240x960');
   });
 
   it('migrates legacy gpt-image-2 defaults to explicit pixel sizes', () => {

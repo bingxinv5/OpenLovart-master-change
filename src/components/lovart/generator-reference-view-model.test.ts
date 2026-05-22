@@ -10,6 +10,7 @@ import {
     resolveInitialDomesticMode,
     resolveNextFrameSlotType,
 } from './generator-reference-view-model';
+import { materializePromptMentions } from './generator-mention-view-model';
 
 describe('generator reference view model', () => {
     it('builds image reference preview items', () => {
@@ -45,6 +46,36 @@ describe('generator reference view model', () => {
             { id: 'video', token: '@视频1', replacement: '参考视频1(片段)' },
             { id: 'audio', token: '@音频1', replacement: '参考音频1(旁白)' },
         ]);
+    });
+
+    it('materializes video @参考图 mentions in first-last-frame mode', () => {
+        const mentions = buildVideoPromptMentions({
+            useFrameLabels: true,
+            frameImages: [
+                { id: 'first', image: 'first-image', imageType: 'first_frame', name: '首帧素材' },
+                { id: 'last', image: 'last-image', imageType: 'last_frame', name: '尾帧素材' },
+            ],
+            referenceVideos: [],
+            referenceAudios: [],
+        });
+
+        expect(materializePromptMentions('让 @参考图1 平滑过渡到 @参考图2', mentions))
+            .toBe('让 第1张参考图(首帧) 平滑过渡到 第2张参考图(尾帧)');
+    });
+
+    it('materializes video reference mentions in omni-reference mode', () => {
+        const mentions = buildVideoPromptMentions({
+            useFrameLabels: false,
+            frameImages: [
+                { id: 'image-a', image: 'image-a', imageType: 'reference', name: '角色' },
+                { id: 'image-b', image: 'image-b', imageType: 'reference', name: '场景' },
+            ],
+            referenceVideos: [{ id: 'video-a', url: 'asset://video-a', name: '动作', kind: 'video' }],
+            referenceAudios: [{ id: 'audio-a', url: 'asset://audio-a', name: '旁白', kind: 'audio' }],
+        });
+
+        expect(materializePromptMentions('@参考图1 保持角色，@参考图2 保持场景，参考 @视频1 和 @音频1', mentions))
+            .toBe('第1张参考图 保持角色，第2张参考图 保持场景，参考 参考视频1(动作) 和 参考音频1(旁白)');
     });
 
     it('derives frame slot options and domestic mode defaults', () => {
