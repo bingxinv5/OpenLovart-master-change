@@ -319,7 +319,7 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                 {/* ── Selection Border & Handles ── */}
                 {isSelected && (
                     <>
-                        <div className="absolute inset-0 border-2 border-blue-500 pointer-events-none" />
+                        <div className="pointer-events-none absolute inset-0 z-30 rounded-lg border-2 border-blue-500" />
                     </>
                 )}
 

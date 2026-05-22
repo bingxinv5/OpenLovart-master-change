@@ -114,7 +114,9 @@ function CanvasVideoPreview({ src }: { src: string }) {
                 preload="metadata"
                 muted
                 playsInline
-                className="pointer-events-none h-full w-full object-cover"
+                draggable={false}
+                className="pointer-events-none h-full w-full select-none object-cover"
+                onDragStart={(event) => event.preventDefault()}
                 onLoadedMetadata={() => {
                     markVideoSourceLoaded(src);
                     setFailedSrc(null);
@@ -141,7 +143,7 @@ export function VideoElementRenderer({ el }: { el: CanvasElement }) {
     const src = el.content ? resolveVideoPlaybackSource(el.content, { filename: `lovart-canvas-video-${el.id}` }) : '';
 
     return (
-        <div className="relative w-full h-full rounded-lg overflow-hidden bg-gray-900 flex items-center justify-center">
+        <div className="relative flex h-full w-full select-none items-center justify-center overflow-hidden rounded-lg bg-gray-900">
             {src ? <CanvasVideoPreview key={src} src={src} /> : <div className="flex flex-col items-center gap-2"><div className="animate-spin rounded-full h-8 w-8 border-2 border-white/30 border-t-white/80" /><div className="text-white/60 text-xs">转码中...</div></div>}
         </div>
     );
