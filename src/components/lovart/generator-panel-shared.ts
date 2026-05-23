@@ -11,6 +11,11 @@ export type GeneratorCanvasElement = {
 	width?: number;
 	height?: number;
 	referenceImageId?: string;
+	connectorFrom?: string;
+	connectorTo?: string;
+	connectorKind?: string;
+	connectorFromPort?: string;
+	connectorToPort?: string;
 	selectedModel?: string;
 	selectedAspectRatio?: string;
 	selectedGenerateCount?: number;
@@ -44,6 +49,8 @@ type CanvasImageSelectedDetail = {
 	generatorId?: string;
 	imageContent?: string;
 	imageType?: 'first_frame' | 'last_frame' | 'reference';
+	sourceElementId?: string;
+	sourceElementType?: 'image' | 'video';
 };
 
 export function findGeneratorElement(

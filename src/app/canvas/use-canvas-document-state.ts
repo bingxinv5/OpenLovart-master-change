@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
 import { patchCanvasElement, type CanvasElementPatchAttrs } from '@/components/lovart/canvas-element-patch';
+import { CANVAS_REFERENCE_CONNECTOR_KIND } from '@/components/lovart/canvas-reference-connectors';
 import {
     DirtyTracker,
     HistoryManager,
@@ -247,9 +248,65 @@ export function useCanvasDocumentState({
             return;
         }
 
-        const uniqueIds = Array.from(new Set(ids));
+        const requestedIdSet = new Set(ids);
+        const removedMediaContentById = new Map<string, { content: string; type: 'image' | 'video' }>();
+        for (const id of requestedIdSet) {
+            const element = elementsMapRef.current.get(id);
+            if ((element?.type === 'image' || element?.type === 'video') && element.content) {
+                removedMediaContentById.set(id, { content: element.content, type: element.type });
+            }
+        }
+
+        const cascadeIdSet = new Set(ids);
+        for (const element of elementsMapRef.current.values()) {
+            if (
+                element.type === 'connector'
+                && ((element.connectorFrom && requestedIdSet.has(element.connectorFrom))
+                    || (element.connectorTo && requestedIdSet.has(element.connectorTo)))
+            ) {
+                cascadeIdSet.add(element.id);
+            }
+        }
+
+        const uniqueIds = Array.from(cascadeIdSet);
         const idSet = new Set(uniqueIds);
         let hasRemoved = false;
+
+        for (const id of uniqueIds) {
+            const connector = elementsMapRef.current.get(id);
+            if (connector?.type !== 'connector' || connector.connectorKind !== CANVAS_REFERENCE_CONNECTOR_KIND) {
+                continue;
+            }
+
+            const source = connector.connectorFrom ? elementsMapRef.current.get(connector.connectorFrom) : undefined;
+            const removedMediaContent = connector.connectorFrom ? removedMediaContentById.get(connector.connectorFrom) : undefined;
+            const referenceMediaContent = removedMediaContent?.content
+                || ((source?.type === 'image' || source?.type === 'video') ? source.content : undefined);
+            const referenceMediaType = removedMediaContent?.type
+                || (source?.type === 'image' || source?.type === 'video' ? source.type : undefined);
+            const target = connector.connectorTo ? elementsMapRef.current.get(connector.connectorTo) : undefined;
+            if (!target || !referenceMediaContent || !referenceMediaType) {
+                continue;
+            }
+
+            const updatedTarget = {
+                ...target,
+                savedReferenceImages: referenceMediaType === 'image'
+                    ? removeImageFromSerializedStringArray(target.savedReferenceImages, referenceMediaContent)
+                    : target.savedReferenceImages,
+                savedFrameImages: referenceMediaType === 'image'
+                    ? removeImageFromSerializedFrameImages(target.savedFrameImages, referenceMediaContent)
+                    : target.savedFrameImages,
+                savedReferenceVideos: referenceMediaType === 'video'
+                    ? removeVideoFromSerializedReferenceVideos(target.savedReferenceVideos, referenceMediaContent)
+                    : target.savedReferenceVideos,
+            };
+            elementsMapRef.current.set(target.id, updatedTarget);
+            historyChangedIdsRef.current.add(target.id);
+            historyManagerRef.current.touchTransactionIds([target.id]);
+            spatialIndexRef.current.update(updatedTarget);
+            dirtyTrackerRef.current.markModified(target.id);
+        }
 
         for (const id of uniqueIds) {
             if (!elementsMapRef.current.delete(id)) {
@@ -265,6 +322,22 @@ export function useCanvasDocumentState({
 
         if (!hasRemoved) {
             return;
+        }
+
+        for (const [id, element] of elementsMapRef.current.entries()) {
+            if (!element.linkedElements?.some((linkedId) => idSet.has(linkedId))) {
+                continue;
+            }
+
+            const updated = {
+                ...element,
+                linkedElements: element.linkedElements.filter((linkedId) => !idSet.has(linkedId)),
+            };
+            elementsMapRef.current.set(id, updated);
+            historyChangedIdsRef.current.add(id);
+            historyManagerRef.current.touchTransactionIds([id]);
+            spatialIndexRef.current.update(updated);
+            dirtyTrackerRef.current.markModified(id);
         }
 
         const pid = currentProjectIdRef.current;
@@ -429,4 +502,64 @@ export function useCanvasDocumentState({
         addElements,
         handleBatchElementChange,
     };
+}
+
+function removeImageFromSerializedStringArray(serialized: string | undefined, image: string | undefined) {
+    if (!serialized?.trim() || !image) {
+        return serialized;
+    }
+
+    try {
+        const parsed = JSON.parse(serialized);
+        if (!Array.isArray(parsed)) {
+            return serialized;
+        }
+
+        const next = parsed.filter((item) => item !== image);
+        return next.length > 0 ? JSON.stringify(next) : undefined;
+    } catch {
+        return serialized;
+    }
+}
+
+function removeImageFromSerializedFrameImages(serialized: string | undefined, image: string | undefined) {
+    if (!serialized?.trim() || !image) {
+        return serialized;
+    }
+
+    try {
+        const parsed = JSON.parse(serialized);
+        if (!Array.isArray(parsed)) {
+            return serialized;
+        }
+
+        const next = parsed.filter((item) => !item || typeof item !== 'object' || (item as { image?: unknown }).image !== image);
+        return next.length > 0 ? JSON.stringify(next) : undefined;
+    } catch {
+        return serialized;
+    }
+}
+
+function removeVideoFromSerializedReferenceVideos(serialized: string | undefined, video: string | undefined) {
+    if (!serialized?.trim() || !video) {
+        return serialized;
+    }
+
+    try {
+        const parsed = JSON.parse(serialized);
+        if (!Array.isArray(parsed)) {
+            return serialized;
+        }
+
+        const next = parsed.filter((item) => {
+            if (typeof item === 'string') {
+                return item !== video;
+            }
+
+            return !item || typeof item !== 'object' || (item as { url?: unknown }).url !== video;
+        });
+        return next.length > 0 ? JSON.stringify(next) : undefined;
+    } catch {
+        return serialized;
+    }
 }

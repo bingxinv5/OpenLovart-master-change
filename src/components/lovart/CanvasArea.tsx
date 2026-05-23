@@ -1,15 +1,15 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { AlignStartVertical, AlignEndVertical, AlignCenterHorizontal, AlignStartHorizontal, AlignEndHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter } from 'lucide-react';
+import { AlignStartVertical, AlignEndVertical, AlignCenterHorizontal, AlignStartHorizontal, AlignEndHorizontal, AlignCenterVertical, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Frame, Sparkles, Video } from 'lucide-react';
 import { isImageRef, getImageDataUrl } from '@/lib/editor-kernel';
 import type { ElementHandlers } from './CanvasElementRenderer';
 import { CanvasMinimap } from './CanvasMinimap';
-import type { CanvasElement } from './canvas-types';
+import type { CanvasConnectorPort, CanvasElement } from './canvas-types';
 import type { AlignmentDirection, DistributionAxis, LayoutSelectionMode } from './canvas-alignment';
 import { buildCanvasElementIndex } from './canvas-element-index';
 import { buildCanvasRenderPlan } from './canvas-render-plan';
 import { getTopElementAtCanvasPoint } from './canvas-hit-test';
-import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale, computeFitViewport } from './canvas-viewport-utils';
+import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale, clientPointToCanvas, computeFitViewport } from './canvas-viewport-utils';
 import { useCanvasAlignGuides } from './CanvasAlignGuides';
 import { canUseScreenSpaceResizeOverlayForElement } from './ScreenSpaceResizeOverlay';
 import { CanvasContextMenu, useCanvasContextMenu } from './CanvasContextMenu';
@@ -22,9 +22,150 @@ import { useCanvasFrameActions } from './use-canvas-frame-actions';
 import { CanvasAreaViewportOverlays } from './CanvasAreaOverlays';
 import { CanvasAreaContentLayer } from './CanvasAreaContentLayer';
 import { CanvasAreaHud } from './CanvasAreaHud';
+import {
+    classifyReferenceConnectionTarget,
+    getConnectorPortPoint,
+    isReferenceSourceElement,
+    isReferenceTargetElement,
+    type ReferenceConnectionStatus,
+} from './canvas-reference-connectors';
 
 function serializeRenderMetrics(metrics: CanvasRenderMetrics) {
     return JSON.stringify(metrics);
+}
+
+type ReferenceNodeType = Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>;
+
+type ReferenceConnectionTargetFeedback = {
+    elementId: string;
+    port: CanvasConnectorPort;
+    status: ReferenceConnectionStatus;
+    duplicateConnectorId?: string;
+    point: { x: number; y: number };
+};
+
+function isWheelInsideCanvasArea(event: WheelEvent, canvasArea: HTMLElement | null) {
+    if (!canvasArea) return false;
+    const target = event.target;
+    if (target instanceof Node && canvasArea.contains(target)) {
+        return true;
+    }
+
+    const rect = canvasArea.getBoundingClientRect();
+    return event.clientX >= rect.left
+        && event.clientX <= rect.right
+        && event.clientY >= rect.top
+        && event.clientY <= rect.bottom;
+}
+
+function inferReferenceConnectionTargetPort(sourcePort: CanvasConnectorPort | null | undefined, targetElement: CanvasElement | null | undefined): CanvasConnectorPort | null {
+    if (!sourcePort || !targetElement) {
+        return null;
+    }
+
+    if (sourcePort === 'image-output') {
+        return isReferenceTargetElement(targetElement) ? 'generator-reference-input' : null;
+    }
+
+    if (sourcePort === 'generator-flow-output') {
+        return isReferenceTargetElement(targetElement) ? 'generator-reference-input' : null;
+    }
+
+    if (sourcePort === 'generator-reference-input') {
+        if (isReferenceSourceElement(targetElement)) {
+            return 'image-output';
+        }
+        if (isReferenceTargetElement(targetElement)) {
+            return 'generator-flow-output';
+        }
+    }
+
+    return null;
+}
+
+const REFERENCE_NODE_OPTIONS: Array<{ type: ReferenceNodeType; label: string; description: string }> = [
+    { type: 'image-generator', label: '图像生成器', description: '使用该图片作为生成参考' },
+    { type: 'video-generator', label: '视频生成器', description: '使用该图片作为视频参考' },
+    { type: 'storyboard-planner', label: '分镜规划器', description: '使用该图片作为分镜参考' },
+];
+
+const REFERENCE_NODE_ICONS: Record<ReferenceNodeType, React.ComponentType<{ size?: number; className?: string }>> = {
+    'image-generator': Sparkles,
+    'video-generator': Video,
+    'storyboard-planner': Frame,
+};
+
+const ALL_REFERENCE_NODE_TYPES: ReferenceNodeType[] = ['image-generator', 'video-generator', 'storyboard-planner'];
+const IMAGE_STORYBOARD_REFERENCE_NODE_TYPES: ReferenceNodeType[] = ['image-generator', 'storyboard-planner'];
+const VIDEO_ONLY_REFERENCE_NODE_TYPES: ReferenceNodeType[] = ['video-generator'];
+
+function getReferenceNodeTypesForConnectionStart(element: CanvasElement | undefined, port: CanvasConnectorPort | null | undefined): ReferenceNodeType[] {
+    if (!element || !port) {
+        return ALL_REFERENCE_NODE_TYPES;
+    }
+
+    if (port === 'image-output') {
+        return ALL_REFERENCE_NODE_TYPES;
+    }
+
+    if (port === 'generator-reference-input') {
+        return element.type === 'video-generator'
+            ? ALL_REFERENCE_NODE_TYPES
+            : IMAGE_STORYBOARD_REFERENCE_NODE_TYPES;
+    }
+
+    if (port === 'generator-flow-output') {
+        return element.type === 'video-generator'
+            ? VIDEO_ONLY_REFERENCE_NODE_TYPES
+            : ALL_REFERENCE_NODE_TYPES;
+    }
+
+    return ALL_REFERENCE_NODE_TYPES;
+}
+
+function clampMenuPosition(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function ReferenceConnectionTargetMenu({
+    left,
+    top,
+    options,
+    onChoose,
+}: {
+    left: number;
+    top: number;
+    options: ReferenceNodeType[];
+    onChoose: (type: ReferenceNodeType) => void;
+}) {
+    const positionCss = `.canvas-reference-node-menu-position { left: ${Math.round(left)}px; top: ${Math.round(top)}px; }`;
+    return (
+        <>
+            <style>{positionCss}</style>
+            <div
+                data-reference-node-menu="true"
+                className="canvas-reference-node-menu-position canvas-popover absolute z-[190] min-w-[180px] rounded-xl py-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+            >
+                {REFERENCE_NODE_OPTIONS.filter((option) => options.includes(option.type)).map((option) => {
+                    const Icon = REFERENCE_NODE_ICONS[option.type];
+                    return (
+                        <button
+                            key={option.type}
+                            type="button"
+                            title={option.description}
+                            className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                            onClick={() => onChoose(option.type)}
+                        >
+                            <Icon size={14} className="text-gray-400" />
+                            {option.label}
+                        </button>
+                    );
+                })}
+            </div>
+        </>
+    );
 }
 
 export const CanvasArea = React.memo(function CanvasArea({
@@ -46,13 +187,29 @@ export const CanvasArea = React.memo(function CanvasArea({
     const { elements, onElementChange, onBatchElementChange, onDelete, onAddElement } = elementCRUD;
     const { canPaste, onCopyElement, onCopySelection, onCutSelection, onPasteAt, onDuplicateSelection } = clipboard;
     const { onGroupSelection, onUngroupSelection, onMergeSelection, onBringForward, onSendBackward, onBringToFront, onSendToBack, onToggleElementsHidden, onToggleElementsLocked, onDeleteSelection } = layout;
-    const { onOpenImageGenerator, onOpenVideoGenerator, onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, onExportStoryboardSelection, generatorSubmittingMap, highlightedResultId } = generator;
+    const { onOpenImageGenerator, onOpenVideoGenerator, onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, onExportStoryboardSelection, generatorSubmittingMap, highlightedResultId, newlyCreatedGeneratorMap } = generator;
     const { projectReferenceImages, onUseProjectReferenceImage, onSaveAsProjectReference, onSaveSelectionAsProjectReference, onAddImage, onAddVideo } = media;
     const { onAiEditElement, onRecoverImageEditTask, onReplaceBackground, onMockupElement, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage } = editingTools;
     const { onDownloadElement, onSendSelectionToChat } = exportDomain;
     const { canvasSelectMode, onCanvasSelectPick, onCancelCanvasSelect } = canvasSelectModeDomain;
     const { onStoryboardSaved, storyboardAutoAdvanceEnabled = false } = storyboard;
-    const { onDragStart, onDragEnd, onConnectFlow, onCanvasMouseMove, spatialIndex, minimapRightOffset, canvasTheme, resolvedImageSrcMap, onRenderMetricsChange } = misc;
+    const {
+        onDragStart,
+        onDragEnd,
+        onConnectFlow,
+        referenceConnectionSourceId,
+        referenceConnectionPort,
+        onStartReferenceConnection,
+        onCompleteReferenceConnection,
+        onCreateReferenceConnectionTarget,
+        onCancelReferenceConnection,
+        onCanvasMouseMove,
+        spatialIndex,
+        minimapRightOffset,
+        canvasTheme,
+        resolvedImageSrcMap,
+        onRenderMetricsChange,
+    } = misc;
     const MULTI_LAYOUT_GAP = 24;
     const ALIGN_GUIDE_FLASH_MS = 800;
     const selectionBoxOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +229,11 @@ export const CanvasArea = React.memo(function CanvasArea({
     const [editingFrameName, setEditingFrameName] = useState<string | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [imageDetailRequestVersions, setImageDetailRequestVersions] = useState<Record<string, number>>({});
+    const [referenceConnectionPoint, setReferenceConnectionPoint] = useState<{ x: number; y: number } | null>(null);
+    const [referenceConnectionTargetFeedback, setReferenceConnectionTargetFeedback] = useState<ReferenceConnectionTargetFeedback | null>(null);
+    const [referenceNodeMenu, setReferenceNodeMenu] = useState<{ left: number; top: number; canvasPoint: { x: number; y: number }; options: ReferenceNodeType[] } | null>(null);
+    const referenceDragStartRef = useRef<{ clientX: number; clientY: number } | null>(null);
+    const referenceConnectionFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const { alignGuides, flashAlignGuides, setAlignGuidesIfChanged } = useCanvasAlignGuides(ALIGN_GUIDE_FLASH_MS);
 
@@ -192,6 +354,324 @@ export const CanvasArea = React.memo(function CanvasArea({
         activeVideoId, setActiveVideoId, setEditingTextId,
         setQuickEditMarkId, setQuickEditPrompt,
     });
+
+    useEffect(() => {
+        if (!isPanning) return;
+        const cursorClassName = 'canvas-force-panning-cursor';
+        document.documentElement.classList.add(cursorClassName);
+        return () => {
+            document.documentElement.classList.remove(cursorClassName);
+        };
+    }, [isPanning]);
+
+    const clearReferenceConnectionFeedbackTimer = useCallback(() => {
+        if (referenceConnectionFeedbackTimerRef.current) {
+            clearTimeout(referenceConnectionFeedbackTimerRef.current);
+            referenceConnectionFeedbackTimerRef.current = null;
+        }
+    }, []);
+
+    const setReferenceConnectionTargetFeedbackIfChanged = useCallback((next: ReferenceConnectionTargetFeedback | null) => {
+        setReferenceConnectionTargetFeedback((current) => {
+            if (!current && !next) return current;
+            if (current && next
+                && current.elementId === next.elementId
+                && current.port === next.port
+                && current.status === next.status
+                && current.duplicateConnectorId === next.duplicateConnectorId
+                && current.point.x === next.point.x
+                && current.point.y === next.point.y) {
+                return current;
+            }
+            return next;
+        });
+    }, []);
+
+    const resolveReferenceConnectionTargetFeedback = useCallback((clientX: number, clientY: number): ReferenceConnectionTargetFeedback | null => {
+        if (!referenceConnectionSourceId || !referenceConnectionPort) {
+            return null;
+        }
+
+        const hitElements = typeof document.elementsFromPoint === 'function'
+            ? document.elementsFromPoint(clientX, clientY)
+            : [document.elementFromPoint(clientX, clientY)].filter((node): node is Element => !!node);
+        const targetPortElement = hitElements
+            .map((element) => element.closest('[data-reference-port]'))
+            .find((element): element is Element => !!element);
+        const localElementMap = new Map(elements.map((element) => [element.id, element]));
+        let targetId = targetPortElement?.closest('[data-element-id]')?.getAttribute('data-element-id') ?? null;
+        let targetPort = targetPortElement?.getAttribute('data-reference-port') as CanvasConnectorPort | null | undefined;
+
+        if (!targetId || !targetPort) {
+            const seenElementIds = new Set<string>();
+            const bodyTargetNode = hitElements
+                .map((element) => element.closest('[data-element-id]'))
+                .find((element): element is Element => {
+                    const elementId = element?.getAttribute('data-element-id');
+                    if (!elementId || seenElementIds.has(elementId)) {
+                        return false;
+                    }
+                    seenElementIds.add(elementId);
+                    const canvasElement = localElementMap.get(elementId);
+                    return !!inferReferenceConnectionTargetPort(referenceConnectionPort, canvasElement);
+                });
+            if (bodyTargetNode) {
+                targetId = bodyTargetNode.getAttribute('data-element-id');
+                targetPort = inferReferenceConnectionTargetPort(referenceConnectionPort, targetId ? localElementMap.get(targetId) : null);
+            }
+        }
+
+        if (!targetId || !targetPort) {
+            let bestCandidate: { elementId: string; port: CanvasConnectorPort; distance: number } | null = null;
+            for (const elementNode of Array.from(document.querySelectorAll<HTMLElement>('[data-element-id]'))) {
+                const elementId = elementNode.getAttribute('data-element-id');
+                if (!elementId) {
+                    continue;
+                }
+                const canvasElement = localElementMap.get(elementId);
+                const inferredPort = inferReferenceConnectionTargetPort(referenceConnectionPort, canvasElement);
+                if (!inferredPort) {
+                    continue;
+                }
+                const bounds = elementNode.getBoundingClientRect();
+                const dx = clientX < bounds.left ? bounds.left - clientX : clientX > bounds.right ? clientX - bounds.right : 0;
+                const dy = clientY < bounds.top ? bounds.top - clientY : clientY > bounds.bottom ? clientY - bounds.bottom : 0;
+                const distance = Math.hypot(dx, dy);
+                if (distance <= 28 && (!bestCandidate || distance < bestCandidate.distance)) {
+                    bestCandidate = { elementId, port: inferredPort, distance };
+                }
+            }
+            if (bestCandidate) {
+                targetId = bestCandidate.elementId;
+                targetPort = bestCandidate.port;
+            }
+        }
+
+        if (!targetId || !targetPort) {
+            return null;
+        }
+
+        const targetCanvasElement = localElementMap.get(targetId);
+        if (!targetCanvasElement) {
+            return null;
+        }
+
+        const classification = classifyReferenceConnectionTarget({
+            sourceId: referenceConnectionSourceId,
+            sourcePort: referenceConnectionPort,
+            targetId,
+            targetPort,
+            elements,
+            elementMap: localElementMap,
+        });
+
+        return {
+            elementId: targetId,
+            port: targetPort,
+            status: classification.status,
+            duplicateConnectorId: classification.duplicateConnectorId,
+            point: getConnectorPortPoint(targetCanvasElement, targetPort),
+        };
+    }, [elements, referenceConnectionPort, referenceConnectionSourceId]);
+
+    const updateReferenceConnectionDraftPoint = useCallback((clientX: number, clientY: number) => {
+        const targetFeedback = resolveReferenceConnectionTargetFeedback(clientX, clientY);
+        setReferenceConnectionTargetFeedbackIfChanged(targetFeedback);
+        setReferenceConnectionPoint(clientPointToCanvas({
+            clientX,
+            clientY,
+            rect: outerRef.current?.getBoundingClientRect(),
+            pan,
+            scale,
+        }));
+    }, [pan, resolveReferenceConnectionTargetFeedback, scale, setReferenceConnectionTargetFeedbackIfChanged]);
+
+    const showTransientReferenceConnectionFeedback = useCallback((feedback: ReferenceConnectionTargetFeedback) => {
+        clearReferenceConnectionFeedbackTimer();
+        setReferenceConnectionTargetFeedbackIfChanged(feedback);
+        referenceConnectionFeedbackTimerRef.current = setTimeout(() => {
+            setReferenceConnectionTargetFeedbackIfChanged(null);
+            referenceConnectionFeedbackTimerRef.current = null;
+        }, 760);
+    }, [clearReferenceConnectionFeedbackTimer, setReferenceConnectionTargetFeedbackIfChanged]);
+
+    useEffect(() => () => clearReferenceConnectionFeedbackTimer(), [clearReferenceConnectionFeedbackTimer]);
+
+    const handleCanvasMouseMoveWithReferenceDraft = useCallback((event: React.MouseEvent) => {
+        if (referenceConnectionSourceId) {
+            if (!referenceNodeMenu) {
+                updateReferenceConnectionDraftPoint(event.clientX, event.clientY);
+            }
+        }
+        handleMouseMove(event);
+    }, [handleMouseMove, referenceConnectionSourceId, referenceNodeMenu, updateReferenceConnectionDraftPoint]);
+
+    const handleStartReferenceConnectionFromPort = useCallback((sourceId: string, port: CanvasConnectorPort, event?: React.MouseEvent<HTMLButtonElement>) => {
+        clearReferenceConnectionFeedbackTimer();
+        setReferenceConnectionTargetFeedbackIfChanged(null);
+        setReferenceNodeMenu(null);
+        referenceDragStartRef.current = event ? { clientX: event.clientX, clientY: event.clientY } : null;
+        if (event) {
+            setReferenceConnectionPoint(clientPointToCanvas({
+                clientX: event.clientX,
+                clientY: event.clientY,
+                rect: outerRef.current?.getBoundingClientRect(),
+                pan,
+                scale,
+            }));
+        }
+        onStartReferenceConnection?.(sourceId, port);
+    }, [clearReferenceConnectionFeedbackTimer, onStartReferenceConnection, pan, scale, setReferenceConnectionTargetFeedbackIfChanged]);
+
+    const handleCompleteReferenceConnectionFromPort = useCallback((targetId: string, targetPort: CanvasConnectorPort = 'generator-reference-input') => {
+        clearReferenceConnectionFeedbackTimer();
+        setReferenceConnectionTargetFeedbackIfChanged(null);
+        setReferenceNodeMenu(null);
+        setReferenceConnectionPoint(null);
+        referenceDragStartRef.current = null;
+        onCompleteReferenceConnection?.(targetId, targetPort);
+    }, [clearReferenceConnectionFeedbackTimer, onCompleteReferenceConnection, setReferenceConnectionTargetFeedbackIfChanged]);
+
+    const handleCancelReferenceConnectionWithDraft = useCallback(() => {
+        clearReferenceConnectionFeedbackTimer();
+        setReferenceConnectionTargetFeedbackIfChanged(null);
+        setReferenceNodeMenu(null);
+        setReferenceConnectionPoint(null);
+        referenceDragStartRef.current = null;
+        onCancelReferenceConnection?.();
+    }, [clearReferenceConnectionFeedbackTimer, onCancelReferenceConnection, setReferenceConnectionTargetFeedbackIfChanged]);
+
+    const handleReferenceDropAtClientPoint = useCallback((clientX: number, clientY: number) => {
+        if (!referenceConnectionSourceId) {
+            return;
+        }
+
+        const rect = outerRef.current?.getBoundingClientRect();
+        const canvasPoint = clientPointToCanvas({
+            clientX,
+            clientY,
+            rect,
+            pan,
+            scale,
+        });
+        const targetFeedback = resolveReferenceConnectionTargetFeedback(clientX, clientY);
+        setReferenceConnectionPoint(targetFeedback?.point ?? canvasPoint);
+        const dragStart = referenceDragStartRef.current;
+        const dragDistance = dragStart ? Math.hypot(clientX - dragStart.clientX, clientY - dragStart.clientY) : 0;
+
+        if (targetFeedback && (targetFeedback.elementId !== referenceConnectionSourceId || targetFeedback.port !== referenceConnectionPort || dragDistance >= 6)) {
+            if (targetFeedback.status === 'valid') {
+                handleCompleteReferenceConnectionFromPort(targetFeedback.elementId, targetFeedback.port);
+                return;
+            }
+
+            showTransientReferenceConnectionFeedback(targetFeedback);
+            setReferenceNodeMenu(null);
+            setReferenceConnectionPoint(null);
+            referenceDragStartRef.current = null;
+            onCancelReferenceConnection?.();
+            return;
+        }
+
+        if (dragDistance < 6) {
+            return;
+        }
+
+        const localLeft = rect ? clientX - rect.left : clientX;
+        const localTop = rect ? clientY - rect.top : clientY;
+        const startElement = elements.find((element) => element.id === referenceConnectionSourceId);
+        const options = getReferenceNodeTypesForConnectionStart(startElement, referenceConnectionPort);
+        setReferenceNodeMenu({
+            canvasPoint,
+            left: clampMenuPosition(localLeft + 12, 12, (rect?.width ?? window.innerWidth) - 256),
+            top: clampMenuPosition(localTop + 12, 12, (rect?.height ?? window.innerHeight) - 190),
+            options,
+        });
+    }, [elements, handleCompleteReferenceConnectionFromPort, onCancelReferenceConnection, pan, referenceConnectionPort, referenceConnectionSourceId, resolveReferenceConnectionTargetFeedback, scale, showTransientReferenceConnectionFeedback]);
+
+    const handleCanvasMouseUpWithReferenceDrop = useCallback((event: React.MouseEvent) => {
+        if (!referenceConnectionSourceId) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.button === 2) {
+            handleCancelReferenceConnectionWithDraft();
+            return;
+        }
+        handleReferenceDropAtClientPoint(event.clientX, event.clientY);
+    }, [handleCancelReferenceConnectionWithDraft, handleReferenceDropAtClientPoint, referenceConnectionSourceId]);
+
+    useEffect(() => {
+        if (!referenceConnectionSourceId) {
+            return;
+        }
+
+        const handleWindowMouseMove = (event: MouseEvent) => {
+            if (referenceNodeMenu) {
+                return;
+            }
+            updateReferenceConnectionDraftPoint(event.clientX, event.clientY);
+        };
+
+        const handleWindowMouseUp = (event: MouseEvent) => {
+            const target = event.target instanceof Element ? event.target : null;
+            if (event.button === 2) {
+                event.preventDefault();
+                handleCancelReferenceConnectionWithDraft();
+                return;
+            }
+            if (referenceNodeMenu || target?.closest('[data-reference-node-menu="true"]')) {
+                return;
+            }
+            handleReferenceDropAtClientPoint(event.clientX, event.clientY);
+        };
+
+        const handleWindowMouseDown = (event: MouseEvent) => {
+            if (event.button !== 2) {
+                return;
+            }
+            const target = event.target instanceof Element ? event.target : null;
+            if (target?.closest('[data-reference-node-menu="true"]')) {
+                return;
+            }
+            event.preventDefault();
+            handleCancelReferenceConnectionWithDraft();
+        };
+
+        const handleWindowContextMenu = (event: MouseEvent) => {
+            const target = event.target instanceof Element ? event.target : null;
+            if (target?.closest('[data-reference-node-menu="true"]')) {
+                return;
+            }
+            event.preventDefault();
+            handleCancelReferenceConnectionWithDraft();
+        };
+
+        window.addEventListener('mousemove', handleWindowMouseMove, true);
+        window.addEventListener('mousedown', handleWindowMouseDown, true);
+        window.addEventListener('mouseup', handleWindowMouseUp, true);
+        window.addEventListener('contextmenu', handleWindowContextMenu, true);
+        return () => {
+            window.removeEventListener('mousemove', handleWindowMouseMove, true);
+            window.removeEventListener('mousedown', handleWindowMouseDown, true);
+            window.removeEventListener('mouseup', handleWindowMouseUp, true);
+            window.removeEventListener('contextmenu', handleWindowContextMenu, true);
+        };
+    }, [handleCancelReferenceConnectionWithDraft, handleReferenceDropAtClientPoint, referenceConnectionSourceId, referenceNodeMenu, updateReferenceConnectionDraftPoint]);
+
+    const handleChooseReferenceNodeType = useCallback((type: ReferenceNodeType) => {
+        const menu = referenceNodeMenu;
+        if (!menu) {
+            return;
+        }
+        clearReferenceConnectionFeedbackTimer();
+        setReferenceConnectionTargetFeedbackIfChanged(null);
+        setReferenceNodeMenu(null);
+        setReferenceConnectionPoint(null);
+        referenceDragStartRef.current = null;
+        onCreateReferenceConnectionTarget?.(type, menu.canvasPoint);
+    }, [clearReferenceConnectionFeedbackTimer, onCreateReferenceConnectionTarget, referenceNodeMenu, setReferenceConnectionTargetFeedbackIfChanged]);
 
     const getTopElementAtPoint = useCallback((x: number, y: number) => (
         getTopElementAtCanvasPoint(elements, x, y)
@@ -480,6 +960,14 @@ export const CanvasArea = React.memo(function CanvasArea({
         }
     }, [scale, pan, onScaleChange, commitPanChange, cancelInertia]);
 
+    const handleWindowWheelCapture = useCallback((event: WheelEvent) => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        if (!isWheelInsideCanvasArea(event, outerRef.current)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        handleWheelRaw(event);
+    }, [handleWheelRaw]);
+
     // Attach non-passive wheel listener so preventDefault works
     useEffect(() => {
         const el = outerRef.current;
@@ -487,6 +975,11 @@ export const CanvasArea = React.memo(function CanvasArea({
         el.addEventListener('wheel', handleWheelRaw, { passive: false });
         return () => el.removeEventListener('wheel', handleWheelRaw);
     }, [handleWheelRaw]);
+
+    useEffect(() => {
+        window.addEventListener('wheel', handleWindowWheelCapture, { passive: false, capture: true });
+        return () => window.removeEventListener('wheel', handleWindowWheelCapture, true);
+    }, [handleWindowWheelCapture]);
 
     // Right-click context menu handler
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -1010,8 +1503,9 @@ export const CanvasArea = React.memo(function CanvasArea({
             data-viewport-margin={viewportRenderPlan.viewportMargin}
             data-partition-count={viewportRenderPlan.partitionCount}
             data-partition-tile-size={viewportRenderPlan.partitionTileSize}
-            className={`canvas-area-surface w-full h-full relative overflow-hidden ${canvasSelectMode ? 'cursor-crosshair' : activeTool === 'hand' ? 'cursor-grab active:cursor-grabbing' : activeTool === 'draw' ? 'cursor-crosshair' : activeTool === 'mark' ? 'cursor-crosshair' : activeTool === 'frame' ? 'cursor-crosshair' : ''}`}
-            onMouseMove={handleMouseMove}
+            data-is-panning={isPanning ? 'true' : 'false'}
+            className={`canvas-area-surface w-full h-full relative overflow-hidden ${isPanning ? 'is-panning' : canvasSelectMode ? 'cursor-crosshair' : activeTool === 'hand' ? 'cursor-grab' : activeTool === 'draw' ? 'cursor-crosshair' : activeTool === 'mark' ? 'cursor-crosshair' : activeTool === 'frame' ? 'cursor-crosshair' : ''}`}
+            onMouseMove={handleCanvasMouseMoveWithReferenceDraft}
             onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}
             onDragStart={(e) => {
                 e.preventDefault();
@@ -1025,8 +1519,17 @@ export const CanvasArea = React.memo(function CanvasArea({
                     onCancelCanvasSelect?.();
                     return;
                 }
+                if (referenceConnectionSourceId && e.button === 0) {
+                    const target = e.target as HTMLElement;
+                    if (target.closest('[data-reference-node-menu="true"]')) {
+                        return;
+                    }
+                    handleCancelReferenceConnectionWithDraft();
+                    return;
+                }
                 handleMouseDown(e, null);
             }}
+            onMouseUp={handleCanvasMouseUpWithReferenceDrop}
             onContextMenu={handleContextMenu}
             onDragOver={(e) => {
                 e.preventDefault();
@@ -1091,12 +1594,27 @@ export const CanvasArea = React.memo(function CanvasArea({
                     renderElements, elements, selectedIds, activeTool, canvasSelectMode, dragPreviewState,
                     dropTargetFrameId, editingTextId, editingFrameName, editingMarkId, quickEditMarkId,
                     quickEditPrompt, showFramePresetMenu, showFrameExportMenu, canGenerateFromImage,
-                    frameChildCounts, generatorSubmittingMap, highlightedResultId, highlightedElementIdSet,
+                    frameChildCounts, generatorSubmittingMap, highlightedResultId, newlyCreatedGeneratorMap, highlightedElementIdSet,
                     isDragging, isResizing, resizingElementId, isDrawing, isSelecting, imageDetailRequestVersions,
                     renderZIndexById, resolvedImageSrcMap, multiReferenceCandidateCount, multiSelectionBounds,
                     multiSelectionPreviewOffset, currentPath, alignGuides, frameDrawBox, elementHandlersRef,
+                    referenceConnectionSourceId, referenceConnectionPort, referenceConnectionPoint,
+                    referenceConnectionTargetFeedback,
+                    onStartReferenceConnection: handleStartReferenceConnectionFromPort,
+                    onCompleteReferenceConnection: handleCompleteReferenceConnectionFromPort,
+                    onSelectConnector: (connectorId: string) => onSelect([connectorId]),
+                    onDeleteConnector: (connectorId: string) => deleteSelectionByIds([connectorId]),
                 }}
             />
+
+            {referenceNodeMenu && (
+                <ReferenceConnectionTargetMenu
+                    left={referenceNodeMenu.left}
+                    top={referenceNodeMenu.top}
+                    options={referenceNodeMenu.options}
+                    onChoose={handleChooseReferenceNodeType}
+                />
+            )}
 
             <CanvasAreaViewportOverlays
                 selectionBoxOverlayRef={selectionBoxOverlayRef}

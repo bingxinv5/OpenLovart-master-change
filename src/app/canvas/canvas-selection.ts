@@ -49,12 +49,16 @@ export function dispatchCanvasImageSelected(
     generatorId: string,
     imageContent: string,
     imageType?: VideoCanvasImageType,
+    sourceElementId?: string,
+    sourceElementType?: 'image' | 'video',
 ): void {
     window.dispatchEvent(new CustomEvent('canvas-image-selected', {
         detail: {
             generatorId,
             imageContent,
             imageType,
+            sourceElementId,
+            sourceElementType,
         },
     }));
 }

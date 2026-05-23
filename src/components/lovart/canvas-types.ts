@@ -2,6 +2,8 @@ export type CanvasPoint = { x: number; y: number };
 
 export type FrameAutoLayoutMode = 'flow' | 'grid' | 'row' | 'column';
 export type FrameAutoLayoutAlign = 'start' | 'center';
+export type CanvasConnectorKind = 'reference-image';
+export type CanvasConnectorPort = 'image-output' | 'generator-reference-input' | 'generator-flow-output';
 
 export type CanvasElementType =
     | 'image'
@@ -39,6 +41,9 @@ export interface CanvasElement {
     connectorFrom?: string;
     connectorTo?: string;
     connectorStyle?: 'solid' | 'dashed';
+    connectorKind?: CanvasConnectorKind;
+    connectorFromPort?: CanvasConnectorPort;
+    connectorToPort?: CanvasConnectorPort;
     selectedModel?: string;
     selectedAspectRatio?: string;
     selectedImageSize?: string;
@@ -225,6 +230,9 @@ export type CanvasConnectorElementProps = Pick<CanvasElement,
     | 'connectorFrom'
     | 'connectorTo'
     | 'connectorStyle'
+    | 'connectorKind'
+    | 'connectorFromPort'
+    | 'connectorToPort'
     | 'color'
     | 'strokeWidth'
 >;

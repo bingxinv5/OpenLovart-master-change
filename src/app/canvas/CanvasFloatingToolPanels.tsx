@@ -42,6 +42,8 @@ interface CanvasFloatingToolPanelsProps {
     onGenerateImage: ImageGeneratorPanelProps['onGenerate'];
     onRecoverImageTask: ImageGeneratorPanelProps['onRecoverTask'];
     onAddGeneratedBatchImageElement: ImageGeneratorPanelProps['onAddElement'];
+    onDeleteReferenceConnector: NonNullable<ImageGeneratorPanelProps['onDeleteReferenceConnector']>;
+    onCreateReferenceConnectorFromCanvasSelection: NonNullable<ImageGeneratorPanelProps['onCreateReferenceConnectorFromCanvasSelection']>;
     onGenerateVideo: VideoGeneratorPanelProps['onGenerate'];
     onRecoverVideoTask: VideoGeneratorPanelProps['onRecoverTask'];
     onRecordProjectMediaItem: VideoGeneratorPanelProps['onRecordProjectMediaItem'];
@@ -92,6 +94,8 @@ export function CanvasFloatingToolPanels({
     onGenerateImage,
     onRecoverImageTask,
     onAddGeneratedBatchImageElement,
+    onDeleteReferenceConnector,
+    onCreateReferenceConnectorFromCanvasSelection,
     onGenerateVideo,
     onRecoverVideoTask,
     onRecordProjectMediaItem,
@@ -171,6 +175,8 @@ export function CanvasFloatingToolPanels({
                     onSubmittingChange={onGeneratorSubmittingChange}
                     onAddElement={onAddGeneratedBatchImageElement}
                     onRequestCanvasSelect={onRequestCanvasSelectImage}
+                    onDeleteReferenceConnector={onDeleteReferenceConnector}
+                    onCreateReferenceConnectorFromCanvasSelection={onCreateReferenceConnectorFromCanvasSelection}
                     style={selectedGeneratorPanelStyle}
                 />
             )}
@@ -190,6 +196,8 @@ export function CanvasFloatingToolPanels({
                     onElementChange={onElementChange}
                     onSubmittingChange={onGeneratorSubmittingChange}
                     onRequestCanvasSelect={onRequestCanvasSelectVideo}
+                    onDeleteReferenceConnector={onDeleteReferenceConnector}
+                    onCreateReferenceConnectorFromCanvasSelection={onCreateReferenceConnectorFromCanvasSelection}
                     style={selectedGeneratorPanelStyle}
                 />
             )}

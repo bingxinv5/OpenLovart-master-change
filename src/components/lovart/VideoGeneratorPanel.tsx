@@ -4,7 +4,14 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid';
 import { ChevronDown, Video } from 'lucide-react';
 import { debugLog } from '@/lib/debug-log';
-import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration } from './canvas-types';
+import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration, type CanvasElement } from './canvas-types';
+import {
+    findIncomingReferenceConnectorForImage,
+    findIncomingReferenceConnectorForMedia,
+    getIncomingReferenceConnectors,
+    resolveReferenceConnectorImages,
+    resolveReferenceConnectorVideos,
+} from './canvas-reference-connectors';
 import { getGeneratorStatusState } from './GeneratorStatusCard';
 import {
     GeneratorRecoveryTaskCard,
@@ -113,6 +120,8 @@ interface VideoGeneratorPanelProps {
     projectMediaItems?: ProjectMediaHistoryItem[];
     onUseProjectReferenceImage?: (id: string) => void;
     onRecordProjectMediaItem?: (params: { kind: 'image' | 'video' | 'audio'; content: string; prompt?: string }) => void;
+    onDeleteReferenceConnector?: (connectorId: string) => void;
+    onCreateReferenceConnectorFromCanvasSelection?: (sourceElementId: string, targetElementId: string) => void;
 }
 
 export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
@@ -130,6 +139,8 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         projectMediaItems = [],
         onUseProjectReferenceImage,
         onRecordProjectMediaItem,
+        onDeleteReferenceConnector,
+        onCreateReferenceConnectorFromCanvasSelection,
     } = props;
     const videoDefaults = useVideoGenerationDefaults();
     const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.video);
@@ -243,6 +254,16 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     const canAddMoreVideos = isDomesticOmniMode && referenceVideos.length < getMaxVideosForVideoModel(model);
     const canAddMoreAudios = isDomesticOmniMode && referenceAudios.length < getMaxAudiosForVideoModel(model);
     const canAddMoreReferences = canAddMoreImages || canAddMoreVideos || canAddMoreAudios;
+    const connectorReferenceImages = useMemo(() => (
+        resolveReferenceConnectorImages(elementId, (canvasElements || []) as unknown as CanvasElement[])
+    ), [canvasElements, elementId]);
+    const connectorReferenceVideos = useMemo(() => (
+        resolveReferenceConnectorVideos(elementId, (canvasElements || []) as unknown as CanvasElement[])
+    ), [canvasElements, elementId]);
+    const connectorReferenceConnectorIds = useMemo(() => {
+        const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
+        return getIncomingReferenceConnectors(elementId, canvasElementList).map((connector) => connector.id);
+    }, [canvasElements, elementId]);
     const isReferenceUploadBusy = uploadingReferenceKind !== null;
     const basePromptMentions = useMemo(() => buildVideoPromptMentions({
         useFrameLabels: usesFrameImages,
@@ -355,7 +376,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         if (patch) {
             onElementChange?.(elementId, patch);
         }
-    }, [aspectRatio, currentElement?.height, currentElement?.selectedAspectRatio, currentElement?.width, currentElement?.x, currentElement?.y, elementId, onElementChange]);
+    }, [aspectRatio, currentElement, elementId, onElementChange]);
 
     useEffect(() => {
         if (!isDomesticModel) {
@@ -421,6 +442,61 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         referenceAudios,
         onElementChange,
     });
+
+    useEffect(() => {
+        if (connectorReferenceImages.length === 0) {
+            return;
+        }
+
+        setFrameImages((prev) => {
+            let next = prev;
+            for (const image of connectorReferenceImages) {
+                if (next.length >= maxImageSlots || next.some((item) => item.image === image)) {
+                    continue;
+                }
+                if (next === prev) {
+                    next = [...prev];
+                }
+                next.push({
+                    id: uuidv4(),
+                    image,
+                    imageType: usesReferenceImages ? 'reference' : resolveNextFrameSlotType(next),
+                    name: '连线参考图',
+                });
+            }
+            return next;
+        });
+    }, [connectorReferenceImages, maxImageSlots, usesReferenceImages]);
+
+    useEffect(() => {
+        if (connectorReferenceVideos.length === 0 || !isDomesticModel) {
+            return;
+        }
+
+        if (domesticMode !== 'omni-reference') {
+            setDomesticMode('omni-reference');
+        }
+
+        setReferenceVideos((prev) => {
+            const maxVideos = getMaxVideosForVideoModel(model);
+            let next = prev;
+            for (const video of connectorReferenceVideos) {
+                if (next.length >= maxVideos || next.some((item) => item.url === video)) {
+                    continue;
+                }
+                if (next === prev) {
+                    next = [...prev];
+                }
+                next.push({
+                    id: uuidv4(),
+                    url: video,
+                    name: '连线参考视频',
+                    kind: 'video',
+                });
+            }
+            return next;
+        });
+    }, [connectorReferenceVideos, domesticMode, isDomesticModel, model]);
 
     useEffect(() => {
         if (!currentElement?.selectedModel) {
@@ -582,12 +658,59 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
     }, [prompt]);
 
-    const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string; imageType?: 'first_frame' | 'last_frame' | 'reference' }) => {
+    const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string; imageType?: 'first_frame' | 'last_frame' | 'reference'; sourceElementId?: string; sourceElementType?: 'image' | 'video' }) => {
         if (!detail.imageContent) return;
+
+        const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
+        const sourceElement = detail.sourceElementId
+            ? canvasElementList.find((element) => element.id === detail.sourceElementId)
+            : undefined;
+        const sourceElementType = detail.sourceElementType || (sourceElement?.type === 'video' ? 'video' : 'image');
+        const hasSameSourceConnector = detail.sourceElementId
+            ? getIncomingReferenceConnectors(elementId, canvasElementList).some((connector) => connector.connectorFrom === detail.sourceElementId)
+            : false;
+
+        if (sourceElementType === 'video') {
+            if (!isDomesticModel) {
+                setErrorMsg('当前视频模型不支持从画布选择视频作为全能参考素材');
+                return;
+            }
+
+            if (domesticMode !== 'omni-reference') {
+                setDomesticMode('omni-reference');
+            }
+
+            if (referenceVideos.length >= getMaxVideosForVideoModel(model)) {
+                return;
+            }
+
+            if (detail.sourceElementId && !hasSameSourceConnector) {
+                onCreateReferenceConnectorFromCanvasSelection?.(detail.sourceElementId, elementId);
+            }
+
+            const sourceName = sourceElement?.displayName?.trim() || '画布视频';
+            setReferenceVideos((prev) => {
+                if (prev.some((item) => item.url === detail.imageContent) || prev.length >= getMaxVideosForVideoModel(model)) {
+                    return prev;
+                }
+
+                return [...prev, {
+                    id: uuidv4(),
+                    url: detail.imageContent!,
+                    name: sourceName,
+                    kind: 'video',
+                }];
+            });
+            return;
+        }
 
         const imageType = detail.imageType || (usesReferenceImages ? 'reference' : resolveNextFrameSlotType(frameImages));
         const maxImages = maxImageSlots;
         if (frameImages.length >= maxImages) return;
+
+        if (imageType === 'reference' && detail.sourceElementId && !hasSameSourceConnector) {
+            onCreateReferenceConnectorFromCanvasSelection?.(detail.sourceElementId, elementId);
+        }
 
         setFrameImages((prev) => [...prev, {
             id: uuidv4(),
@@ -595,7 +718,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             imageType,
             name: '画布图片',
         }]);
-    }, [frameImages, maxImageSlots, usesReferenceImages]);
+    }, [canvasElements, domesticMode, elementId, frameImages, isDomesticModel, maxImageSlots, model, onCreateReferenceConnectorFromCanvasSelection, referenceVideos.length, usesReferenceImages]);
 
     useCanvasImageSelectionEvent(elementId, handleCanvasSelectionEvent);
 
@@ -766,13 +889,14 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     }, [prompt, promptMentionBindingMap, promptMentionTokens]);
 
     const clearMountedReferences = useCallback(() => {
+        connectorReferenceConnectorIds.forEach((connectorId) => onDeleteReferenceConnector?.(connectorId));
         setPrompt((prev) => removeMentionTokens(prev, promptMentionBindings.flatMap((binding) => binding.token ? [binding.token] : [])));
         setFrameImages([]);
         setReferenceVideos([]);
         setReferenceAudios([]);
         setPromptMentionBindings([]);
         clearCanvasReferenceBinding();
-    }, [clearCanvasReferenceBinding, promptMentionBindings]);
+    }, [clearCanvasReferenceBinding, connectorReferenceConnectorIds, onDeleteReferenceConnector, promptMentionBindings]);
 
     const handleKeyDown = async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         const editor = e.currentTarget;
@@ -1055,6 +1179,13 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     }, [addReferenceAsset]);
 
     const removeFrameImage = (id: string) => {
+        const frameImage = frameImages.find((fi) => fi.id === id);
+        if (frameImage) {
+            const connector = findIncomingReferenceConnectorForImage(elementId, (canvasElements || []) as unknown as CanvasElement[], frameImage.image);
+            if (connector) {
+                onDeleteReferenceConnector?.(connector.id);
+            }
+        }
         const binding = promptMentionBindingMap.get(id);
         const nextFrameImages = frameImages.filter((fi) => fi.id !== id);
         setFrameImages(nextFrameImages);
@@ -1069,6 +1200,9 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     };
 
     const removeReferenceAsset = (id: string, kind: ReferenceMediaKind) => {
+        const mediaItem = kind === 'video'
+            ? referenceVideos.find((item) => item.id === id)
+            : referenceAudios.find((item) => item.id === id);
         const binding = promptMentionBindingMap.get(id);
         const token = binding?.token;
         if (token) {
@@ -1076,6 +1210,17 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         }
         setPromptMentionBindings((prev) => prev.filter((binding) => binding.mentionId !== id));
         if (kind === 'video') {
+            if (mediaItem) {
+                const connector = findIncomingReferenceConnectorForMedia(
+                    elementId,
+                    (canvasElements || []) as unknown as CanvasElement[],
+                    mediaItem.url,
+                    'video',
+                );
+                if (connector) {
+                    onDeleteReferenceConnector?.(connector.id);
+                }
+            }
             setReferenceVideos((prev) => prev.filter((item) => item.id !== id));
             return;
         }

@@ -58,6 +58,8 @@ export function useCanvasSelectionBridge({
                 sourceInfo.generatorId,
                 pickedContent,
                 sourceInfo.imageType,
+                element.id,
+                element.type === 'video' ? 'video' : 'image',
             );
         }, 50);
     }, [setSelectedIds]);

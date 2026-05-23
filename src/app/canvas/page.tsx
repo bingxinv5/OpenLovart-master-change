@@ -1378,11 +1378,19 @@ function LovartCanvasContent() {
         handleOpenStoryboardPlanner,
     });
 
-    const handleConnectFlow = useCanvasFlowConnection({
+    const {
+        handleConnectFlow,
+        referenceConnectionSourceId,
+        referenceConnectionPort,
+        handleStartReferenceConnection,
+        handleCompleteReferenceConnection,
+        handleCreateReferenceConnectionFromCanvasSelection,
+        handleCreateReferenceConnectionTarget,
+        handleCancelReferenceConnection,
+    } = useCanvasFlowConnection({
         elementsMapRef,
         dirtyTrackerRef,
         setElements,
-        focusNewElement,
         buildGeneratorElement,
     });
 
@@ -1987,6 +1995,12 @@ function LovartCanvasContent() {
             onDragStart: handleDragStart,
             onDragEnd: handleDragEnd,
             onConnectFlow: handleConnectFlow,
+            referenceConnectionSourceId,
+            referenceConnectionPort,
+            onStartReferenceConnection: handleStartReferenceConnection,
+            onCompleteReferenceConnection: handleCompleteReferenceConnection,
+            onCreateReferenceConnectionTarget: handleCreateReferenceConnectionTarget,
+            onCancelReferenceConnection: handleCancelReferenceConnection,
             onCanvasMouseMove: handleCanvasMouseMove,
             spatialIndex,
             resolvedImageSrcMap: runtimeImageRenderSrcs,
@@ -2213,6 +2227,8 @@ function LovartCanvasContent() {
                     onGenerateImage={handleGenerateImage}
                     onRecoverImageTask={handleRecoverImageTask}
                     onAddGeneratedBatchImageElement={handleAddGeneratedBatchImageElement}
+                    onDeleteReferenceConnector={(connectorId) => removeElementsByIds([connectorId])}
+                    onCreateReferenceConnectorFromCanvasSelection={handleCreateReferenceConnectionFromCanvasSelection}
                     onGenerateVideo={handleGenerateVideo}
                     onRecoverVideoTask={handleRecoverVideoTask}
                     onRecordProjectMediaItem={recordProjectMediaItem}

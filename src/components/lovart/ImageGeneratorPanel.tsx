@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { debugLog } from '@/lib/debug-log';
-import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration } from './canvas-types';
+import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration, type CanvasElement } from './canvas-types';
+import { findIncomingReferenceConnectorForImage, getIncomingReferenceConnectors, resolveReferenceConnectorImages } from './canvas-reference-connectors';
 import { getGeneratorStatusState } from './GeneratorStatusCard';
 import { GeneratorStatusSection } from './generator-panel-sections';
 import { classifyGenerationError, isRecoverableGenerationSubmissionError, withSubmissionRecoveryHint } from './generator-error-utils';
@@ -97,10 +98,12 @@ interface ImageGeneratorPanelProps {
     onRequestCanvasSelect?: () => void;
     projectReferenceImages?: ProjectReferenceImageItem[];
     onUseProjectReferenceImage?: (id: string) => void;
+    onDeleteReferenceConnector?: (connectorId: string) => void;
+    onCreateReferenceConnectorFromCanvasSelection?: (sourceElementId: string, targetElementId: string) => void;
 }
 
 export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
-    const { elementId, onGenerate, onRecoverTask, isGenerating: isGeneratingFromParent, style, canvasElements, onElementChange, onSubmittingChange, onAddElement, onRequestCanvasSelect, projectReferenceImages = [], onUseProjectReferenceImage } = props;
+    const { elementId, onGenerate, onRecoverTask, isGenerating: isGeneratingFromParent, style, canvasElements, onElementChange, onSubmittingChange, onAddElement, onRequestCanvasSelect, projectReferenceImages = [], onUseProjectReferenceImage, onDeleteReferenceConnector, onCreateReferenceConnectorFromCanvasSelection } = props;
     const imageDefaults = useImageGenerationDefaults();
     const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.image);
 
@@ -375,6 +378,14 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setFavoriteReferences(readFavoriteReferenceImages());
     }, []);
 
+    const connectorReferenceImages = useMemo(() => (
+        resolveReferenceConnectorImages(elementId, (canvasElements || []) as unknown as CanvasElement[])
+    ), [canvasElements, elementId]);
+    const connectorReferenceConnectorIds = useMemo(() => {
+        const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
+        return getIncomingReferenceConnectors(elementId, canvasElementList).map((connector) => connector.id);
+    }, [canvasElements, elementId]);
+
     const mergeReferenceImages = useCallback((current: (File | string)[], incoming: (File | string)[]) => {
         const next = [...current];
         for (const candidate of incoming) {
@@ -401,6 +412,20 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
         return next.slice(0, maxReferenceImages);
     }, [maxReferenceImages]);
+
+    useEffect(() => {
+        if (connectorReferenceImages.length === 0) {
+            return;
+        }
+
+        setReferenceImages((prev) => {
+            const next = mergeReferenceImages(prev, connectorReferenceImages);
+            if (next.length === prev.length && next.every((item, index) => item === prev[index])) {
+                return prev;
+            }
+            return next;
+        });
+    }, [connectorReferenceImages, mergeReferenceImages]);
 
     const syncPromptMentionQuery = useCallback((nextPrompt: string, caretIndex: number) => {
         setMentionQuery(resolveTextareaMentionQuery(nextPrompt, caretIndex, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens }));
@@ -554,13 +579,21 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [currentElement?.referenceImageId, elementId, onElementChange]);
 
     const handleClearReferenceImages = useCallback(() => {
+        connectorReferenceConnectorIds.forEach((connectorId) => onDeleteReferenceConnector?.(connectorId));
         setPrompt((prev) => removeMentionTokens(prev, promptReferenceMentions.map((mention) => mention.token)));
         setReferenceImages([]);
         setMentionQuery(null);
         clearCanvasReferenceBinding();
-    }, [clearCanvasReferenceBinding, promptReferenceMentions]);
+    }, [clearCanvasReferenceBinding, connectorReferenceConnectorIds, onDeleteReferenceConnector, promptReferenceMentions]);
 
     const handleRemoveReferenceImage = useCallback((index: number) => {
+        const imageToRemove = referenceImages[index];
+        if (typeof imageToRemove === 'string') {
+            const connector = findIncomingReferenceConnectorForImage(elementId, (canvasElements || []) as unknown as CanvasElement[], imageToRemove);
+            if (connector) {
+                onDeleteReferenceConnector?.(connector.id);
+            }
+        }
         setPrompt((prev) => remapPromptReferenceTokensAfterRemoval(prev, index + 1));
         setReferenceImages((prev) => {
             const next = prev.filter((_, itemIndex) => itemIndex !== index);
@@ -570,7 +603,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             return next;
         });
         setMentionQuery(null);
-    }, [clearCanvasReferenceBinding]);
+    }, [canvasElements, clearCanvasReferenceBinding, elementId, onDeleteReferenceConnector, referenceImages]);
 
     useImageGeneratorPanelPersistence({
         elementId,
@@ -702,15 +735,22 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         if (patch) {
             onElementChange?.(elementId, patch);
         }
-    }, [aspectRatio, currentElement?.height, currentElement?.selectedAspectRatio, currentElement?.width, currentElement?.x, currentElement?.y, elementId, onElementChange]);
+    }, [aspectRatio, currentElement, elementId, onElementChange]);
 
     useClearGeneratorError(elementId, errorFromElement, onElementChange);
 
-    const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string }) => {
+    const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string; sourceElementId?: string }) => {
         if (detail.imageContent) {
             setReferenceImages((prev) => mergeReferenceImages(prev, [detail.imageContent!]));
+            const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
+            const hasSameSourceConnector = detail.sourceElementId
+                ? getIncomingReferenceConnectors(elementId, canvasElementList).some((connector) => connector.connectorFrom === detail.sourceElementId)
+                : false;
+            if (detail.sourceElementId && !hasSameSourceConnector) {
+                onCreateReferenceConnectorFromCanvasSelection?.(detail.sourceElementId, elementId);
+            }
         }
-    }, [mergeReferenceImages]);
+    }, [canvasElements, elementId, mergeReferenceImages, onCreateReferenceConnectorFromCanvasSelection]);
 
     useCanvasImageSelectionEvent(elementId, handleCanvasSelectionEvent);
 

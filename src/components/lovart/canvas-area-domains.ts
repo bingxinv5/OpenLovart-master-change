@@ -5,7 +5,7 @@
  * by their functional domain, reducing the overall prop count from 50+ to ~15.
  */
 
-import type { CanvasElement, CanvasElementExportFormat } from './canvas-types';
+import type { CanvasConnectorPort, CanvasElement, CanvasElementExportFormat } from './canvas-types';
 import type { CanvasElementPatchAttrs } from './canvas-element-patch';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import type { SpatialIndex } from '@/lib/editor-kernel';
@@ -102,6 +102,7 @@ export interface GeneratorDomainPort {
     onExportStoryboardSelection?: (ids: string[]) => void;
     generatorSubmittingMap?: Record<string, boolean>;
     highlightedResultId?: string | null;
+    newlyCreatedGeneratorMap?: Record<string, boolean>;
 }
 
 /**
@@ -166,6 +167,12 @@ export interface MiscDomainPort {
     onDragStart?: () => void;
     onDragEnd?: () => void;
     onConnectFlow?: (element: CanvasElement) => void;
+    referenceConnectionSourceId?: string | null;
+    referenceConnectionPort?: CanvasConnectorPort | null;
+    onStartReferenceConnection?: (sourceId: string, port?: CanvasConnectorPort) => void;
+    onCompleteReferenceConnection?: (targetId: string, targetPort?: CanvasConnectorPort) => void;
+    onCreateReferenceConnectionTarget?: (type: Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>, position: { x: number; y: number }) => void;
+    onCancelReferenceConnection?: () => void;
     onCanvasMouseMove?: (canvasX: number, canvasY: number) => void;
     spatialIndex?: SpatialIndex;
     resolvedImageSrcMap?: Record<string, string>;
