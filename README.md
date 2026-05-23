@@ -61,6 +61,7 @@ npm install
 ```env
 AI_API_KEY=your_ai_api_key
 AI_API_BASE_URL=https://api.bltcy.ai
+OPENLOVART_PUBLIC_BASE_URL=https://your-public-openlovart-domain.example
 UPSCAYL_API_BASE_URL=http://127.0.0.1:3001
 ```
 
@@ -68,6 +69,7 @@ UPSCAYL_API_BASE_URL=http://127.0.0.1:3001
 
 - `AI_API_KEY`：主站服务端默认使用的 AI 网关密钥
 - `AI_API_BASE_URL`：可选，默认回落到 `https://api.bltcy.ai`
+- `OPENLOVART_PUBLIC_BASE_URL`：可选；当使用 Laomandi 上传本地参考媒体时必须配置为 HTTPS 公网地址，供上游 Assets API 拉取素材
 - `UPSCAYL_API_BASE_URL`：可选，主站会通过 `/api/upscale/*` 服务端代理访问 Upscayl
 - 设置中心的 API 页支持为“当前机器运行实例”保存一份 Upscayl 地址覆盖
 
