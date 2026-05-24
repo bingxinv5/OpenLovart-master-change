@@ -6,6 +6,8 @@ import type { CanvasElement } from './canvas-types';
 const SCREENSPACE_RESIZE_HANDLE_SIZE = 10;
 const SCREENSPACE_RESIZE_HIT_SIZE = 24;
 const SCREENSPACE_RESIZE_EDGE_THICKNESS = 14;
+const SCREENSPACE_REFERENCE_CONNECTION_PRIORITY_MAX_WIDTH = 160;
+const SCREENSPACE_REFERENCE_CONNECTION_PRIORITY_MAX_EFFECTIVE_SCALE = 0.45;
 
 const SCREENSPACE_RESIZE_HANDLE_SPECS = [
     { handle: 'nw', cursor: 'nw-resize', style: { left: 0, top: 0, transform: 'translate(-50%, -50%)' } },
@@ -85,10 +87,53 @@ export function canUseScreenSpaceResizeOverlayForElement(element?: CanvasElement
         && element.type !== 'storyboard-planner';
 }
 
+function getOverlayEffectiveScale(overlay: ScreenSpaceResizeOverlayState) {
+    const elementWidth = overlay.element.width;
+    if (!Number.isFinite(elementWidth) || (elementWidth ?? 0) <= 0) {
+        return null;
+    }
+
+    const effectiveScale = overlay.width / (elementWidth ?? 1);
+    return Number.isFinite(effectiveScale) && effectiveScale > 0 ? effectiveScale : null;
+}
+
+export function shouldPreferReferenceConnectionOnRight(overlay?: ScreenSpaceResizeOverlayState | null) {
+    if (!overlay) {
+        return false;
+    }
+
+    if (overlay.element.type !== 'image' || !Number.isFinite(overlay.width) || overlay.width <= 0) {
+        return false;
+    }
+
+    const effectiveScale = getOverlayEffectiveScale(overlay);
+    return overlay.width <= SCREENSPACE_REFERENCE_CONNECTION_PRIORITY_MAX_WIDTH
+        || (effectiveScale !== null && effectiveScale <= SCREENSPACE_REFERENCE_CONNECTION_PRIORITY_MAX_EFFECTIVE_SCALE);
+}
+
+export function getAlwaysSuppressedResizeHandles(overlay?: ScreenSpaceResizeOverlayState | null) {
+    return overlay?.element.type === 'image'
+        ? ['e']
+        : [];
+}
+
+export function getSuppressedResizeHandlesForReferenceConnectionPriority(overlay?: ScreenSpaceResizeOverlayState | null) {
+    return shouldPreferReferenceConnectionOnRight(overlay)
+        ? ['e']
+        : [];
+}
+
 export function ScreenSpaceResizeOverlay({ overlay, onResizeStart }: ScreenSpaceResizeOverlayProps) {
+    const suppressedHandles = new Set([
+        ...getAlwaysSuppressedResizeHandles(overlay),
+        ...getSuppressedResizeHandlesForReferenceConnectionPriority(overlay),
+    ]);
+    const prefersReferenceConnectionOnRight = suppressedHandles.size > 0;
+
     return (
         <div
             className="pointer-events-none absolute z-[118]"
+            data-screen-resize-priority={prefersReferenceConnectionOnRight ? 'reference-connection' : 'resize'}
             style={{
                 left: overlay.left,
                 top: overlay.top,
@@ -96,10 +141,11 @@ export function ScreenSpaceResizeOverlay({ overlay, onResizeStart }: ScreenSpace
                 height: overlay.height,
             }}
         >
-            {SCREENSPACE_RESIZE_EDGE_SPECS.map((edge) => (
+            {SCREENSPACE_RESIZE_EDGE_SPECS.filter((edge) => !suppressedHandles.has(edge.handle)).map((edge) => (
                 <div
                     key={`${overlay.element.id}-edge-${edge.handle}`}
                     className="pointer-events-auto absolute bg-transparent"
+                    data-screen-resize-edge={edge.handle}
                     style={{
                         ...edge.style,
                         cursor: edge.cursor,
@@ -107,10 +153,11 @@ export function ScreenSpaceResizeOverlay({ overlay, onResizeStart }: ScreenSpace
                     onMouseDown={(event) => onResizeStart(event, edge.handle, overlay.element)}
                 />
             ))}
-            {SCREENSPACE_RESIZE_HANDLE_SPECS.map((handle) => (
+            {SCREENSPACE_RESIZE_HANDLE_SPECS.filter((handle) => !suppressedHandles.has(handle.handle)).map((handle) => (
                 <div
                     key={`${overlay.element.id}-handle-${handle.handle}`}
                     className="pointer-events-auto absolute flex items-center justify-center rounded-full"
+                    data-screen-resize-handle={handle.handle}
                     style={{
                         ...handle.style,
                         width: SCREENSPACE_RESIZE_HIT_SIZE,

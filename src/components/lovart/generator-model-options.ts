@@ -19,7 +19,9 @@ import {
     isJieKouNanoBananaImageModel as isKnownJieKouNanoBananaImageModel,
     isOpenAiGptImageModel as isKnownOpenAiGptImageModel,
     isVApiGeminiImageModel as isKnownVApiGeminiImageModel,
+    resolveJieKouGptImageSize,
     resolveMagicApiOpenAiStyleImageSize,
+    resolveOpenAiGptImageSize,
     shouldUseDomesticImageBatching,
 } from '@/lib/image-generation-models';
 import { DEFAULT_AI_PROVIDER_ID, getProviderImageModels, getProviderVideoModels, isJieKouProvider, isMagicApiProvider, isVApiProvider, type AiProviderId } from '@/lib/ai-providers';
@@ -219,6 +221,38 @@ export function resolveImageGeneratorModelOptions({
         displayedAspectRatio,
         settingsSummary,
     };
+}
+
+export function resolveImageGeneratorFallbackSize({
+    model,
+    imageSize,
+    aspectRatio,
+    providerId = DEFAULT_AI_PROVIDER_ID,
+    preferredStandardImageSize,
+}: {
+    model: ImageModel;
+    imageSize: ImageSize;
+    aspectRatio: ImageAspectRatio;
+    providerId?: AiProviderId;
+    preferredStandardImageSize?: ImageSize;
+}): ImageSize {
+    if (isMagicApiProvider(providerId) && isKnownOpenAiGptImageModel(model)) {
+        return resolveMagicApiOpenAiStyleImageSize(model, aspectRatio, imageSize) as ImageSize;
+    }
+
+    if (isJieKouProvider(providerId) && isKnownJieKouGptImageModel(model)) {
+        return resolveJieKouGptImageSize(imageSize, aspectRatio) as ImageSize;
+    }
+
+    if (isKnownOpenAiGptImageModel(model)) {
+        return resolveOpenAiGptImageSize(imageSize, aspectRatio) as ImageSize;
+    }
+
+    if (preferredStandardImageSize) {
+        return preferredStandardImageSize;
+    }
+
+    return imageSize;
 }
 
 export function getVideoModelOptionsForProvider(providerId: AiProviderId = DEFAULT_AI_PROVIDER_ID): VideoModel[] {

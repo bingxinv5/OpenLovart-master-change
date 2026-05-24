@@ -32,12 +32,14 @@ import type {
     StoryboardAuditFilter,
     StoryboardNavigationScope,
 } from './canvas-runtime-types';
+import type { CanvasGeneratorCreationOptions } from './canvas-generator-settings';
 import { clearSubmission, persistGeneration, persistSubmission, removeGeneration } from './generation-persistence';
 
 type CanvasElementBuilder = (attrs: Omit<CanvasElement, 'id' | 'type'>) => CanvasElement;
 type CanvasGeneratorBuilder = (
     type: Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>,
     attrs: Omit<CanvasElement, 'id' | 'type'>,
+    options?: CanvasGeneratorCreationOptions,
 ) => CanvasElement;
 
 type StoryboardExportOrderedItem = {
@@ -590,10 +592,6 @@ export function useCanvasStoryboardActions({
                 referenceImageId: element.id,
                 parentFrameId: element.parentFrameId,
                 savedPrompt: element.savedPrompt,
-                selectedModel: videoDefaults.model,
-                selectedAspectRatio: videoDefaults.aspectRatio,
-                selectedDuration: videoDefaults.duration,
-                selectedEnhancePrompt: videoDefaults.enhancePrompt,
                 savedFrameImages: JSON.stringify(frameImages),
                 generationBatchId: batchId,
                 generationBatchTitle: batchTitle,
@@ -603,6 +601,10 @@ export function useCanvasStoryboardActions({
                 storyboardCameraMove: element.storyboardCameraMove,
                 storyboardDuration: element.storyboardDuration,
                 storyboardNote: element.storyboardNote,
+            }, {
+                fallbackSettings: {
+                    selectedAspectRatio: videoDefaults.aspectRatio,
+                },
             });
         });
 

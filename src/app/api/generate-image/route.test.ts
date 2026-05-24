@@ -676,6 +676,39 @@ describe('generate-image route', () => {
         expect(payload.taskId).toMatch(/^magicapi-local:/);
     });
 
+    it('does not retry MagicAPI Gemini image submissions after background submit timeouts', async () => {
+        vi.useFakeTimers();
+        try {
+            const fetchSpy = vi.spyOn(globalThis, 'fetch');
+            const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+            const timeoutError = new Error('The operation was aborted due to timeout');
+            timeoutError.name = 'TimeoutError';
+            fetchSpy.mockRejectedValue(timeoutError);
+
+            const response = await POST(createRequest({
+                prompt: 'MagicAPI Gemini 默认慢任务',
+                model: 'gemini-3-pro-image-preview',
+                aspectRatio: '21:9',
+                imageSize: '2K',
+            }, {
+                'x-ai-provider': 'magicapi',
+            }));
+
+            expect(response.status).toBe(200);
+            const payload = await response.json();
+            expect(payload.status).toBe('pending');
+            expect(payload.taskId).toMatch(/^magicapi-local:/);
+
+            await vi.advanceTimersByTimeAsync(3_000);
+
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://localhost:3001/v1beta/models/gemini-3-pro-image-preview:generateContent');
+            expect(timeoutSpy).toHaveBeenCalledWith(300000);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('builds MagicAPI Doubao image payloads from the plugin aspect-ratio size map', async () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         fetchSpy.mockResolvedValue(new Response(JSON.stringify({

@@ -17,6 +17,9 @@ export interface GeneratorReferencePreviewItem {
     previewImage?: string | File;
 }
 
+const REFERENCE_HOVER_OPEN_DELAY_MS = 15;
+const REFERENCE_HOVER_CLOSE_DELAY_MS = 160;
+
 interface GeneratorReferenceStackProps {
     items: GeneratorReferencePreviewItem[];
     canAddMore: boolean;
@@ -100,14 +103,84 @@ export function GeneratorReferenceStack({
     onClear,
     onRemove,
 }: GeneratorReferenceStackProps) {
+    const hasExpandableReferences = items.length > 0;
+    const [isHoverExpanded, setIsHoverExpanded] = React.useState(false);
+    const openTimerRef = React.useRef<number | null>(null);
+    const closeTimerRef = React.useRef<number | null>(null);
+
+    const clearOpenTimer = React.useCallback(() => {
+        if (openTimerRef.current !== null) {
+            window.clearTimeout(openTimerRef.current);
+            openTimerRef.current = null;
+        }
+    }, []);
+
+    const clearCloseTimer = React.useCallback(() => {
+        if (closeTimerRef.current !== null) {
+            window.clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    }, []);
+
+    const scheduleOpen = React.useCallback(() => {
+        if (!hasExpandableReferences || isHoverExpanded) {
+            return;
+        }
+
+        clearCloseTimer();
+        clearOpenTimer();
+        openTimerRef.current = window.setTimeout(() => {
+            setIsHoverExpanded(true);
+            openTimerRef.current = null;
+        }, REFERENCE_HOVER_OPEN_DELAY_MS);
+    }, [clearCloseTimer, clearOpenTimer, hasExpandableReferences, isHoverExpanded]);
+
+    const scheduleClose = React.useCallback(() => {
+        if (!hasExpandableReferences) {
+            return;
+        }
+
+        clearOpenTimer();
+        clearCloseTimer();
+        closeTimerRef.current = window.setTimeout(() => {
+            setIsHoverExpanded(false);
+            closeTimerRef.current = null;
+        }, REFERENCE_HOVER_CLOSE_DELAY_MS);
+    }, [clearCloseTimer, clearOpenTimer, hasExpandableReferences]);
+
+    const keepExpanded = React.useCallback(() => {
+        clearCloseTimer();
+    }, [clearCloseTimer]);
+
+    React.useEffect(() => {
+        if (hasExpandableReferences) {
+            return;
+        }
+
+        clearOpenTimer();
+        clearCloseTimer();
+        setIsHoverExpanded(false);
+    }, [clearCloseTimer, clearOpenTimer, hasExpandableReferences]);
+
+    React.useEffect(() => {
+        return () => {
+            clearOpenTimer();
+            clearCloseTimer();
+        };
+    }, [clearCloseTimer, clearOpenTimer]);
+
     return (
         <div
-            className={`${items.length > 0 ? 'group/refs' : ''} relative px-3 pb-2.5`}
+            className="relative px-3 pb-2.5"
             data-testid={testId}
             data-reference-count={items.length}
         >
             <div className="relative min-h-8">
-                <div className={`relative z-0 flex items-end gap-1 transition-all duration-300 ease-out ${items.length > 0 ? 'group-hover/refs:opacity-0 group-hover/refs:scale-95 group-hover/refs:pointer-events-none' : ''}`}>
+                <div
+                    className={`relative z-0 inline-flex items-end gap-1 transition-all duration-200 ease-out ${isHoverExpanded ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}
+                    onMouseEnter={hasExpandableReferences ? scheduleOpen : undefined}
+                    onMouseLeave={hasExpandableReferences ? scheduleClose : undefined}
+                >
                     {items.length > 0 && (
                         <div
                             className={`relative flex h-8 items-end ${REFERENCE_STACK_WIDTH_CLASSES[Math.min(items.length, 3)] || 'w-[52px]'}`}
@@ -141,8 +214,12 @@ export function GeneratorReferenceStack({
                     </div>
                 </div>
 
-                {items.length > 0 && (
-                    <div className="absolute inset-0 z-10 flex items-end gap-1.5 transition-all duration-300 ease-out opacity-0 scale-95 pointer-events-none group-hover/refs:opacity-100 group-hover/refs:scale-100 group-hover/refs:pointer-events-auto">
+                {hasExpandableReferences && (
+                    <div
+                        className={`absolute bottom-0 left-0 z-10 inline-flex items-end gap-1.5 transition-all duration-200 ease-out ${isHoverExpanded ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}
+                        onMouseEnter={keepExpanded}
+                        onMouseLeave={scheduleClose}
+                    >
                         <button
                             type="button"
                             onClick={onClear}
@@ -154,7 +231,7 @@ export function GeneratorReferenceStack({
                         {items.map((item, index) => (
                             <div
                                 key={item.id}
-                                className={`group/item relative shrink-0 transition-all duration-300 ease-out ${REFERENCE_STACK_DELAY_CLASSES[index] || 'delay-[440ms]'}`}
+                                className={`group/item relative shrink-0 transition-all duration-200 ease-out ${REFERENCE_STACK_DELAY_CLASSES[index] || 'delay-[440ms]'}`}
                                 title={`${item.title}${item.subtitle ? ` · ${item.subtitle}` : ''}`}
                             >
                                 <ReferencePreviewTile item={item} sizeClassName="h-10 w-10 rounded-xl border border-slate-200/60" imageClassName="rounded-xl" iconSize={14} />

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, Trash2, Wand2, Copy, ArrowRight, X, Send, Eye, EyeOff, Lock, Unlock, Wrench, LayoutGrid, Check, LibraryBig, BookmarkPlus } from 'lucide-react';
+import { Download, Trash2, Wand2, Copy, X, Send, Eye, EyeOff, Lock, Unlock, Wrench, LayoutGrid, Check, LibraryBig, BookmarkPlus } from 'lucide-react';
 import type { CanvasElement, CanvasElementExportFormat } from './canvas-types';
 import { ExportMenu } from './ExportMenu';
 import { WorkbenchImage } from './WorkbenchImage';
@@ -96,7 +96,7 @@ export function ContextToolbar({ element, onUpdate, onStoryboardSaved, storyboar
     );
 }
 
-function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onCopy, onDownload, projectReferenceImages = [], onUseProjectReferenceImage, onSaveAsProjectReference, onAiEdit, onRecoverTask, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onConnectFlow, onSendToChat, onToggleHidden, onToggleLocked, scale = 1 }: ContextToolbarProps) {
+function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onCopy, onDownload, projectReferenceImages = [], onUseProjectReferenceImage, onSaveAsProjectReference, onAiEdit, onRecoverTask, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onSendToChat, onToggleHidden, onToggleLocked, scale = 1 }: ContextToolbarProps) {
     const [showReferenceMenu, setShowReferenceMenu] = useState(false);
     const [showToolsMenu, setShowToolsMenu] = useState(false);
     const [showDownloadMenu, setShowDownloadMenu] = useState(false);
@@ -645,19 +645,6 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                         >
                             <BookmarkPlus size={14} />
                             <span className="text-xs font-semibold">参考</span>
-                        </button>
-                    )}
-
-                    {/* 流程图连接 */}
-                    {onConnectFlow && (
-                        <button
-                            data-testid="context-connect-flow-button"
-                            onClick={() => onConnectFlow(getElementWithCurrentProjectReferences())}
-                            className="pointer-events-auto shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-blue-50/80 px-3 py-2 text-blue-600 transition-all hover:bg-blue-100"
-                            title="创建流程图连接"
-                        >
-                            <ArrowRight size={14} />
-                            <span className="text-xs font-semibold">流程</span>
                         </button>
                     )}
 

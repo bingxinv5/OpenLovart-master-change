@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from './canvas-types';
+import { CANVAS_REFERENCE_CONNECTOR_KIND } from './canvas-reference-connectors';
 import {
     createSelectionBox,
     getSelectionBoxScreenRect,
@@ -80,5 +81,28 @@ describe('canvas-selection-box-state', () => {
             elements,
             selectedIds: ['existing'],
         })).toEqual(['existing', 'fallback']);
+    });
+
+    it('selects reference connectors whose curve bounds cross the selection box', () => {
+        const image = makeElement('image-a', { type: 'image', x: 0, y: 0, width: 100, height: 100, content: 'imgref://a' });
+        const generator = makeElement('generator-a', { type: 'image-generator', x: 220, y: 160, width: 140, height: 80 });
+        const connector = makeElement('connector-a', {
+            type: 'connector',
+            connectorKind: CANVAS_REFERENCE_CONNECTOR_KIND,
+            connectorFrom: image.id,
+            connectorTo: generator.id,
+        });
+
+        expect(resolveSelectionBoxSelectedIds({
+            box: { startX: 145, startY: 112, currentX: 175, currentY: 142, mode: 'replace' },
+            elements: [image, generator, connector],
+            selectedIds: [],
+        })).toEqual([connector.id]);
+
+        expect(resolveSelectionBoxSelectedIds({
+            box: { startX: 160, startY: 126, currentX: 161, currentY: 127, mode: 'replace' },
+            elements: [image, generator, connector],
+            selectedIds: ['existing'],
+        })).toEqual([]);
     });
 });

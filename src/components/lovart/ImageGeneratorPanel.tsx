@@ -69,6 +69,7 @@ import {
     GROK_IMAGE_ASPECT_RATIOS,
     getImageModelOptionsForProvider,
     isImageModel,
+    resolveImageGeneratorFallbackSize,
     resolveImageGeneratorModelOptions,
     type GenerateCount,
     type ImageAspectRatio as AspectRatio,
@@ -294,9 +295,19 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     useEffect(() => {
         if (!availableImageSizes.includes(imageSize)) {
-            setImageSize(availableImageSizes[0] || '1K');
+            const fallbackImageSize = availableImageSizes.includes(fallbackStandardImageSize)
+                ? fallbackStandardImageSize
+                : (availableImageSizes[0] || '1K');
+            const nextImageSize = resolveImageGeneratorFallbackSize({
+                providerId: apiProviderId,
+                model,
+                imageSize,
+                aspectRatio,
+                preferredStandardImageSize: fallbackImageSize,
+            });
+            setImageSize(availableImageSizes.includes(nextImageSize) ? nextImageSize : fallbackImageSize);
         }
-    }, [availableImageSizes, imageSize]);
+    }, [apiProviderId, aspectRatio, availableImageSizes, fallbackStandardImageSize, imageSize, model]);
 
     useEffect(() => {
         if (!availableImageQualities.includes(quality)) {

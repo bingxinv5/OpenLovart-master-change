@@ -14,7 +14,9 @@ import {
     type ReferenceConnectionStatus,
 } from './canvas-reference-connectors';
 
-const CANVAS_REFERENCE_BLUE = '#00BCFF';
+const CANVAS_REFERENCE_BLUE = '#149BFF';
+const CANVAS_REFERENCE_FLOW_CORE = '#63DCFF';
+const CANVAS_REFERENCE_FLOW_PULSE = '#BDF3FF';
 const CONNECTOR_HOVER_FLOW_DELAY_MS = 50;
 const CONNECTOR_DELETE_AFFORDANCE_DELAY_MS = 1000;
 const CONNECTOR_PRECISE_HIT_RADIUS_PX = 7.5;
@@ -504,7 +506,7 @@ ${hoverDeleteAffordance ? `
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 fill="none"
-                                opacity={isSemanticConnector ? 0.82 : 0.72}
+                                opacity={isSemanticConnector ? 0.9 : 0.72}
                                 markerEnd={isSemanticConnector ? undefined : 'url(#arrowhead)'}
                                 pointerEvents="none"
                             />
@@ -524,7 +526,7 @@ ${hoverDeleteAffordance ? `
                                     <path
                                         className="canvas-reference-flow-path canvas-reference-flow-core-path"
                                         d={renderData.path}
-                                        stroke="#5EDCFF"
+                                        stroke={CANVAS_REFERENCE_FLOW_CORE}
                                         strokeWidth={getReadableStrokeWidth(Math.max(3.75, connectorWidth + 1.3))}
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
@@ -535,7 +537,7 @@ ${hoverDeleteAffordance ? `
                                     <path
                                         className="canvas-reference-flow-path canvas-reference-flow-pulse-path"
                                         d={renderData.path}
-                                        stroke="#EAFBFF"
+                                        stroke={CANVAS_REFERENCE_FLOW_PULSE}
                                         strokeWidth={getReadableStrokeWidth(Math.max(6, connectorWidth + 3.75))}
                                         strokeLinecap="round"
                                         strokeLinejoin="round"

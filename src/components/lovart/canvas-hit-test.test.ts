@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from './canvas-types';
+import { CANVAS_REFERENCE_CONNECTOR_KIND } from './canvas-reference-connectors';
 import {
     elementContainsCanvasPoint,
     getBoxSelectedElementIds,
@@ -51,6 +52,74 @@ describe('canvas-hit-test', () => {
             makeElement('inside-a', { x: 20, y: 20 }),
             makeElement('inside-b', { x: 40, y: 40 }),
         ], { x1: 0, y1: 0, x2: 120, y2: 120 })).toEqual(['inside-a', 'inside-b']);
+    });
+
+    it('box-selects only the visible connector segment in crossed curves', () => {
+        const topLeftImage = makeElement('top-left-image', { type: 'image', x: 0, y: 0, width: 100, height: 100, content: 'imgref://top-left' });
+        const bottomLeftImage = makeElement('bottom-left-image', { type: 'image', x: 0, y: 350, width: 100, height: 100, content: 'imgref://bottom-left' });
+        const topRightGenerator = makeElement('top-right-generator', { type: 'image-generator', x: 500, y: 0, width: 120, height: 100 });
+        const bottomRightGenerator = makeElement('bottom-right-generator', { type: 'image-generator', x: 500, y: 350, width: 120, height: 100 });
+        const descendingConnector = makeElement('descending-connector', {
+            type: 'connector',
+            connectorKind: CANVAS_REFERENCE_CONNECTOR_KIND,
+            connectorFrom: topLeftImage.id,
+            connectorTo: bottomRightGenerator.id,
+            strokeWidth: 2.25,
+        });
+        const ascendingConnector = makeElement('ascending-connector', {
+            type: 'connector',
+            connectorKind: CANVAS_REFERENCE_CONNECTOR_KIND,
+            connectorFrom: bottomLeftImage.id,
+            connectorTo: topRightGenerator.id,
+            strokeWidth: 2.25,
+        });
+
+        expect(getBoxSelectedElementIds([
+            topLeftImage,
+            bottomLeftImage,
+            topRightGenerator,
+            bottomRightGenerator,
+            descendingConnector,
+            ascendingConnector,
+        ], { x1: 330, y1: 294, x2: 350, y2: 310 })).toEqual(['descending-connector']);
+    });
+
+    it('box-selects the triangle base without selecting the enclosing curves', () => {
+        const topLeftImage = makeElement('top-left-image', { type: 'image', x: 0, y: 0, width: 100, height: 100, content: 'imgref://top-left' });
+        const bottomLeftImage = makeElement('bottom-left-image', { type: 'image', x: 0, y: 350, width: 100, height: 100, content: 'imgref://bottom-left' });
+        const topRightGenerator = makeElement('top-right-generator', { type: 'image-generator', x: 500, y: 0, width: 120, height: 100 });
+        const bottomRightGenerator = makeElement('bottom-right-generator', { type: 'image-generator', x: 500, y: 350, width: 120, height: 100 });
+        const baseConnector = makeElement('base-connector', {
+            type: 'connector',
+            connectorKind: CANVAS_REFERENCE_CONNECTOR_KIND,
+            connectorFrom: bottomLeftImage.id,
+            connectorTo: bottomRightGenerator.id,
+            strokeWidth: 2.25,
+        });
+        const descendingConnector = makeElement('descending-connector', {
+            type: 'connector',
+            connectorKind: CANVAS_REFERENCE_CONNECTOR_KIND,
+            connectorFrom: topLeftImage.id,
+            connectorTo: bottomRightGenerator.id,
+            strokeWidth: 2.25,
+        });
+        const ascendingConnector = makeElement('ascending-connector', {
+            type: 'connector',
+            connectorKind: CANVAS_REFERENCE_CONNECTOR_KIND,
+            connectorFrom: bottomLeftImage.id,
+            connectorTo: topRightGenerator.id,
+            strokeWidth: 2.25,
+        });
+
+        expect(getBoxSelectedElementIds([
+            topLeftImage,
+            bottomLeftImage,
+            topRightGenerator,
+            bottomRightGenerator,
+            baseConnector,
+            descendingConnector,
+            ascendingConnector,
+        ], { x1: 300, y1: 394, x2: 320, y2: 406 })).toEqual(['base-connector']);
     });
 
     it('finds the smallest frame under the point while honoring excluded frame ids', () => {

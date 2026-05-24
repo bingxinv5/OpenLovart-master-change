@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useUser } from '@/lib/mock-clerk';
+import { getApiSettings } from '@/lib/api-settings';
 import { useSearchParams } from 'next/navigation';
 import { useProjectAssetCollection } from '@/hooks/useProjectAssetCollection';
 import { CanvasArea } from '@/components/lovart/CanvasArea';
@@ -63,6 +64,16 @@ import { useCanvasFlowConnection } from './use-canvas-flow-connection';
 import { useCanvasCommandActions } from './use-canvas-command-actions';
 import { useCanvasImageMigration } from './use-canvas-image-migration';
 import { useCanvasClipboardActions } from './use-canvas-clipboard-actions';
+import {
+    applyGeneratorCreationAspectRatioBounds,
+    createEmptyRecentGeneratorSettingsMap,
+    findLatestGeneratorSettingsFromElements,
+    isCanvasGeneratorElementType,
+    mergeGeneratorCreationAttrs,
+    pickGeneratorSettings,
+    type CanvasGeneratorCreationOptions,
+    type CanvasGeneratorElementType,
+} from './canvas-generator-settings';
 import { persistSubmission, clearSubmission } from './generation-persistence';
 import { saveViewportState } from './viewport-persistence';
 import {
@@ -115,6 +126,8 @@ import { buildGeneratorCanvasImages, buildSelectedCanvasImageIds } from './canva
 import { cancelActiveWorkerJobs } from '@/lib/image-worker-bridge';
 import { appendProjectMediaHistory, mediaHistoryStoreConfig, replaceProjectMediaHistory } from '@/lib/project-media-history';
 import { referenceLibraryStoreConfig } from '@/lib/project-reference-library';
+
+const GENERATOR_CREATION_ANIMATION_MS = 190;
 
 function isEditableOverlayTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
@@ -171,6 +184,7 @@ function LovartCanvasContent() {
         unloadedElementCount: 0,
     });
     const [currentProjectId, setCurrentProjectId] = useState<string | null>(projectId);
+    const lastGeneratorSettingsRef = useRef(createEmptyRecentGeneratorSettingsMap());
     const migrationPendingRef = useRef<string[]>([]); // IDs of elements migrated from base64 to ImageStore
     const isInitializedRef = useRef(false);
     const [isCanvasReadyForHistory, setIsCanvasReadyForHistory] = useState(false);
@@ -198,7 +212,7 @@ function LovartCanvasContent() {
         spatialIndexRef,
         spatialIndexNeedsRebuildRef,
         removeElementsByIds,
-        handleElementChange,
+        handleElementChange: baseHandleElementChange,
         handleDelete,
         addElement,
         addElements,
@@ -214,6 +228,91 @@ function LovartCanvasContent() {
         runtimeImageRenderSrcs,
         primeRuntimeImageRenderSrc,
     } = useRuntimeImageRenderSrcs(elements);
+
+    useEffect(() => {
+        lastGeneratorSettingsRef.current = createEmptyRecentGeneratorSettingsMap();
+    }, [currentProjectId]);
+
+    const rememberGeneratorSettings = useCallback((
+        type: CanvasGeneratorElementType,
+        source: Partial<CanvasElement>,
+    ) => {
+        const settings = pickGeneratorSettings(type, source);
+        if (Object.keys(settings).length === 0) {
+            return;
+        }
+
+        lastGeneratorSettingsRef.current[type] = {
+            ...lastGeneratorSettingsRef.current[type],
+            ...settings,
+        };
+    }, []);
+
+    const resolveRecentGeneratorSettings = useCallback((type: CanvasGeneratorElementType) => {
+        const remembered = lastGeneratorSettingsRef.current[type];
+        if (Object.keys(remembered).length > 0) {
+            return remembered;
+        }
+
+        return findLatestGeneratorSettingsFromElements(type, elements);
+    }, [elements]);
+
+    const handleElementChange = useCallback((id: string, newAttrs: Partial<CanvasElement>) => {
+        const element = elementsMapRef.current.get(id);
+        if (element && isCanvasGeneratorElementType(element.type)) {
+            rememberGeneratorSettings(element.type, {
+                ...element,
+                ...newAttrs,
+            });
+        }
+
+        baseHandleElementChange(id, newAttrs);
+    }, [baseHandleElementChange, elementsMapRef, rememberGeneratorSettings]);
+
+    const [newlyCreatedGeneratorMap, setNewlyCreatedGeneratorMap] = useState<Record<string, boolean>>({});
+    const generatorCreationAnimationTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+    const clearGeneratorCreationAnimationTimer = useCallback((elementId: string) => {
+        const timer = generatorCreationAnimationTimerRef.current[elementId];
+        if (!timer) {
+            return;
+        }
+
+        clearTimeout(timer);
+        delete generatorCreationAnimationTimerRef.current[elementId];
+    }, []);
+
+    const markGeneratorAsNewlyCreated = useCallback((elementId: string) => {
+        setNewlyCreatedGeneratorMap((prev) => (prev[elementId] ? prev : {
+            ...prev,
+            [elementId]: true,
+        }));
+        clearGeneratorCreationAnimationTimer(elementId);
+        generatorCreationAnimationTimerRef.current[elementId] = setTimeout(() => {
+            delete generatorCreationAnimationTimerRef.current[elementId];
+            setNewlyCreatedGeneratorMap((prev) => {
+                if (!prev[elementId]) {
+                    return prev;
+                }
+
+                const { [elementId]: _removed, ...rest } = prev;
+                return rest;
+            });
+        }, GENERATOR_CREATION_ANIMATION_MS + 40);
+    }, [clearGeneratorCreationAnimationTimer]);
+
+    useEffect(() => {
+        return () => {
+            Object.values(generatorCreationAnimationTimerRef.current).forEach((timer) => clearTimeout(timer));
+            generatorCreationAnimationTimerRef.current = {};
+        };
+    }, []);
+
+    useEffect(() => {
+        Object.values(generatorCreationAnimationTimerRef.current).forEach((timer) => clearTimeout(timer));
+        generatorCreationAnimationTimerRef.current = {};
+        setNewlyCreatedGeneratorMap({});
+    }, [currentProjectId]);
 
     const [isDraggingElement, setIsDraggingElement] = useState(false);
     const [initialPrompt, setInitialPrompt] = useState<string | undefined>(undefined);
@@ -658,14 +757,18 @@ function LovartCanvasContent() {
                     dirtyTrackerRef.current.markModified(elementId);
                 }
 
+                const taskType = el.type === 'video-generator' || el.type === 'video' ? 'video' : 'image';
+                const apiSettings = getApiSettings();
+
                 persistSubmission(pid, elementId, {
                     prompt: actualPrompt,
                     model: actualModel,
+                    providerId: apiSettings.featureProviders[taskType],
                     aspectRatio: actualAspectRatio,
                     imageSize: liveParams?.imageSize || '4K',
                     quality: actualQuality,
                     generateCount: actualGenerateCount,
-                    taskType: el.type === 'video-generator' || el.type === 'video' ? 'video' : 'image',
+                    taskType,
                     duration: liveParams?.duration,
                     timestamp: Date.now(),
                 });
@@ -1213,9 +1316,20 @@ function LovartCanvasContent() {
     const buildGeneratorElement = useCallback((
         type: Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>,
         attrs: Omit<CanvasElement, 'id' | 'type'>,
+        options?: CanvasGeneratorCreationOptions,
     ) => {
-        return createGeneratorElement(type, attrs, { uuidFn: uuidv4 });
-    }, []);
+        const mergedAttrs = mergeGeneratorCreationAttrs(
+            type,
+            attrs,
+            resolveRecentGeneratorSettings(type),
+            options?.fallbackSettings,
+        );
+        const normalizedAttrs = applyGeneratorCreationAspectRatioBounds(type, mergedAttrs);
+        const element = createGeneratorElement(type, normalizedAttrs, { uuidFn: uuidv4 });
+        markGeneratorAsNewlyCreated(element.id);
+        rememberGeneratorSettings(type, normalizedAttrs);
+        return element;
+    }, [markGeneratorAsNewlyCreated, rememberGeneratorSettings, resolveRecentGeneratorSettings]);
 
     const handleApplyAiCanvasPlan = useCanvasAiPlanExecutor({
         selectedIdsRef,
@@ -1959,6 +2073,7 @@ function LovartCanvasContent() {
             onExportStoryboardSelection: handleExportStoryboardSelection,
             generatorSubmittingMap,
             highlightedResultId,
+            newlyCreatedGeneratorMap,
         },
         media: {
             projectReferenceImages: projectReferenceItems,

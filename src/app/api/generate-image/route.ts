@@ -837,9 +837,7 @@ async function submitMagicApiImageGeneration(params: {
             imageSize,
             normalizedImages,
         });
-    const submitTimeoutMs = isOpenAiGptImageModel(selectedModel)
-        ? AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit
-        : AI_UPSTREAM_TIMEOUT_MS.submit;
+    const submitTimeoutMs = AI_UPSTREAM_TIMEOUT_MS.slowImageSubmit;
 
     const localTaskId = createMagicApiLocalImageJob(async () => {
         const data = await fetchMagicApiImageGenerationData({
@@ -848,7 +846,7 @@ async function submitMagicApiImageGeneration(params: {
             baseUrl,
             requestBody,
             timeoutMs: submitTimeoutMs,
-            attempts: isOpenAiGptImageModel(selectedModel) ? 1 : undefined,
+            attempts: 1,
         });
         const normalizedData = normalizeMagicApiLocalImageResultData(data, isGeminiNative);
 

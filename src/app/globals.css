@@ -981,25 +981,29 @@ body::before {
 }
 
 .canvas-reference-flow-path {
+  mix-blend-mode: normal;
+}
+
+:root[data-canvas-theme='dark'] .canvas-reference-flow-path {
   mix-blend-mode: screen;
 }
 
 .canvas-reference-flow-aura-path {
-  opacity: 0.2;
-  filter: drop-shadow(0 0 12px rgba(0, 188, 255, 0.5));
+  opacity: 0.3;
+  filter: drop-shadow(0 0 12px rgba(20, 155, 255, 0.42));
 }
 
 .canvas-reference-flow-core-path {
-  opacity: 0.58;
-  filter: drop-shadow(0 0 6px rgba(94, 220, 255, 0.58));
+  opacity: 0.76;
+  filter: drop-shadow(0 0 7px rgba(99, 220, 255, 0.52));
   stroke-dasharray: 0.14 0.36;
   stroke-dashoffset: 1;
   animation: canvas-reference-flow-river 2.8s linear infinite;
 }
 
 .canvas-reference-flow-pulse-path {
-  opacity: 0.92;
-  filter: drop-shadow(0 0 8px rgba(234, 251, 255, 0.72)) drop-shadow(0 0 12px rgba(0, 188, 255, 0.48));
+  opacity: 0.96;
+  filter: drop-shadow(0 0 8px rgba(189, 243, 255, 0.64)) drop-shadow(0 0 12px rgba(20, 155, 255, 0.34));
   stroke-dasharray: 0.055 0.445;
   stroke-dashoffset: 1;
   animation: canvas-reference-flow-river 2.8s linear infinite;
@@ -1007,12 +1011,12 @@ body::before {
 
 .canvas-reference-draft-path {
   animation: canvas-reference-draft 0.85s linear infinite;
-  filter: drop-shadow(0 0 7px rgba(0, 188, 255, 0.4));
+  filter: drop-shadow(0 0 7px rgba(20, 155, 255, 0.34));
 }
 
 .canvas-reference-draft-path.is-valid {
-  stroke: #00BCFF;
-  filter: drop-shadow(0 0 9px rgba(0, 188, 255, 0.52));
+  stroke: #149BFF;
+  filter: drop-shadow(0 0 9px rgba(20, 155, 255, 0.46));
   stroke-dasharray: 10 5;
 }
 

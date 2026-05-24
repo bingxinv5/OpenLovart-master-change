@@ -1219,16 +1219,21 @@ try {
           record('图片上下文工具栏可勾选项目参考图', hasSourceAndSelectedReferences, aiEditReferenceDetail);
           record('AI 编辑请求带上项目参考图', hasSourceAndSelectedReferences, aiEditReferenceDetail);
 
-          const imageGeneratorPrompts = page.locator('textarea[placeholder*="描述图片内容"]');
-          const imageGeneratorCountBeforeContinue = await imageGeneratorPrompts.count().catch(() => 0);
-          const continueGenerateButton = page.locator('[data-testid="context-connect-flow-button"]:visible').last();
-          if (await continueGenerateButton.isVisible().catch(() => false)) {
-            await continueGenerateButton.click({ force: true });
-            await page.waitForFunction(
-              previousCount => document.querySelectorAll('textarea[placeholder*="描述图片内容"]').length > previousCount,
-              imageGeneratorCountBeforeContinue,
-              { timeout: 5000 },
-            ).catch(() => {});
+          const referenceOutputPort = page.locator('[data-testid="canvas-reference-output-port"]:visible').last();
+          if (await referenceOutputPort.isVisible().catch(() => false)) {
+            const outputBox = await referenceOutputPort.boundingBox().catch(() => null);
+            if (outputBox) {
+              const startX = outputBox.x + outputBox.width / 2;
+              const startY = outputBox.y + outputBox.height / 2;
+              await page.mouse.move(startX, startY);
+              await page.mouse.down();
+              await page.mouse.move(startX + 260, startY + 40, { steps: 8 });
+              await page.mouse.up();
+              const referenceNodeMenu = page.locator('[data-reference-node-menu="true"]');
+              if (await referenceNodeMenu.isVisible().catch(() => false)) {
+                await referenceNodeMenu.getByText('图像生成器', { exact: true }).click({ force: true });
+              }
+            }
             await page.waitForTimeout(600);
           }
           const continuedGeneratorRoot = page.locator('[data-testid="image-generator-panel"]:visible').last();

@@ -14,6 +14,8 @@ import { useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
 import { requestImageGeneration } from '@/lib/ai-client';
+import { getApiSettings } from '@/lib/api-settings';
+import { isMagicApiProvider } from '@/lib/ai-providers';
 import { debugLog } from '@/lib/debug-log';
 import { runImageGenerationFlow } from '@/components/lovart/image-generation-flow';
 import { runVideoGenerationFlow } from '@/components/lovart/video-generation-flow';
@@ -22,6 +24,7 @@ import { fetchRemoteBlob } from '@/lib/blob-utils';
 import { shouldUseDomesticImageBatching } from '@/lib/image-generation-models';
 import {
     createGenerationIdlePatch,
+    createGenerationFailurePatch,
     createGenerationTaskPatch,
 } from '@/lib/generation-task-state';
 import { syncGenerationsFromElements, persistGeneration, clearSubmission, loadPendingSubmissions } from './generation-persistence';
@@ -259,6 +262,25 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
 
             if (!isRecoverableGenerator && !isRecoverableImageEdit) {
                 clearSubmission(pid, elementId);
+                continue;
+            }
+
+            const submissionProviderId = sub.providerId || getApiSettings().featureProviders[sub.taskType === 'video' ? 'video' : 'image'];
+            if (sub.taskType === 'image' && isMagicApiProvider(submissionProviderId)) {
+                const message = 'MagicAPI / GeekNow 上一次生图提交可能仍在平台生成。为避免重复扣费，已停止自动重新提交；请在平台后台等待结果，拿到最终图片链接后导入，或确认作废后再手动重新生成。';
+                const map = elementsMapRef.current;
+                const currentEl = map.get(elementId);
+                if (currentEl) {
+                    map.set(elementId, {
+                        ...currentEl,
+                        ...createGenerationFailurePatch(message),
+                    });
+                    setElementsVersion(v => v + 1);
+                    dirtyTrackerRef.current.markModified(elementId);
+                }
+                clearSubmission(pid, elementId);
+                setGeneratorSubmittingMap(prev => updateGeneratorSubmittingMap(prev, elementId, false));
+                showToast('MagicAPI 生图可能仍在平台生成，已避免自动重提', 'info');
                 continue;
             }
 

@@ -10,8 +10,11 @@
  * 2. 在 API 请求发起前就记录"提交中"状态（含 prompt/model 等参数）。
  * 3. 重新加载画布时，从 sessionStorage 恢复未完成的生成任务：
  *    - 有 taskId → 直接恢复轮询
- *    - 无 taskId（提交被中断）→ 自动重新发起生成请求
+ *    - 无 taskId（提交被中断）→ 可恢复平台自动重新发起生成请求
+ *    - 非幂等付费同步提交（如 MagicAPI 生图）→ 不自动重提，避免重复扣费
  */
+
+import type { AiProviderId } from '@/lib/ai-providers';
 
 const STORAGE_KEY = 'lovart_active_generations';
 const SUBMISSION_KEY = 'lovart_pending_submissions';
@@ -29,6 +32,7 @@ export interface PendingGeneration {
 export interface PendingSubmission {
     prompt: string;
     model: string;
+    providerId?: AiProviderId;
     aspectRatio: string;
     imageSize: string;
     quality?: string;

@@ -9,6 +9,7 @@ import {
     getVideoModelOptionsForProvider,
     getVideoResolutionOptions,
     getImageModelOptionsForProvider,
+    resolveImageGeneratorFallbackSize,
     resolveImageGeneratorModelOptions,
 } from './generator-model-options';
 
@@ -183,6 +184,34 @@ describe('generator model options', () => {
             '1440x3360',
         ]);
         expect(gptOptions.availableImageQualities).toEqual(['high']);
+    });
+
+    it('resolves MagicAPI GPT fallback image size from aspect ratio instead of defaulting to square', () => {
+        expect(resolveImageGeneratorFallbackSize({
+            providerId: 'magicapi',
+            model: 'gpt-image-2-pro',
+            imageSize: '2K',
+            aspectRatio: '21:9',
+        })).toBe('3360x1440');
+    });
+
+    it('resolves non-MagicAPI GPT fallback image size from aspect ratio', () => {
+        expect(resolveImageGeneratorFallbackSize({
+            providerId: 'mkeai',
+            model: 'gpt-image-2',
+            imageSize: '2K',
+            aspectRatio: '21:9',
+        })).toBe('2240x960');
+    });
+
+    it('prefers the configured standard fallback size for non-GPT models', () => {
+        expect(resolveImageGeneratorFallbackSize({
+            providerId: 'magicapi',
+            model: 'gemini-3-pro-image-preview',
+            imageSize: '3360x1440',
+            aspectRatio: '21:9',
+            preferredStandardImageSize: '2K',
+        })).toBe('2K');
     });
 
     it('derives MagicAPI OpenAI-style non-GPT image options from plugin size maps', () => {

@@ -63,13 +63,17 @@ export function resolveSelectionBoxSelectedIds(params: {
     const { box, elements, selectedIds } = params;
     const clickThreshold = params.clickThreshold ?? 4;
     const rect = getSelectionBoxCanvasRect(box);
-    const boxSelectedIds = getBoxSelectedElementIds(elements, rect);
+    if (rect.width < clickThreshold && rect.height < clickThreshold) {
+        if (box.fallbackSelectionId) {
+            return box.mode === 'add'
+                ? Array.from(new Set([...selectedIds, box.fallbackSelectionId]))
+                : [box.fallbackSelectionId];
+        }
 
-    if (rect.width < clickThreshold && rect.height < clickThreshold && box.fallbackSelectionId) {
-        return box.mode === 'add'
-            ? Array.from(new Set([...selectedIds, box.fallbackSelectionId]))
-            : [box.fallbackSelectionId];
+        return box.mode === 'add' ? selectedIds : [];
     }
+
+    const boxSelectedIds = getBoxSelectedElementIds(elements, rect);
 
     return box.mode === 'add'
         ? Array.from(new Set([...selectedIds, ...boxSelectedIds]))
