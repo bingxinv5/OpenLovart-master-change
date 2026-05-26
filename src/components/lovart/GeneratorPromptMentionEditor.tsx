@@ -10,7 +10,7 @@ import type { TextareaSelection } from './textarea-mention-utils';
 const MENTION_TOKEN_ATTRIBUTE = 'data-prompt-mention-token';
 const ZERO_WIDTH_CARET_ANCHOR = '\u200b';
 const ZERO_WIDTH_CARET_ANCHOR_REGEX = /\u200b/g;
-const WORD_LIKE_CHAR_REGEX = /[\p{L}\p{N}]/u;
+const ASCII_WORD_CHAR_REGEX = /[A-Za-z0-9]/;
 const MENTION_CHIP_CLASS_NAME = 'mx-0.5 inline-flex h-6 max-w-[180px] select-none items-center gap-1 overflow-hidden rounded-md border border-sky-200/90 bg-sky-50 px-1.5 text-[11px] font-semibold leading-none text-sky-700 shadow-sm align-[-0.25em]';
 const MENTION_THUMB_CLASS_NAME = 'flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded bg-white/70 text-[8px] leading-none text-sky-700';
 const MENTION_LABEL_CLASS_NAME = 'min-w-0 flex-1 truncate';
@@ -487,26 +487,20 @@ function getDomPointFromClientPoint(root: HTMLElement, clientX: number, clientY:
 }
 
 function isWordLikeChar(char: string | undefined): boolean {
-    return !!char && WORD_LIKE_CHAR_REGEX.test(char);
+    return !!char && ASCII_WORD_CHAR_REGEX.test(char);
 }
 
 function removeMentionForDragMove(value: string, mentionStart: number, mentionEnd: number): { value: string; removedLength: number } {
     const tokenLength = mentionEnd - mentionStart;
 
     if (mentionStart > 0 && mentionEnd < value.length && value.charAt(mentionStart - 1) === ' ' && value.charAt(mentionEnd) === ' ') {
-        let nextValue = `${value.slice(0, mentionStart - 1)}${value.slice(mentionEnd)}`;
-        let removedLength = tokenLength + 1;
-        const joinOffset = mentionStart - 1;
-        while (joinOffset > 0 && joinOffset < nextValue.length && nextValue.charAt(joinOffset - 1) === ' ' && nextValue.charAt(joinOffset) === ' ') {
-            nextValue = `${nextValue.slice(0, joinOffset)}${nextValue.slice(joinOffset + 1)}`;
-            removedLength += 1;
-        }
-        while (joinOffset >= 0 && joinOffset + 1 < nextValue.length && nextValue.charAt(joinOffset) === ' ' && nextValue.charAt(joinOffset + 1) === ' ') {
-            nextValue = `${nextValue.slice(0, joinOffset + 1)}${nextValue.slice(joinOffset + 2)}`;
-            removedLength += 1;
-        }
-
-        return { value: nextValue, removedLength };
+        const leftChar = mentionStart - 2 >= 0 ? value.charAt(mentionStart - 2) : undefined;
+        const rightChar = mentionEnd + 1 < value.length ? value.charAt(mentionEnd + 1) : undefined;
+        const needsJoinSpace = isWordLikeChar(leftChar) && isWordLikeChar(rightChar);
+        const nextValue = needsJoinSpace
+            ? `${value.slice(0, mentionStart - 1)} ${value.slice(mentionEnd + 1)}`
+            : `${value.slice(0, mentionStart - 1)}${value.slice(mentionEnd + 1)}`;
+        return { value: nextValue, removedLength: value.length - nextValue.length };
     }
 
     return {
