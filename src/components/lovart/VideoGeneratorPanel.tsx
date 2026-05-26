@@ -38,13 +38,11 @@ import {
     normalizeMentionText,
     removeMentionToken,
     removeMentionTokens,
-    resolveNewlineDeletionRange,
     type TextareaSelection,
 } from './textarea-mention-utils';
 import {
     getPromptMentionSuggestions,
     materializePromptMentions,
-    resolvePromptMentionDeletion,
     stripPromptMentionInlinePadding,
 } from './generator-mention-view-model';
 import {
@@ -827,63 +825,6 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         promptSelectionRef.current = liveSelection;
         const liveMentionQuery = resolvePromptMentionQuery(livePrompt, liveSelection.start, promptMentionTokens);
         const liveMentionSuggestions = getPromptMentionSuggestions(promptMentions, liveMentionQuery);
-
-        if (e.key === 'Backspace' || e.key === 'Delete') {
-            if (liveSelection.start === liveSelection.end) {
-                const newlineDeletion = resolveNewlineDeletionRange({
-                    value: livePrompt,
-                    selectionOffset: liveSelection.start,
-                    key: e.key,
-                });
-                if (newlineDeletion) {
-                    e.preventDefault();
-                    const nextPrompt = `${livePrompt.slice(0, newlineDeletion.start)}${livePrompt.slice(newlineDeletion.end)}`;
-                    const nextSelection = {
-                        start: newlineDeletion.nextCaretOffset,
-                        end: newlineDeletion.nextCaretOffset,
-                    };
-                    promptSelectionRef.current = nextSelection;
-                    promptInputRef.current?.commitValue(nextPrompt, nextSelection);
-                    setPrompt(nextPrompt);
-                    syncPromptMentionQuery(nextPrompt, nextSelection.start);
-                    return;
-                }
-
-                const mentionDeletion = resolvePromptMentionDeletion(livePrompt, promptMentions, liveSelection.start, e.key);
-                if (mentionDeletion) {
-                    if (
-                        e.key === 'Delete'
-                        && liveSelection.start === mentionDeletion.start
-                        && mentionDeletion.start > 0
-                        && livePrompt.charAt(mentionDeletion.start - 1) === '\n'
-                    ) {
-                        e.preventDefault();
-                        const newlineStart = mentionDeletion.start - 1;
-                        const nextPrompt = `${livePrompt.slice(0, newlineStart)}${livePrompt.slice(mentionDeletion.start)}`;
-                        const nextSelection = { start: newlineStart, end: newlineStart };
-                        promptSelectionRef.current = nextSelection;
-                        promptInputRef.current?.commitValue(nextPrompt, nextSelection);
-                        setPrompt(nextPrompt);
-                        syncPromptMentionQuery(nextPrompt, nextSelection.start);
-                        return;
-                    }
-
-                    e.preventDefault();
-                    const nextPrompt = `${livePrompt.slice(0, mentionDeletion.start)}${livePrompt.slice(mentionDeletion.end)}`;
-                    promptSelectionRef.current = {
-                        start: mentionDeletion.nextCaretOffset,
-                        end: mentionDeletion.nextCaretOffset,
-                    };
-                    promptInputRef.current?.commitValue(nextPrompt, {
-                        start: mentionDeletion.nextCaretOffset,
-                        end: mentionDeletion.nextCaretOffset,
-                    });
-                    setPrompt(nextPrompt);
-                    setMentionQuery(null);
-                    return;
-                }
-            }
-        }
 
         if (liveMentionQuery) {
             if (e.key === 'ArrowDown' && liveMentionSuggestions.length > 0) {

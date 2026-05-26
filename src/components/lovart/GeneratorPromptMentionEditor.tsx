@@ -5,7 +5,7 @@ import { cachedDataUrlToBlobUrl } from '@/lib/blob-utils';
 import { getImageBlobUrlWithLODResolution, isImageRef } from '@/lib/editor-kernel';
 import { buildPromptComposerSegments, type PromptMentionLike } from './generator-mention-view-model';
 import type { GeneratorReferencePreviewItem } from './generator-panel-sections';
-import type { TextareaSelection } from './textarea-mention-utils';
+import { resolveNewlineDeletionRange, resolveTokenDeletionRange, type TextareaSelection } from './textarea-mention-utils';
 
 const MENTION_TOKEN_ATTRIBUTE = 'data-prompt-mention-token';
 const ZERO_WIDTH_CARET_ANCHOR = '\u200b';
@@ -516,6 +516,49 @@ function buildMentionInsertionText(baseValue: string, insertionOffset: number, t
     };
 }
 
+function applyCollapsedDeletion(params: {
+    value: string;
+    selection: TextareaSelection;
+    key: 'Backspace' | 'Delete';
+    mentionTokens: string[];
+}): { nextValue: string; nextSelection: TextareaSelection } | null {
+    const { value, selection, key, mentionTokens } = params;
+    if (selection.start !== selection.end) {
+        return null;
+    }
+
+    const newlineDeletion = resolveNewlineDeletionRange({
+        value,
+        selectionOffset: selection.start,
+        key,
+    });
+    if (newlineDeletion) {
+        const nextValue = `${value.slice(0, newlineDeletion.start)}${value.slice(newlineDeletion.end)}`;
+        const nextSelection = {
+            start: newlineDeletion.nextCaretOffset,
+            end: newlineDeletion.nextCaretOffset,
+        };
+        return { nextValue, nextSelection };
+    }
+
+    const mentionDeletion = resolveTokenDeletionRange({
+        value,
+        tokens: mentionTokens,
+        selectionOffset: selection.start,
+        key,
+    });
+    if (!mentionDeletion) {
+        return null;
+    }
+
+    const nextValue = `${value.slice(0, mentionDeletion.start)}${value.slice(mentionDeletion.end)}`;
+    const nextSelection = {
+        start: mentionDeletion.nextCaretOffset,
+        end: mentionDeletion.nextCaretOffset,
+    };
+    return { nextValue, nextSelection };
+}
+
 export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditorHandle, GeneratorPromptMentionEditorProps>(function GeneratorPromptMentionEditor({
     value,
     mentions,
@@ -635,6 +678,32 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
         onChange(nextValue, nextSelection);
     }, [mentions, onChange, readSelection, readValue]);
 
+    const applyStructuredDeletion = React.useCallback((key: 'Backspace' | 'Delete') => {
+        const currentValue = readValue();
+        const selection = readSelection();
+        const mentionTokens = mentions.map((mention) => mention.token);
+        const deletion = applyCollapsedDeletion({
+            value: currentValue,
+            selection,
+            key,
+            mentionTokens,
+        });
+        if (!deletion) {
+            return false;
+        }
+
+        const { nextValue, nextSelection } = deletion;
+        pendingSelectionRef.current = nextSelection;
+        if (editorRef.current) {
+            renderEditorContent(editorRef.current, nextValue, mentions);
+            renderedMentionsSignatureRef.current = getMentionsSignature(mentions);
+            editorRef.current.focus();
+            applyEditorSelection(editorRef.current, nextSelection);
+        }
+        onChange(nextValue, nextSelection);
+        return true;
+    }, [mentions, onChange, readSelection, readValue]);
+
     const handleInput = React.useCallback(() => {
         if (readOnly || !editorRef.current) {
             return;
@@ -654,11 +723,19 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
             return;
         }
 
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+            const handled = applyStructuredDeletion(event.key);
+            if (handled) {
+                event.preventDefault();
+                return;
+            }
+        }
+
         if (event.key === 'Enter') {
             event.preventDefault();
             replaceSelection('\n');
         }
-    }, [onKeyDown, readOnly, readSelection, readValue, replaceSelection]);
+    }, [applyStructuredDeletion, onKeyDown, readOnly, readSelection, readValue, replaceSelection]);
 
     const handlePaste = React.useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
         if (readOnly) {
