@@ -38,6 +38,7 @@ import {
     normalizeMentionText,
     removeMentionToken,
     removeMentionTokens,
+    resolveNewlineDeletionRange,
     type TextareaSelection,
 } from './textarea-mention-utils';
 import {
@@ -829,6 +830,25 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
         if (e.key === 'Backspace' || e.key === 'Delete') {
             if (liveSelection.start === liveSelection.end) {
+                const newlineDeletion = resolveNewlineDeletionRange({
+                    value: livePrompt,
+                    selectionOffset: liveSelection.start,
+                    key: e.key,
+                });
+                if (newlineDeletion) {
+                    e.preventDefault();
+                    const nextPrompt = `${livePrompt.slice(0, newlineDeletion.start)}${livePrompt.slice(newlineDeletion.end)}`;
+                    const nextSelection = {
+                        start: newlineDeletion.nextCaretOffset,
+                        end: newlineDeletion.nextCaretOffset,
+                    };
+                    promptSelectionRef.current = nextSelection;
+                    promptInputRef.current?.commitValue(nextPrompt, nextSelection);
+                    setPrompt(nextPrompt);
+                    syncPromptMentionQuery(nextPrompt, nextSelection.start);
+                    return;
+                }
+
                 const mentionDeletion = resolvePromptMentionDeletion(livePrompt, promptMentions, liveSelection.start, e.key);
                 if (mentionDeletion) {
                     e.preventDefault();

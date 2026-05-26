@@ -494,12 +494,7 @@ function removeMentionForDragMove(value: string, mentionStart: number, mentionEn
     const tokenLength = mentionEnd - mentionStart;
 
     if (mentionStart > 0 && mentionEnd < value.length && value.charAt(mentionStart - 1) === ' ' && value.charAt(mentionEnd) === ' ') {
-        const leftChar = mentionStart - 2 >= 0 ? value.charAt(mentionStart - 2) : undefined;
-        const rightChar = mentionEnd + 1 < value.length ? value.charAt(mentionEnd + 1) : undefined;
-        const needsJoinSpace = isWordLikeChar(leftChar) && isWordLikeChar(rightChar);
-        const nextValue = needsJoinSpace
-            ? `${value.slice(0, mentionStart - 1)} ${value.slice(mentionEnd + 1)}`
-            : `${value.slice(0, mentionStart - 1)}${value.slice(mentionEnd + 1)}`;
+        const nextValue = `${value.slice(0, mentionStart - 1)}${value.slice(mentionEnd + 1)}`;
         return { value: nextValue, removedLength: value.length - nextValue.length };
     }
 

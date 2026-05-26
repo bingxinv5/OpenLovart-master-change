@@ -5,6 +5,7 @@ import {
     normalizeMentionText,
     removeMentionToken,
     removeMentionTokens,
+    resolveNewlineDeletionRange,
     resolveTextareaMentionQuery,
     resolveTokenDeletionRange,
 } from './textarea-mention-utils';
@@ -203,5 +204,39 @@ describe('removeMentionToken', () => {
 describe('removeMentionTokens', () => {
     it('removes multiple tokens from the same prompt', () => {
         expect(removeMentionTokens('@图1 这是主角 @图2 这是配角', ['@图1', '@图2'])).toBe('这是主角 这是配角');
+    });
+});
+
+describe('resolveNewlineDeletionRange', () => {
+    it('resolves backspace when caret is after a newline', () => {
+        expect(resolveNewlineDeletionRange({
+            value: '第一行\n@图1',
+            selectionOffset: 4,
+            key: 'Backspace',
+        })).toEqual({
+            start: 3,
+            end: 4,
+            nextCaretOffset: 3,
+        });
+    });
+
+    it('resolves delete when caret is before a newline', () => {
+        expect(resolveNewlineDeletionRange({
+            value: '第一行\n@图1',
+            selectionOffset: 3,
+            key: 'Delete',
+        })).toEqual({
+            start: 3,
+            end: 4,
+            nextCaretOffset: 3,
+        });
+    });
+
+    it('returns null when the adjacent character is not a newline', () => {
+        expect(resolveNewlineDeletionRange({
+            value: '第一行 @图1',
+            selectionOffset: 3,
+            key: 'Delete',
+        })).toBeNull();
     });
 });

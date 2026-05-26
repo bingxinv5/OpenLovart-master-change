@@ -179,6 +179,37 @@ export function resolveTokenDeletionRange(params: {
     return null;
 }
 
+export function resolveNewlineDeletionRange(params: {
+    value: string;
+    selectionOffset: number;
+    key: 'Backspace' | 'Delete';
+}): TextareaTokenDeletion | null {
+    const { value, selectionOffset, key } = params;
+    const safeOffset = Math.max(0, Math.min(selectionOffset, value.length));
+
+    if (key === 'Backspace') {
+        const newlineOffset = safeOffset - 1;
+        if (newlineOffset >= 0 && value.charAt(newlineOffset) === '\n') {
+            return {
+                start: newlineOffset,
+                end: safeOffset,
+                nextCaretOffset: newlineOffset,
+            };
+        }
+        return null;
+    }
+
+    if (safeOffset < value.length && value.charAt(safeOffset) === '\n') {
+        return {
+            start: safeOffset,
+            end: safeOffset + 1,
+            nextCaretOffset: safeOffset,
+        };
+    }
+
+    return null;
+}
+
 export function normalizeMentionText(value: string): string {
     return value
         .replace(/\r\n?/g, '\n')
