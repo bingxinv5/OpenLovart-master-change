@@ -318,6 +318,15 @@ function getOffsetBeforeNode(root: HTMLElement, target: Node): number {
 }
 
 function getOffsetFromDomPoint(root: HTMLElement, container: Node, offset: number): number {
+    if (container === root) {
+        const children = Array.from(root.childNodes);
+        let rootOffset = 0;
+        for (let index = 0; index < Math.min(offset, children.length); index += 1) {
+            rootOffset += getNodeTextLength(children[index]);
+        }
+        return rootOffset;
+    }
+
     const mentionElement = findMentionElement(container, root);
     if (mentionElement) {
         return getOffsetBeforeNode(root, mentionElement) + (offset > 0 ? getNodeTextLength(mentionElement) : 0);
