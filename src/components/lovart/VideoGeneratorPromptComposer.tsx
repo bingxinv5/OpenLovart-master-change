@@ -1,15 +1,19 @@
 import React from 'react';
 import {
     GeneratorReferenceStack,
-    GeneratorPromptInlineMentionLayer,
     MentionComposerSuggestions,
     type GeneratorReferencePreviewItem,
 } from './generator-panel-sections';
 import type { PromptMention, PromptMentionQuery } from './generator-reference-view-model';
 import { VideoAddReferenceMenu, type VideoAddImageType } from './VideoGeneratorPanelSettings';
+import {
+    GeneratorPromptMentionEditor,
+    type PromptMentionEditorContext,
+    type PromptMentionEditorHandle,
+} from './GeneratorPromptMentionEditor';
 
 interface VideoGeneratorPromptComposerProps {
-    promptInputRef: React.RefObject<HTMLTextAreaElement | null>;
+    promptInputRef: React.RefObject<PromptMentionEditorHandle | null>;
     prompt: string;
     isGenerating: boolean;
     placeholder: string;
@@ -33,11 +37,11 @@ interface VideoGeneratorPromptComposerProps {
     mentionSuggestions: PromptMention[];
     mentionActiveIndex: number;
     referencedMentions: PromptMention[];
-    onPromptChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
-    onPromptKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-    onPromptSelectionChange: (event: React.SyntheticEvent<HTMLTextAreaElement>) => void;
+    onPromptChange: (value: string, selection: { start: number; end: number }) => void;
+    onPromptKeyDown: (event: React.KeyboardEvent<HTMLDivElement>, context: PromptMentionEditorContext) => void;
+    onPromptSelectionChange: (selection: { start: number; end: number }) => void;
     onPromptCompositionStart: () => void;
-    onPromptCompositionEnd: (event: React.CompositionEvent<HTMLTextAreaElement>) => void;
+    onPromptCompositionEnd: (event: React.CompositionEvent<HTMLDivElement>, context: PromptMentionEditorContext) => void;
     onPromptBlur: () => void;
     onToggleAddImageMenu: () => void;
     onClearReferences: () => void;
@@ -91,16 +95,14 @@ export function VideoGeneratorPromptComposer({
     onSelectFromCanvas,
     onApplyMention,
 }: VideoGeneratorPromptComposerProps) {
-    const promptOverlayRef = React.useRef<HTMLDivElement>(null);
-    const hasInlineMentions = referencedMentions.length > 0;
-
     return (
         <div className="p-3 pb-2">
             <div className="relative">
                 <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm">
                     <div className="relative px-3 py-2.5">
-                        <GeneratorPromptInlineMentionLayer
-                            prompt={prompt}
+                        <GeneratorPromptMentionEditor
+                            ref={promptInputRef}
+                            value={prompt}
                             mentions={referencedMentions.map((mention) => ({
                                 id: mention.id,
                                 name: mention.name,
@@ -111,33 +113,17 @@ export function VideoGeneratorPromptComposer({
                                 kind: mention.kind,
                                 previewImage: mention.previewImage,
                             }))}
-                            scrollContainerRef={promptOverlayRef}
-                        />
-                        <textarea
-                            ref={promptInputRef}
-                            value={prompt}
                             readOnly={isGenerating}
-                            spellCheck={false}
-                            rows={2}
-                            role="textbox"
-                            aria-multiline="true"
-                            aria-label="描述你想要生成的视频"
+                            ariaLabel="描述你想要生成的视频"
                             placeholder={placeholder}
                             onChange={onPromptChange}
-                            onScroll={(event) => {
-                                if (promptOverlayRef.current) {
-                                    promptOverlayRef.current.scrollTop = event.currentTarget.scrollTop;
-                                }
-                            }}
                             onKeyDown={onPromptKeyDown}
-                            onKeyUp={onPromptSelectionChange}
-                            onSelect={onPromptSelectionChange}
-                            onClick={onPromptSelectionChange}
-                            onFocus={onPromptSelectionChange}
+                            onSelectionChange={onPromptSelectionChange}
                             onCompositionStart={onPromptCompositionStart}
                             onCompositionEnd={onPromptCompositionEnd}
                             onBlur={onPromptBlur}
-                            className={`relative z-10 w-full resize-none overflow-hidden bg-transparent text-sm leading-6 outline-none placeholder:text-slate-400/60 ${hasInlineMentions ? 'text-transparent caret-[var(--canvas-text-primary)]' : 'text-slate-700'}`}
+                            className="text-slate-700 caret-[var(--canvas-text-primary)]"
+                            placeholderClassName="text-slate-400/60"
                         />
                     </div>
 

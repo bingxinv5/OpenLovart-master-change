@@ -190,6 +190,11 @@ describe('removeMentionToken', () => {
         expect(removeMentionToken('@图1 这是主角 @图2', '@图1')).toBe('这是主角 @图2');
     });
 
+    it('removes a token without collapsing line breaks', () => {
+        expect(removeMentionToken('@图1\n生成测试', '@图1')).toBe('生成测试');
+        expect(removeMentionToken('第一行\n@图1 生成测试', '@图1')).toBe('第一行\n生成测试');
+    });
+
     it('ignores empty tokens', () => {
         expect(removeMentionToken('@图1 这是主角', '   ')).toBe('@图1 这是主角');
     });

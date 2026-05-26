@@ -121,8 +121,13 @@ export function stripPromptMentionInlinePadding(prompt: string, tokens: string[]
             spacingEnd += 1;
         }
 
-        if (spacingEnd < prompt.length && spacingEnd > cursor) {
-            nextPrompt += ' ';
+        const spacingLength = spacingEnd - cursor;
+        if (spacingLength >= PROMPT_MENTION_INLINE_PADDING.length) {
+            if (spacingEnd < prompt.length) {
+                nextPrompt += ' ';
+            }
+        } else if (spacingLength > 0) {
+            nextPrompt += prompt.slice(cursor, spacingEnd);
         }
         cursor = spacingEnd;
     }
@@ -187,14 +192,6 @@ export function buildPromptComposerSegments<TMention extends PromptMentionLike>(
         if (matchedMention) {
             const tokenStart = cursor;
             cursor += matchedMention.token.length;
-            const spacingStart = cursor;
-            while (
-                cursor < prompt.length
-                && prompt.charAt(cursor) === ' '
-                && cursor - spacingStart < PROMPT_MENTION_INLINE_PADDING.length
-            ) {
-                cursor += 1;
-            }
 
             segments.push({
                 type: 'mention',

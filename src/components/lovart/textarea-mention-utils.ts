@@ -181,9 +181,15 @@ export function resolveTokenDeletionRange(params: {
 
 export function normalizeMentionText(value: string): string {
     return value
-        .replace(/\s{2,}/g, ' ')
-        .replace(/，\s*，/g, '，')
-        .replace(/^\s*[，,]\s*|\s*[，,]\s*$/g, '')
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map((line) => line
+            .replace(/[ \t]{2,}/g, ' ')
+            .replace(/，\s*，/g, '，')
+            .replace(/^[ \t]*[，,][ \t]*|[ \t]*[，,][ \t]*$/g, '')
+            .trim())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
         .trim();
 }
 
@@ -192,7 +198,7 @@ export function removeMentionToken(value: string, token: string): string {
         return value;
     }
 
-    return normalizeMentionText(value.replace(new RegExp(`${escapeTokenForRegExp(token)}\\s*`, 'g'), ''));
+    return normalizeMentionText(value.replace(new RegExp(`${escapeTokenForRegExp(token)}[ \\t]*`, 'g'), ''));
 }
 
 export function removeMentionTokens(value: string, tokens: string[]): string {

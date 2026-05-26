@@ -47,16 +47,16 @@ describe('generator mention helpers', () => {
         expect(segments[3]).toMatchObject({ type: 'mention', mention: mentions[0] });
     });
 
-    it('keeps inline mention padding inside the mention segment', () => {
+    it('keeps visual padding as editable text outside the mention segment', () => {
         const prompt = `先看 @图1${PROMPT_MENTION_INLINE_PADDING}再继续`;
         const segments = buildPromptComposerSegments(prompt, mentions);
 
         expect(segments.map((segment) => segment.type)).toEqual(['text', 'mention', 'text']);
         expect(segments[1]).toMatchObject({
             type: 'mention',
-            value: `@图1${PROMPT_MENTION_INLINE_PADDING}`,
+            value: '@图1',
         });
-        expect(segments[2]).toMatchObject({ type: 'text', value: '再继续' });
+        expect(segments[2]).toMatchObject({ type: 'text', value: `${PROMPT_MENTION_INLINE_PADDING}再继续` });
     });
 
     it('pads mention tokens and maps caret offsets after the visual pill', () => {
@@ -74,6 +74,10 @@ describe('generator mention helpers', () => {
 
         expect(stripPromptMentionInlinePadding(prompt, ['@图1'])).toBe('使用 @图1 生成角色');
         expect(materializePromptMentions(prompt, mentions)).toBe('使用 第一张图 生成角色');
+    });
+
+    it('preserves intentional short spacing after mention tokens', () => {
+        expect(stripPromptMentionInlinePadding('使用 @图1  生成角色', ['@图1'])).toBe('使用 @图1  生成角色');
     });
 
     it('resolves token deletion ranges from mention tokens', () => {

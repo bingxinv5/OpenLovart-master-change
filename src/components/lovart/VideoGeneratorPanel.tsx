@@ -41,10 +41,10 @@ import {
     type TextareaSelection,
 } from './textarea-mention-utils';
 import {
-    ensurePromptMentionInlinePadding,
     getPromptMentionSuggestions,
     materializePromptMentions,
     resolvePromptMentionDeletion,
+    stripPromptMentionInlinePadding,
 } from './generator-mention-view-model';
 import {
     getMaxAudiosForVideoModel,
@@ -95,6 +95,7 @@ import { VideoGeneratorPromptComposer } from './VideoGeneratorPromptComposer';
 import { VideoGeneratorFileInputs } from './VideoGeneratorFileInputs';
 import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 import { buildGeneratorAspectRatioPatch } from './generator-aspect-ratio-layout';
+import type { PromptMentionEditorContext, PromptMentionEditorHandle } from './GeneratorPromptMentionEditor';
 
 type PromptSelection = TextareaSelection;
 
@@ -216,7 +217,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     const imageInputRef = useRef<HTMLInputElement>(null);
     const videoInputRef = useRef<HTMLInputElement>(null);
     const audioInputRef = useRef<HTMLInputElement>(null);
-    const promptInputRef = useRef<HTMLTextAreaElement>(null);
+    const promptInputRef = useRef<PromptMentionEditorHandle>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const dismissedCanvasReferenceSourceIdsRef = useRef<Set<string>>(new Set());
     const promptSelectionRef = useRef<PromptSelection>({ start: prompt.length, end: prompt.length });
@@ -305,21 +306,17 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     }, [mentionQuery?.start, mentionQuery?.query, mentionSuggestions.length]);
 
     useEffect(() => {
-        const paddedPrompt = ensurePromptMentionInlinePadding(prompt, promptMentionTokens, promptSelectionRef.current);
-        if (!paddedPrompt.changed) {
+        const normalizedPrompt = stripPromptMentionInlinePadding(prompt, promptMentionTokens);
+        if (normalizedPrompt === prompt) {
             return;
         }
 
-        promptSelectionRef.current = paddedPrompt.selection ?? promptSelectionRef.current;
-        setPrompt(paddedPrompt.prompt);
-        requestAnimationFrame(() => {
-            const input = promptInputRef.current;
-            if (!input || document.activeElement !== input || !paddedPrompt.selection) {
-                return;
-            }
-
-            input.setSelectionRange(paddedPrompt.selection.start, paddedPrompt.selection.end);
-        });
+        const nextSelection = {
+            start: Math.min(promptSelectionRef.current.start, normalizedPrompt.length),
+            end: Math.min(promptSelectionRef.current.end, normalizedPrompt.length),
+        };
+        promptSelectionRef.current = nextSelection;
+        setPrompt(normalizedPrompt);
     }, [prompt, promptMentionTokens]);
     const promptMentionPlaceholder = useMemo(
         () => getPromptMentionPlaceholder({ usesFrameImages, isDomesticOmniMode }),
@@ -647,17 +644,6 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     useClearGeneratorError(elementId, errorFromElement, onElementChange);
 
-    // Auto-resize textarea
-    useEffect(() => {
-        const textarea = promptInputRef.current;
-        if (!textarea) return;
-        textarea.style.height = 'auto';
-        const maxHeight = 120;
-        const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
-        textarea.style.height = `${nextHeight}px`;
-        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-    }, [prompt]);
-
     const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string; imageType?: 'first_frame' | 'last_frame' | 'reference'; sourceElementId?: string; sourceElementType?: 'image' | 'video' }) => {
         if (!detail.imageContent) return;
 
@@ -767,90 +753,36 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         setMentionQuery(resolvePromptMentionQuery(nextPrompt, caretIndex, promptMentionTokens));
     }, [promptMentionTokens]);
 
-    const syncPromptSelectionFromInput = useCallback((input: HTMLTextAreaElement | null) => {
-        if (!input) {
-            return;
-        }
-
-        const rawSelection: PromptSelection = {
-            start: input.selectionStart ?? 0,
-            end: input.selectionEnd ?? (input.selectionStart ?? 0),
-        };
-        const paddedPrompt = ensurePromptMentionInlinePadding(input.value, promptMentionTokens, rawSelection);
-        const nextSelection = paddedPrompt.selection ?? rawSelection;
-        promptSelectionRef.current = nextSelection;
-        if (paddedPrompt.changed) {
-            setPrompt(paddedPrompt.prompt);
-        }
-        if (nextSelection.start !== rawSelection.start || nextSelection.end !== rawSelection.end) {
-            input.setSelectionRange(nextSelection.start, nextSelection.end);
-        }
-
+    const syncPromptSelectionFromEditor = useCallback((selection: PromptSelection, nextPrompt = prompt) => {
+        promptSelectionRef.current = selection;
         if (!isPromptComposingRef.current) {
-            syncPromptMentionQuery(paddedPrompt.prompt, nextSelection.start);
+            syncPromptMentionQuery(nextPrompt, selection.start);
         }
-    }, [promptMentionTokens, syncPromptMentionQuery]);
+    }, [prompt, syncPromptMentionQuery]);
 
-    const handlePromptChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const rawPrompt = event.target.value;
-        const rawSelection: PromptSelection = {
-            start: event.target.selectionStart ?? rawPrompt.length,
-            end: event.target.selectionEnd ?? (event.target.selectionStart ?? rawPrompt.length),
-        };
-        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptMentionTokens, rawSelection);
-        const nextPrompt = paddedPrompt.prompt;
-        const nextSelection = paddedPrompt.selection ?? rawSelection;
-
-        promptSelectionRef.current = nextSelection;
+    const handlePromptChange = useCallback((nextPrompt: string, selection: PromptSelection) => {
+        promptSelectionRef.current = selection;
         setPrompt(nextPrompt);
-        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
-            requestAnimationFrame(() => {
-                const input = promptInputRef.current;
-                if (input) {
-                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
-                }
-            });
-        }
         if (!isPromptComposingRef.current) {
-            syncPromptMentionQuery(nextPrompt, nextSelection.start);
+            syncPromptMentionQuery(nextPrompt, selection.start);
         }
-    }, [promptMentionTokens, syncPromptMentionQuery]);
+    }, [syncPromptMentionQuery]);
 
-    const handlePromptSelectionChange = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
-        syncPromptSelectionFromInput(event.currentTarget);
-    }, [syncPromptSelectionFromInput]);
+    const handlePromptSelectionChange = useCallback((selection: PromptSelection) => {
+        syncPromptSelectionFromEditor(selection, promptInputRef.current?.getValue() ?? prompt);
+    }, [prompt, syncPromptSelectionFromEditor]);
 
-    const handlePromptCompositionEnd = useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
+    const handlePromptCompositionEnd = useCallback((_event: React.CompositionEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
         isPromptComposingRef.current = false;
-        const rawPrompt = event.currentTarget.value;
-        const rawSelection: PromptSelection = {
-            start: event.currentTarget.selectionStart ?? rawPrompt.length,
-            end: event.currentTarget.selectionEnd ?? (event.currentTarget.selectionStart ?? rawPrompt.length),
-        };
-        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptMentionTokens, rawSelection);
-        const nextPrompt = paddedPrompt.prompt;
-        const nextSelection = paddedPrompt.selection ?? rawSelection;
-
-        promptSelectionRef.current = nextSelection;
-        setPrompt(nextPrompt);
-        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
-            requestAnimationFrame(() => {
-                const input = promptInputRef.current;
-                if (input) {
-                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
-                }
-            });
-        }
-        syncPromptMentionQuery(nextPrompt, nextSelection.start);
-    }, [promptMentionTokens, syncPromptMentionQuery]);
+        promptSelectionRef.current = context.selection;
+        setPrompt(context.value);
+        syncPromptMentionQuery(context.value, context.selection.start);
+    }, [syncPromptMentionQuery]);
 
     const applyPromptMention = useCallback((mention: PromptMention) => {
         const input = promptInputRef.current;
-        const basePrompt = input?.value ?? prompt;
-        const liveSelection = input ? {
-            start: input.selectionStart ?? promptSelectionRef.current.start,
-            end: input.selectionEnd ?? promptSelectionRef.current.end,
-        } : promptSelectionRef.current;
+        const basePrompt = input?.getValue() ?? prompt;
+        const liveSelection = input?.getSelection() ?? promptSelectionRef.current;
         const stableToken = promptMentionBindingMap.get(mention.id)?.token?.trim() || mention.token;
         const activeQuery = liveSelection.start === liveSelection.end
             ? resolvePromptMentionQuery(basePrompt, liveSelection.start, promptMentionTokens)
@@ -862,9 +794,8 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             replaceRange: activeQuery ? { start: activeQuery.start, end: activeQuery.end } : undefined,
             ensureSpacing: true,
         });
-        const paddedPrompt = ensurePromptMentionInlinePadding(insertedPrompt.nextValue, promptMentionTokens, insertedPrompt.nextSelection);
-        const nextValue = paddedPrompt.prompt;
-        const nextSelection = paddedPrompt.selection ?? insertedPrompt.nextSelection;
+        const nextValue = insertedPrompt.nextValue;
+        const nextSelection = insertedPrompt.nextSelection;
 
         setPromptMentionBindings((prev) => prev.some((binding) => binding.mentionId === mention.id)
             ? prev.map((binding) => (
@@ -874,18 +805,9 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             ))
             : [...prev, { mentionId: mention.id, token: stableToken }]);
         promptSelectionRef.current = nextSelection;
+        promptInputRef.current?.commitValue(nextValue, nextSelection);
         setPrompt(nextValue);
         setMentionQuery(null);
-
-        requestAnimationFrame(() => {
-            const textarea = promptInputRef.current;
-            if (!textarea) {
-                return;
-            }
-
-            textarea.focus();
-            textarea.setSelectionRange(nextSelection.start, nextSelection.end);
-        });
     }, [prompt, promptMentionBindingMap, promptMentionTokens]);
 
     const clearMountedReferences = useCallback(() => {
@@ -898,13 +820,9 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         clearCanvasReferenceBinding();
     }, [clearCanvasReferenceBinding, connectorReferenceConnectorIds, onDeleteReferenceConnector, promptMentionBindings]);
 
-    const handleKeyDown = async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        const editor = e.currentTarget;
-        const livePrompt = editor.value;
-        const liveSelection: PromptSelection = {
-            start: editor.selectionStart ?? livePrompt.length,
-            end: editor.selectionEnd ?? (editor.selectionStart ?? livePrompt.length),
-        };
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
+        const livePrompt = context.value;
+        const liveSelection = context.selection;
         promptSelectionRef.current = liveSelection;
         const liveMentionQuery = resolvePromptMentionQuery(livePrompt, liveSelection.start, promptMentionTokens);
         const liveMentionSuggestions = getPromptMentionSuggestions(promptMentions, liveMentionQuery);
@@ -914,23 +832,17 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 const mentionDeletion = resolvePromptMentionDeletion(livePrompt, promptMentions, liveSelection.start, e.key);
                 if (mentionDeletion) {
                     e.preventDefault();
-                    const nextPrompt = normalizeMentionText(`${livePrompt.slice(0, mentionDeletion.start)}${livePrompt.slice(mentionDeletion.end)}`);
+                    const nextPrompt = `${livePrompt.slice(0, mentionDeletion.start)}${livePrompt.slice(mentionDeletion.end)}`;
                     promptSelectionRef.current = {
                         start: mentionDeletion.nextCaretOffset,
                         end: mentionDeletion.nextCaretOffset,
                     };
+                    promptInputRef.current?.commitValue(nextPrompt, {
+                        start: mentionDeletion.nextCaretOffset,
+                        end: mentionDeletion.nextCaretOffset,
+                    });
                     setPrompt(nextPrompt);
                     setMentionQuery(null);
-
-                    requestAnimationFrame(() => {
-                        const textarea = promptInputRef.current;
-                        if (!textarea) {
-                            return;
-                        }
-
-                        textarea.focus();
-                        textarea.setSelectionRange(mentionDeletion.nextCaretOffset, mentionDeletion.nextCaretOffset);
-                    });
                     return;
                 }
             }

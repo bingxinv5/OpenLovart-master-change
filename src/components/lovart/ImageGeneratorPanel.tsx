@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { debugLog } from '@/lib/debug-log';
 import { CANVAS_LEGACY_MIGRATION_VERSION, hasCurrentCanvasLegacyMigration, type CanvasElement } from './canvas-types';
@@ -35,7 +35,6 @@ import {
 } from './generator-panel-shared';
 import {
     insertTextAtSelection,
-    normalizeMentionText,
     removeMentionTokens,
     resolveTextareaMentionQuery,
     resolveTokenDeletionRange,
@@ -45,10 +44,10 @@ import {
 import {
     buildPromptReferenceMentions,
     clampPromptReferenceTokens,
-    ensurePromptMentionInlinePadding,
     getPromptMentionSuggestions,
     remapPromptReferenceTokensAfterRemoval,
     resolvePromptReferenceMentions,
+    stripPromptMentionInlinePadding,
     type PromptReferenceMention,
 } from './generator-mention-view-model';
 import { runImageGenerationFlow } from './image-generation-flow';
@@ -83,6 +82,7 @@ import { ImageGeneratorPromptComposer } from './ImageGeneratorPromptComposer';
 import { ImageGeneratorFooterControls } from './ImageGeneratorFooterControls';
 import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
 import { buildGeneratorAspectRatioPatch, resolveGeneratorAspectRatioBounds } from './generator-aspect-ratio-layout';
+import type { PromptMentionEditorContext, PromptMentionEditorHandle } from './GeneratorPromptMentionEditor';
 
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
 
@@ -163,10 +163,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [resourceLibraryTab, setResourceLibraryTab] = useState<ImageResourceLibraryTab>('history');
     const [mentionQuery, setMentionQuery] = useState<TextareaMentionQuery | null>(null);
     const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
-    const maxPromptRows = 8;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const promptInputRef = useRef<HTMLTextAreaElement>(null);
+    const promptInputRef = useRef<PromptMentionEditorHandle>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const promptSelectionRef = useRef<TextareaSelection>({
         start: prompt.length,
@@ -194,21 +193,17 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [mentionQuery?.start, mentionQuery?.query, mentionSuggestions.length]);
 
     useEffect(() => {
-        const paddedPrompt = ensurePromptMentionInlinePadding(prompt, promptReferenceTokens, promptSelectionRef.current);
-        if (!paddedPrompt.changed) {
+        const normalizedPrompt = stripPromptMentionInlinePadding(prompt, promptReferenceTokens);
+        if (normalizedPrompt === prompt) {
             return;
         }
 
-        promptSelectionRef.current = paddedPrompt.selection ?? promptSelectionRef.current;
-        setPrompt(paddedPrompt.prompt);
-        requestAnimationFrame(() => {
-            const input = promptInputRef.current;
-            if (!input || document.activeElement !== input || !paddedPrompt.selection) {
-                return;
-            }
-
-            input.setSelectionRange(paddedPrompt.selection.start, paddedPrompt.selection.end);
-        });
+        const nextSelection = {
+            start: Math.min(promptSelectionRef.current.start, normalizedPrompt.length),
+            end: Math.min(promptSelectionRef.current.end, normalizedPrompt.length),
+        };
+        promptSelectionRef.current = nextSelection;
+        setPrompt(normalizedPrompt);
     }, [prompt, promptReferenceTokens]);
 
     const closeAllMenus = useCallback(() => {
@@ -219,19 +214,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setShowRecoveryPanel(false);
         setShowAddImageMenu(false);
     }, []);
-
-    // Auto-resize textarea
-    useLayoutEffect(() => {
-        const el = promptInputRef.current;
-        if (!el) return;
-        const computedStyle = window.getComputedStyle(el);
-        const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 24;
-        const verticalPadding = Number.parseFloat(computedStyle.paddingTop || '0') + Number.parseFloat(computedStyle.paddingBottom || '0');
-        const maxHeight = lineHeight * maxPromptRows + verticalPadding;
-        el.style.height = 'auto';
-        el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-        el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
-    }, [maxPromptRows, prompt]);
 
     useEffect(() => {
         return subscribeApiSettingsChange(() => {
@@ -442,30 +424,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setMentionQuery(resolveTextareaMentionQuery(nextPrompt, caretIndex, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens }));
     }, [promptReferenceTokens]);
 
-    const syncPromptSelectionFromInput = useCallback((input: HTMLTextAreaElement | null) => {
-        if (!input) {
-            return;
-        }
-
-        const rawSelection = {
-            start: input.selectionStart ?? 0,
-            end: input.selectionEnd ?? (input.selectionStart ?? 0),
-        };
-        const paddedPrompt = ensurePromptMentionInlinePadding(input.value, promptReferenceTokens, rawSelection);
-        const nextSelection = paddedPrompt.selection ?? rawSelection;
-
-        promptSelectionRef.current = nextSelection;
-        if (paddedPrompt.changed) {
-            setPrompt(paddedPrompt.prompt);
-        }
-        if (nextSelection.start !== rawSelection.start || nextSelection.end !== rawSelection.end) {
-            input.setSelectionRange(nextSelection.start, nextSelection.end);
-        }
-
+    const syncPromptSelectionFromEditor = useCallback((selection: TextareaSelection, nextPrompt = promptDraftRef.current) => {
+        promptSelectionRef.current = selection;
         if (!isPromptComposingRef.current) {
-            syncPromptMentionQuery(paddedPrompt.prompt, nextSelection.start);
+            syncPromptMentionQuery(nextPrompt, selection.start);
         }
-    }, [promptReferenceTokens, syncPromptMentionQuery]);
+    }, [syncPromptMentionQuery]);
 
     const handleImageSizeChange = useCallback((nextImageSize: ImageSize) => {
         setImageSize(nextImageSize);
@@ -492,12 +456,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [flushPromptToElement]);
 
     const handleInsertPromptReferenceToken = useCallback((mention: PromptReferenceMention) => {
-        const textarea = promptInputRef.current;
-        const basePrompt = textarea?.value ?? prompt;
-        const selection = textarea ? {
-            start: textarea.selectionStart ?? promptSelectionRef.current.start,
-            end: textarea.selectionEnd ?? promptSelectionRef.current.end,
-        } : promptSelectionRef.current;
+        const editor = promptInputRef.current;
+        const basePrompt = editor?.getValue() ?? prompt;
+        const selection = editor?.getSelection() ?? promptSelectionRef.current;
         const activeQuery = selection.start === selection.end
             ? resolveTextareaMentionQuery(basePrompt, selection.start, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens })
             : null;
@@ -508,73 +469,33 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             replaceRange: activeQuery ? { start: activeQuery.start, end: activeQuery.end } : undefined,
             ensureSpacing: true,
         });
-        const paddedPrompt = ensurePromptMentionInlinePadding(insertedPrompt.nextValue, promptReferenceTokens, insertedPrompt.nextSelection);
-        const nextValue = paddedPrompt.prompt;
-        const nextSelection = paddedPrompt.selection ?? insertedPrompt.nextSelection;
+        const nextValue = insertedPrompt.nextValue;
+        const nextSelection = insertedPrompt.nextSelection;
 
         promptSelectionRef.current = nextSelection;
+        editor?.commitValue(nextValue, nextSelection);
         setPrompt(nextValue);
         setMentionQuery(null);
-
-        requestAnimationFrame(() => {
-            const input = promptInputRef.current;
-            if (!input) {
-                return;
-            }
-
-            input.focus();
-            input.setSelectionRange(nextSelection.start, nextSelection.end);
-        });
     }, [prompt, promptReferenceTokens]);
 
-    const handlePromptChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const rawPrompt = event.target.value;
-        const rawSelection = {
-            start: event.target.selectionStart ?? rawPrompt.length,
-            end: event.target.selectionEnd ?? (event.target.selectionStart ?? rawPrompt.length),
-        };
-        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptReferenceTokens, rawSelection);
-        const nextPrompt = paddedPrompt.prompt;
-        promptSelectionRef.current = paddedPrompt.selection ?? rawSelection;
+    const handlePromptChange = useCallback((nextPrompt: string, selection: TextareaSelection) => {
+        promptSelectionRef.current = selection;
         setPrompt(nextPrompt);
-        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
-            requestAnimationFrame(() => {
-                const input = promptInputRef.current;
-                if (input) {
-                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
-                }
-            });
-        }
         if (!isPromptComposingRef.current) {
-            syncPromptMentionQuery(nextPrompt, promptSelectionRef.current.start);
+            syncPromptMentionQuery(nextPrompt, selection.start);
         }
-    }, [promptReferenceTokens, syncPromptMentionQuery]);
+    }, [syncPromptMentionQuery]);
 
-    const handlePromptSelectionChange = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
-        syncPromptSelectionFromInput(event.currentTarget);
-    }, [syncPromptSelectionFromInput]);
+    const handlePromptSelectionChange = useCallback((selection: TextareaSelection) => {
+        syncPromptSelectionFromEditor(selection, promptInputRef.current?.getValue() ?? promptDraftRef.current);
+    }, [syncPromptSelectionFromEditor]);
 
-    const handlePromptCompositionEnd = useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
+    const handlePromptCompositionEnd = useCallback((_event: React.CompositionEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
         isPromptComposingRef.current = false;
-        const rawPrompt = event.currentTarget.value;
-        const rawSelection = {
-            start: event.currentTarget.selectionStart ?? rawPrompt.length,
-            end: event.currentTarget.selectionEnd ?? (event.currentTarget.selectionStart ?? rawPrompt.length),
-        };
-        const paddedPrompt = ensurePromptMentionInlinePadding(rawPrompt, promptReferenceTokens, rawSelection);
-        const nextPrompt = paddedPrompt.prompt;
-        promptSelectionRef.current = paddedPrompt.selection ?? rawSelection;
-        setPrompt(nextPrompt);
-        if (paddedPrompt.selection && (paddedPrompt.selection.start !== rawSelection.start || paddedPrompt.selection.end !== rawSelection.end)) {
-            requestAnimationFrame(() => {
-                const input = promptInputRef.current;
-                if (input) {
-                    input.setSelectionRange(paddedPrompt.selection!.start, paddedPrompt.selection!.end);
-                }
-            });
-        }
-        syncPromptMentionQuery(nextPrompt, promptSelectionRef.current.start);
-    }, [promptReferenceTokens, syncPromptMentionQuery]);
+        promptSelectionRef.current = context.selection;
+        setPrompt(context.value);
+        syncPromptMentionQuery(context.value, context.selection.start);
+    }, [syncPromptMentionQuery]);
 
     const clearCanvasReferenceBinding = useCallback(() => {
         const sourceId = currentElement?.referenceImageId;
@@ -765,13 +686,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     useCanvasImageSelectionEvent(elementId, handleCanvasSelectionEvent);
 
-    const handleKeyDown = async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        const editor = e.currentTarget;
-        const livePrompt = editor.value;
-        const liveSelection: TextareaSelection = {
-            start: editor.selectionStart ?? livePrompt.length,
-            end: editor.selectionEnd ?? (editor.selectionStart ?? livePrompt.length),
-        };
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
+        const livePrompt = context.value;
+        const liveSelection = context.selection;
         promptSelectionRef.current = liveSelection;
         const liveMentionQuery = resolveTextareaMentionQuery(livePrompt, liveSelection.start, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens });
         const liveMentionSuggestions = getPromptMentionSuggestions(promptReferenceMentions, liveMentionQuery);
@@ -786,23 +703,17 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 });
                 if (mentionDeletion) {
                     e.preventDefault();
-                    const nextPrompt = normalizeMentionText(`${livePrompt.slice(0, mentionDeletion.start)}${livePrompt.slice(mentionDeletion.end)}`);
+                    const nextPrompt = `${livePrompt.slice(0, mentionDeletion.start)}${livePrompt.slice(mentionDeletion.end)}`;
                     promptSelectionRef.current = {
                         start: mentionDeletion.nextCaretOffset,
                         end: mentionDeletion.nextCaretOffset,
                     };
+                    promptInputRef.current?.commitValue(nextPrompt, {
+                        start: mentionDeletion.nextCaretOffset,
+                        end: mentionDeletion.nextCaretOffset,
+                    });
                     setPrompt(nextPrompt);
                     setMentionQuery(null);
-
-                    requestAnimationFrame(() => {
-                        const textarea = promptInputRef.current;
-                        if (!textarea) {
-                            return;
-                        }
-
-                        textarea.focus();
-                        textarea.setSelectionRange(mentionDeletion.nextCaretOffset, mentionDeletion.nextCaretOffset);
-                    });
                     return;
                 }
             }

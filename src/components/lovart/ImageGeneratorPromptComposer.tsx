@@ -1,16 +1,20 @@
 import React from 'react';
 import {
     GeneratorReferenceStack,
-    GeneratorPromptInlineMentionLayer,
     MentionComposerSuggestions,
     type GeneratorReferencePreviewItem,
 } from './generator-panel-sections';
 import type { PromptReferenceMention } from './generator-mention-view-model';
 import type { TextareaMentionQuery } from './textarea-mention-utils';
 import { ImageAddReferenceMenu } from './ImageGeneratorPanelSettings';
+import {
+    GeneratorPromptMentionEditor,
+    type PromptMentionEditorContext,
+    type PromptMentionEditorHandle,
+} from './GeneratorPromptMentionEditor';
 
 interface ImageGeneratorPromptComposerProps {
-    promptInputRef: React.RefObject<HTMLTextAreaElement | null>;
+    promptInputRef: React.RefObject<PromptMentionEditorHandle | null>;
     prompt: string;
     isGenerating: boolean;
     referencePreviewItems: GeneratorReferencePreviewItem[];
@@ -22,11 +26,11 @@ interface ImageGeneratorPromptComposerProps {
     mentionActiveIndex: number;
     referencedMentions: PromptReferenceMention[];
     hasPromptReferenceMentions: boolean;
-    onPromptChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
-    onPromptKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-    onPromptSelectionChange: (event: React.SyntheticEvent<HTMLTextAreaElement>) => void;
+    onPromptChange: (value: string, selection: { start: number; end: number }) => void;
+    onPromptKeyDown: (event: React.KeyboardEvent<HTMLDivElement>, context: PromptMentionEditorContext) => void;
+    onPromptSelectionChange: (selection: { start: number; end: number }) => void;
     onPromptCompositionStart: () => void;
-    onPromptCompositionEnd: (event: React.CompositionEvent<HTMLTextAreaElement>) => void;
+    onPromptCompositionEnd: (event: React.CompositionEvent<HTMLDivElement>, context: PromptMentionEditorContext) => void;
     onPromptBlur: () => void;
     onToggleAddImageMenu: () => void;
     onClearReferences: () => void;
@@ -62,16 +66,14 @@ export function ImageGeneratorPromptComposer({
     onSelectFromCanvas,
     onApplyMention,
 }: ImageGeneratorPromptComposerProps) {
-    const promptOverlayRef = React.useRef<HTMLDivElement>(null);
-    const hasInlineMentions = referencedMentions.length > 0;
-
     return (
         <div className="p-3 pb-2">
             <div className="relative">
                 <div className="canvas-settings-input rounded-2xl shadow-sm">
                     <div className="relative px-3 py-2.5">
-                        <GeneratorPromptInlineMentionLayer
-                            prompt={prompt}
+                        <GeneratorPromptMentionEditor
+                            ref={promptInputRef}
+                            value={prompt}
                             mentions={referencedMentions.map((mention) => ({
                                 id: mention.id,
                                 name: mention.name,
@@ -82,34 +84,16 @@ export function ImageGeneratorPromptComposer({
                                 kind: 'image' as const,
                                 previewImage: mention.image,
                             }))}
-                            scrollContainerRef={promptOverlayRef}
-                        />
-                        <textarea
-                            ref={promptInputRef}
-                            value={prompt}
                             onChange={onPromptChange}
-                            onScroll={(event) => {
-                                if (promptOverlayRef.current) {
-                                    promptOverlayRef.current.scrollTop = event.currentTarget.scrollTop;
-                                }
-                            }}
                             onKeyDown={onPromptKeyDown}
-                            onKeyUp={onPromptSelectionChange}
-                            onSelect={onPromptSelectionChange}
-                            onClick={onPromptSelectionChange}
-                            onFocus={onPromptSelectionChange}
                             readOnly={isGenerating}
-                            spellCheck={false}
-                            rows={2}
-                            role="textbox"
-                            aria-multiline="true"
-                            aria-label="描述你想要生成的图片"
+                            onSelectionChange={onPromptSelectionChange}
+                            ariaLabel="描述你想要生成的图片"
                             placeholder="描述图片内容，输入 @ 引用参考图..."
                             onCompositionStart={onPromptCompositionStart}
                             onCompositionEnd={onPromptCompositionEnd}
                             onBlur={onPromptBlur}
-                            className={`relative z-10 w-full resize-none overflow-hidden bg-transparent text-sm leading-6 outline-none placeholder:text-[var(--canvas-text-tertiary)] ${hasInlineMentions ? 'text-transparent caret-[var(--canvas-text-primary)]' : 'text-[var(--canvas-text-primary)]'}`}
-                            disabled={isGenerating}
+                            className="text-[var(--canvas-text-primary)] caret-[var(--canvas-text-primary)]"
                         />
                     </div>
 

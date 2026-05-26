@@ -4,7 +4,6 @@ import React from 'react';
 import { Film, Loader2, Plus, Search, Volume2, X, Zap } from 'lucide-react';
 import { GeneratorStatusCard, type GeneratorStatusState } from './GeneratorStatusCard';
 import { WorkbenchImage } from './WorkbenchImage';
-import { buildPromptComposerSegments, type PromptMentionLike } from './generator-mention-view-model';
 
 type GeneratorKind = 'image' | 'video';
 type ReferencePreviewKind = 'image' | 'video' | 'audio';
@@ -54,7 +53,7 @@ const REFERENCE_STACK_DELAY_CLASSES = [
     'delay-[440ms]',
 ];
 
-function ReferencePreviewTile({
+export function ReferencePreviewTile({
     item,
     sizeClassName,
     imageClassName,
@@ -271,65 +270,6 @@ export interface GeneratorMentionSuggestionItem {
     token?: string;
     kind?: ReferencePreviewKind;
     previewImage?: string | File;
-}
-
-export interface GeneratorPromptInlineMentionItem extends GeneratorMentionSuggestionItem, PromptMentionLike {
-    token: string;
-}
-
-export function GeneratorPromptInlineMentionLayer({
-    prompt,
-    mentions,
-    scrollContainerRef,
-}: {
-    prompt: string;
-    mentions: GeneratorPromptInlineMentionItem[];
-    scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
-}) {
-    if (!prompt || mentions.length === 0) {
-        return null;
-    }
-
-    const segments = buildPromptComposerSegments(prompt, mentions);
-    if (!segments.some((segment) => segment.type === 'mention')) {
-        return null;
-    }
-
-    return (
-        <div ref={scrollContainerRef} className="pointer-events-none absolute inset-0 z-0 overflow-hidden px-3 py-2.5 text-sm leading-6 text-[var(--canvas-text-primary)]">
-            <div className="min-h-full whitespace-pre-wrap break-words">
-                {segments.map((segment) => {
-                    if (segment.type === 'text') {
-                        return <span key={segment.key}>{segment.value}</span>;
-                    }
-
-                    const mention = segment.mention;
-                    const mentionLabel = mention.kind === 'image' ? mention.name : mention.token.replace(/^@/, '');
-                    return (
-                        <span
-                            key={segment.key}
-                            className="relative inline-block whitespace-pre align-baseline text-transparent"
-                            title={`${mention.token} · ${mention.name}`}
-                        >
-                            {segment.value}
-                            <span className="absolute left-0 top-1/2 flex h-6 w-full -translate-y-1/2 items-center gap-1 overflow-hidden rounded-md border border-sky-200/90 bg-sky-50 px-1.5 align-middle text-[11px] font-semibold leading-none text-sky-700 shadow-sm">
-                                {mention.kind === 'video' || mention.kind === 'audio' ? (
-                                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${mention.kind === 'video' ? 'bg-slate-900 text-white' : 'canvas-reference-audio-tile'}`}>
-                                        {mention.kind === 'video' ? <Film size={9} /> : <Volume2 size={9} />}
-                                    </span>
-                                ) : mention.previewImage ? (
-                                    <ReferencePreviewTile item={{ id: mention.id, kind: 'image', title: mention.name, previewImage: mention.previewImage }} sizeClassName="h-4 w-4 shrink-0 overflow-hidden rounded" imageClassName="rounded" iconSize={9} />
-                                ) : (
-                                    <span className="h-4 w-4 shrink-0 rounded bg-white/70" />
-                                )}
-                                <span className="min-w-0 flex-1 truncate">{mentionLabel}</span>
-                            </span>
-                        </span>
-                    );
-                })}
-            </div>
-        </div>
-    );
 }
 
 export function MentionComposerSuggestions({
