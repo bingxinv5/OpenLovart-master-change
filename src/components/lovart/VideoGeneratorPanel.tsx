@@ -851,6 +851,23 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
                 const mentionDeletion = resolvePromptMentionDeletion(livePrompt, promptMentions, liveSelection.start, e.key);
                 if (mentionDeletion) {
+                    if (
+                        e.key === 'Delete'
+                        && liveSelection.start === mentionDeletion.start
+                        && mentionDeletion.start > 0
+                        && livePrompt.charAt(mentionDeletion.start - 1) === '\n'
+                    ) {
+                        e.preventDefault();
+                        const newlineStart = mentionDeletion.start - 1;
+                        const nextPrompt = `${livePrompt.slice(0, newlineStart)}${livePrompt.slice(mentionDeletion.start)}`;
+                        const nextSelection = { start: newlineStart, end: newlineStart };
+                        promptSelectionRef.current = nextSelection;
+                        promptInputRef.current?.commitValue(nextPrompt, nextSelection);
+                        setPrompt(nextPrompt);
+                        syncPromptMentionQuery(nextPrompt, nextSelection.start);
+                        return;
+                    }
+
                     e.preventDefault();
                     const nextPrompt = `${livePrompt.slice(0, mentionDeletion.start)}${livePrompt.slice(mentionDeletion.end)}`;
                     promptSelectionRef.current = {
