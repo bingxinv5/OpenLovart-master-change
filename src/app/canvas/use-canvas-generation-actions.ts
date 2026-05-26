@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { isCanvasImageGenerationPanelElement, isCanvasVideoGenerationPanelElement, type CanvasElement } from '@/components/lovart/canvas-types';
 import {
     createGenerationTaskPatch,
 } from '@/lib/generation-task-state';
@@ -76,9 +76,9 @@ export function useCanvasGenerationActions({
             : undefined;
         const generatorElement = selectedIds
             .map((id) => elements.find((element) => element.id === id))
-            .find((element): element is CanvasElement => !!element && element.type === 'video-generator') || null;
+            .find(isCanvasVideoGenerationPanelElement) || null;
         void persistGeneratedAssetToDisk(videoUrl, 'video', 'generate');
-        const generatorElementId = selectedIds.find((id) => elements.find((element) => element.id === id)?.type === 'video-generator');
+        const generatorElementId = selectedIds.find((id) => isCanvasVideoGenerationPanelElement(elements.find((element) => element.id === id)));
         let insertedElement: CanvasElement | null = null;
 
         if (generatorElementId) {
@@ -110,7 +110,7 @@ export function useCanvasGenerationActions({
         }
 
         const currentElement = elementsMapRef.current.get(elementId);
-        if (!currentElement || currentElement.type !== 'video-generator') {
+        if (!isCanvasVideoGenerationPanelElement(currentElement)) {
             throw new Error('当前视频生成器不存在，无法恢复任务');
         }
 
@@ -181,7 +181,7 @@ export function useCanvasGenerationActions({
         }
 
         const currentElement = elementsMapRef.current.get(elementId);
-        if (!currentElement || currentElement.type !== 'image-generator') {
+        if (!isCanvasImageGenerationPanelElement(currentElement)) {
             throw new Error('当前图片生成器不存在，无法恢复任务');
         }
 

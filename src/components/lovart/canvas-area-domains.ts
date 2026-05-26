@@ -64,13 +64,18 @@ export type DuplicateSelectionResult = {
     sourceToCopyId: Record<string, string>;
 };
 
+export type DuplicateSelectionOptions = {
+    preserveReferenceConnectors?: boolean;
+    stripReferenceState?: boolean;
+};
+
 export interface ClipboardDomainPort {
     canPaste?: boolean;
     onCopyElement?: (element: CanvasElement) => void;
     onCopySelection?: (ids: string[]) => void;
     onCutSelection?: (ids: string[]) => void;
     onPasteAt?: (position: { x: number; y: number }) => void;
-    onDuplicateSelection?: (ids: string[], position?: { x: number; y: number }) => DuplicateSelectionResult | void;
+    onDuplicateSelection?: (ids: string[], position?: { x: number; y: number }, options?: DuplicateSelectionOptions) => DuplicateSelectionResult | void;
 }
 
 /**

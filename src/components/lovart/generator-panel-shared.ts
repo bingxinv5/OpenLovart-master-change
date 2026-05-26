@@ -32,6 +32,7 @@ export type GeneratorCanvasElement = {
 	savedPromptMentionIds?: string;
 	savedReferenceImage?: string;
 	savedReferenceImages?: string;
+	flowReferenceImages?: string;
 	savedFrameImages?: string;
 	savedReferenceVideos?: string;
 	savedReferenceAudios?: string;

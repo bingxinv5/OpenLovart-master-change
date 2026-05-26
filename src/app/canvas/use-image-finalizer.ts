@@ -92,19 +92,22 @@ export function buildPendingImageElement(
     },
 ): CanvasElement {
     const normalizedTaskId = normalizeImageTaskId(params.taskId);
+    const referenceImages = element.savedReferenceImages || element.flowReferenceImages;
 
     return {
         ...element,
         type: 'image',
         content: params.imageUrl,
-        flowReferenceImages: element.savedReferenceImages || element.flowReferenceImages,
+        flowReferenceImages: referenceImages,
         referenceImageId: undefined,
-        savedReferenceImages: undefined,
+        savedReferenceImages: referenceImages,
         savedReferenceImage: undefined,
         imageFit: 'cover',
         imageSurface: element.imageSurface || params.defaultImageSurface,
         width: params.previewMetrics?.width ?? element.width,
         height: params.previewMetrics?.height ?? element.height,
+        mediaNaturalWidth: params.previewMetrics?.naturalWidth ?? element.mediaNaturalWidth,
+        mediaNaturalHeight: params.previewMetrics?.naturalHeight ?? element.mediaNaturalHeight,
         x: params.previewMetrics?.x ?? element.x,
         y: params.previewMetrics?.y ?? element.y,
         sourceGenerationTaskId: normalizedTaskId,
@@ -134,6 +137,8 @@ export function buildFinalizedAiEditedImageElement(
         imageSurface: element.imageSurface || params.defaultImageSurface,
         width: params.metrics?.width ?? element.width,
         height: params.metrics?.height ?? element.height,
+        mediaNaturalWidth: params.metrics?.naturalWidth ?? element.mediaNaturalWidth,
+        mediaNaturalHeight: params.metrics?.naturalHeight ?? element.mediaNaturalHeight,
         x: params.metrics?.x ?? element.x,
         y: params.metrics?.y ?? element.y,
         sourceGenerationTaskId: normalizedTaskId,
@@ -154,20 +159,26 @@ export function buildFinalizedGeneratedImageElement(
     },
 ): CanvasElement {
     const normalizedTaskId = normalizeImageTaskId(params.taskId);
+    const referenceImages = element.savedReferenceImages
+        || previousElement?.savedReferenceImages
+        || element.flowReferenceImages
+        || previousElement?.flowReferenceImages;
 
     return {
         ...element,
         type: 'image',
         content: params.content,
-        flowReferenceImages: previousElement?.flowReferenceImages || previousElement?.savedReferenceImages,
+        flowReferenceImages: referenceImages,
         referenceImageId: undefined,
-        savedReferenceImages: undefined,
+        savedReferenceImages: referenceImages,
         savedReferenceImage: undefined,
         selectedAspectRatio: params.metrics?.aspectRatio ?? element.selectedAspectRatio,
         imageFit: params.defaultImageFit,
         imageSurface: element.imageSurface || params.defaultImageSurface,
         width: params.metrics?.width ?? element.width,
         height: params.metrics?.height ?? element.height,
+        mediaNaturalWidth: params.metrics?.naturalWidth ?? element.mediaNaturalWidth ?? previousElement?.mediaNaturalWidth,
+        mediaNaturalHeight: params.metrics?.naturalHeight ?? element.mediaNaturalHeight ?? previousElement?.mediaNaturalHeight,
         x: params.metrics?.x ?? element.x,
         y: params.metrics?.y ?? element.y,
         sourceGenerationTaskId: normalizedTaskId,

@@ -273,15 +273,16 @@ export function CanvasAreaContentLayer({
     const selectedReferenceConnectorIds = React.useMemo(() => new Set(
         selectedIds.length === 1 ? selectedIds.flatMap((selectedId) => {
             const element = elementMap.get(selectedId);
+            const connectorIds: string[] = [];
             if (isReferenceTargetElement(element)) {
-                return getIncomingReferenceConnectors(selectedId, elements, elementMap).map((connector) => connector.id);
+                connectorIds.push(...getIncomingReferenceConnectors(selectedId, elements, elementMap).map((connector) => connector.id));
             }
 
             if (isReferenceSourceElement(element)) {
-                return getOutgoingReferenceConnectors(selectedId, elements, elementMap).map((connector) => connector.id);
+                connectorIds.push(...getOutgoingReferenceConnectors(selectedId, elements, elementMap).map((connector) => connector.id));
             }
 
-            return [];
+            return connectorIds;
         }) : [],
     ), [elementMap, elements, selectedIds]);
     const connectorRenderElementMap = React.useMemo(() => {

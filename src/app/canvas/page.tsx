@@ -10,7 +10,7 @@ import { AiDesignerPanel } from '@/components/lovart/AiDesignerPanel';
 import { CanvasCommandPalette } from '@/components/lovart/CanvasCommandPalette';
 import { CanvasShortcutHelp } from '@/components/lovart/CanvasShortcutHelp';
 import { GenerationQueuePanel, type GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
-import { type CanvasElement } from '@/components/lovart/canvas-types';
+import { isCanvasGenerationPanelElement, isCanvasImageGenerationPanelElement, type CanvasElement } from '@/components/lovart/canvas-types';
 import { useLocalDb } from '@/hooks/useLocalDb';
 import { isImageRef, getImageBlob, getImageDataUrl } from '@/lib/editor-kernel';
 import { useCanvasFeedback } from './canvas-feedback';
@@ -68,7 +68,7 @@ import {
     applyGeneratorCreationAspectRatioBounds,
     createEmptyRecentGeneratorSettingsMap,
     findLatestGeneratorSettingsFromElements,
-    isCanvasGeneratorElementType,
+    getGeneratorSettingsTypeForElement,
     mergeGeneratorCreationAttrs,
     pickGeneratorSettings,
     type CanvasGeneratorCreationOptions,
@@ -259,8 +259,9 @@ function LovartCanvasContent() {
 
     const handleElementChange = useCallback((id: string, newAttrs: Partial<CanvasElement>) => {
         const element = elementsMapRef.current.get(id);
-        if (element && isCanvasGeneratorElementType(element.type)) {
-            rememberGeneratorSettings(element.type, {
+        const generatorSettingsType = getGeneratorSettingsTypeForElement(element);
+        if (element && generatorSettingsType) {
+            rememberGeneratorSettings(generatorSettingsType, {
                 ...element,
                 ...newAttrs,
             });
@@ -722,7 +723,7 @@ function LovartCanvasContent() {
         sideDockOffset,
     });
 
-    const handleGeneratorSubmittingChange = useCallback((elementId: string, submitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; quality?: string; duration?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => {
+    const handleGeneratorSubmittingChange = useCallback((elementId: string, submitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; quality?: string; duration?: string; generateCount?: number; resolution?: string }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => {
         setGeneratorSubmittingMap((prev) => updateGeneratorSubmittingMap(prev, elementId, submitting));
         const pid = currentProjectIdRef.current;
         if (!pid) return;
@@ -736,13 +737,14 @@ function LovartCanvasContent() {
                 const actualImageSize = liveParams?.imageSize || el.selectedImageSize || '';
                 const actualQuality = liveParams?.quality || el.selectedImageQuality || 'auto';
                 const actualDuration = liveParams?.duration || el.selectedDuration || '';
+                const actualResolution = liveParams?.resolution || el.selectedResolution || '';
                 const actualGenerateCount = liveParams?.generateCount || el.selectedGenerateCount || 1;
 
                 // 立即将 Panel 当前的 prompt/model/aspectRatio 同步写入 element，
                 // 避免 usePersistGeneratorValue 异步延迟导致 savedPrompt 是旧值。
                 // 这样在 finalizeGeneratedImageElement 用 ...item 展开时，
                 // 图片元素上的 savedPrompt 始终为实际生成所用的提示词。
-                if (actualPrompt !== el.savedPrompt || actualModel !== el.selectedModel || actualAspectRatio !== el.selectedAspectRatio || actualImageSize !== (el.selectedImageSize || '') || actualQuality !== (el.selectedImageQuality || 'auto') || actualDuration !== (el.selectedDuration || '') || actualGenerateCount !== (el.selectedGenerateCount || 1)) {
+                if (actualPrompt !== el.savedPrompt || actualModel !== el.selectedModel || actualAspectRatio !== el.selectedAspectRatio || actualImageSize !== (el.selectedImageSize || '') || actualQuality !== (el.selectedImageQuality || 'auto') || actualDuration !== (el.selectedDuration || '') || actualResolution !== (el.selectedResolution || '') || actualGenerateCount !== (el.selectedGenerateCount || 1)) {
                     const synced = {
                         ...el,
                         savedPrompt: actualPrompt,
@@ -751,6 +753,7 @@ function LovartCanvasContent() {
                         selectedImageSize: actualImageSize || undefined,
                         selectedImageQuality: actualQuality,
                         selectedDuration: actualDuration || undefined,
+                        selectedResolution: actualResolution || undefined,
                         selectedGenerateCount: actualGenerateCount,
                     };
                     elementsMapRef.current.set(elementId, synced);
@@ -770,6 +773,7 @@ function LovartCanvasContent() {
                     generateCount: actualGenerateCount,
                     taskType,
                     duration: liveParams?.duration,
+                    resolution: liveParams?.resolution,
                     timestamp: Date.now(),
                 });
             }
@@ -1422,6 +1426,7 @@ function LovartCanvasContent() {
         handleZoomOut,
         handleZoomTo,
         removeElementsByIds,
+        onDuplicateSelection: handleDuplicateSelection,
         onOpenCommandPalette: () => setShowCommandPalette(true),
         onOpenShortcutHelp: () => setShowShortcutHelp(true),
         onShortcutTriggered: announceShortcut,
@@ -1595,7 +1600,7 @@ function LovartCanvasContent() {
             return;
         }
 
-        if (item.entityType !== 'group' && (target.type === 'image-generator' || target.type === 'video-generator' || target.type === 'image')) {
+        if (item.entityType !== 'group' && isCanvasGenerationPanelElement(target)) {
             setElements((prev) => applyElementGenerationPatch(prev, target.id, { generatingError: undefined }));
             dirtyTrackerRef.current.markModified(target.id);
         }
@@ -1739,7 +1744,7 @@ function LovartCanvasContent() {
         const map = elementsMapRef.current;
         const generatorElementId = selectedIds.find(id => {
             const el = map.get(id);
-            return el?.type === 'image-generator';
+            return isCanvasImageGenerationPanelElement(el);
         });
         const generatorElement = generatorElementId ? map.get(generatorElementId) : null;
 

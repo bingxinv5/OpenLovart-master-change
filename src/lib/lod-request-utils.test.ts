@@ -18,8 +18,23 @@ describe('lod-request-utils', () => {
 
     it('promotes priority final LOD even at very low canvas zoom', () => {
         expect(getFinalRequestPixels(2000, 0.1)).toBe(32);
+        expect(getFinalRequestPixels(2000, 0.2)).toBe(128);
         expect(getPriorityFinalRequestPixels(2000, 0.1)).toBe(512);
         expect(getPriorityFinalRequestPixels(2000, 0.2)).toBe(256);
+    });
+
+    it('keeps 20 percent overview images moderately detailed without forcing priority tiers', () => {
+        const overviewState = {
+            isNearViewport: true,
+            isScaleSettled: true,
+            canvasScale: 0.2,
+            previewRequestPixels: getPreviewRequestPixels(400, 0.2),
+            finalRequestPixels: getFinalRequestPixels(400, 0.2),
+        };
+
+        expect(overviewState.previewRequestPixels).toBe(64);
+        expect(overviewState.finalRequestPixels).toBe(128);
+        expect(shouldRequestFinalLod(overviewState)).toBe(true);
     });
 
     it('maps large final display sizes toward higher tiers and original fallback', () => {

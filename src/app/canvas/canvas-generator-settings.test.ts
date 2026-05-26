@@ -4,6 +4,7 @@ import {
     applyGeneratorCreationAspectRatioBounds,
     createEmptyRecentGeneratorSettingsMap,
     findLatestGeneratorSettingsFromElements,
+    getGeneratorSettingsTypeForElement,
     mergeGeneratorCreationAttrs,
     pickGeneratorSettings,
 } from './canvas-generator-settings';
@@ -41,10 +42,12 @@ describe('canvas-generator-settings', () => {
             selectedModel: 'model-a',
             selectedAspectRatio: '16:9',
             selectedImageSize: '2K',
+            selectedImageQuality: 'high',
+            selectedGenerateCount: 2,
         });
     });
 
-    it('merges recent model settings while preserving explicit attrs and ignoring other params', () => {
+    it('merges recent generator settings while preserving explicit attrs', () => {
         expect(mergeGeneratorCreationAttrs('video-generator', {
             x: 10,
             y: 20,
@@ -55,6 +58,7 @@ describe('canvas-generator-settings', () => {
             selectedModel: 'recent-model',
             selectedAspectRatio: '21:9',
             selectedDuration: '8',
+            selectedResolution: '1080p',
             selectedEnhancePrompt: false,
         }, {
             selectedModel: 'fallback-model',
@@ -64,7 +68,27 @@ describe('canvas-generator-settings', () => {
         })).toMatchObject({
             selectedModel: 'recent-model',
             selectedAspectRatio: '9:16',
+            selectedDuration: '8',
+            selectedResolution: '1080p',
+            selectedEnhancePrompt: false,
         });
+    });
+
+    it('maps generated media elements to their generator setting type', () => {
+        expect(getGeneratorSettingsTypeForElement(makeElement({
+            type: 'image',
+            content: 'imgref://generated',
+            sourceGenerationTaskType: 'image',
+        }))).toBe('image-generator');
+        expect(getGeneratorSettingsTypeForElement(makeElement({
+            type: 'video',
+            content: 'https://example.com/generated.mp4',
+            sourceGenerationTaskType: 'video',
+        }))).toBe('video-generator');
+        expect(getGeneratorSettingsTypeForElement(makeElement({
+            type: 'image',
+            content: 'imgref://imported',
+        }))).toBeNull();
     });
 
     it('finds the latest same-type generator settings from existing elements', () => {
@@ -82,10 +106,13 @@ describe('canvas-generator-settings', () => {
             }),
             makeElement({
                 id: 'image-2',
-                type: 'image-generator',
+                type: 'image',
+                content: 'imgref://generated',
+                sourceGenerationTaskType: 'image',
                 selectedModel: 'latest-model',
                 selectedAspectRatio: '21:9',
                 selectedImageSize: '3360x1440',
+                selectedImageQuality: 'high',
             }),
         ]);
 
@@ -93,6 +120,37 @@ describe('canvas-generator-settings', () => {
             selectedModel: 'latest-model',
             selectedAspectRatio: '21:9',
             selectedImageSize: '3360x1440',
+            selectedImageQuality: 'high',
+        });
+    });
+
+    it('finds latest generated video settings for new video generators', () => {
+        const settings = findLatestGeneratorSettingsFromElements('video-generator', [
+            makeElement({
+                id: 'video-generator-1',
+                type: 'video-generator',
+                selectedModel: 'old-video-model',
+                selectedAspectRatio: '16:9',
+            }),
+            makeElement({
+                id: 'video-result-1',
+                type: 'video',
+                content: 'https://example.com/generated.mp4',
+                sourceGenerationTaskType: 'video',
+                selectedModel: 'latest-video-model',
+                selectedAspectRatio: '9:16',
+                selectedDuration: '8',
+                selectedResolution: '1080p',
+                selectedEnhancePrompt: true,
+            }),
+        ]);
+
+        expect(settings).toEqual({
+            selectedModel: 'latest-video-model',
+            selectedAspectRatio: '9:16',
+            selectedDuration: '8',
+            selectedResolution: '1080p',
+            selectedEnhancePrompt: true,
         });
     });
 

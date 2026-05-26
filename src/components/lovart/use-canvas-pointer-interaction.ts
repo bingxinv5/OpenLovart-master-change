@@ -43,6 +43,11 @@ type DuplicateSelectionResult = {
     sourceToCopyId: Record<string, string>;
 };
 
+type DuplicateSelectionOptions = {
+    preserveReferenceConnectors?: boolean;
+    stripReferenceState?: boolean;
+};
+
 // ── Public interface ──────────────────────────────────────────────────────────
 
 export interface UseCanvasPointerInteractionParams {
@@ -62,7 +67,7 @@ export interface UseCanvasPointerInteractionParams {
     onAddElement: (element: CanvasElement) => void;
     onDragStart?: () => void;
     onDragEnd?: () => void;
-    onDuplicateSelection?: (ids: string[], position?: { x: number; y: number }) => DuplicateSelectionResult | void;
+    onDuplicateSelection?: (ids: string[], position?: { x: number; y: number }, options?: DuplicateSelectionOptions) => DuplicateSelectionResult | void;
     onCanvasMouseMove?: (x: number, y: number) => void;
     // DOM refs
     outerRef: RefObject<HTMLDivElement | null>;
@@ -320,6 +325,7 @@ export function useCanvasPointerInteraction(
     }
 
     function handleResizeStart(e: ReactMouseEvent, elementId: string, handle: string, element: CanvasElement) {
+        e.preventDefault();
         e.stopPropagation();
         startResizeInteraction(elementId, handle, element, e.clientX, e.clientY);
     }
@@ -329,6 +335,7 @@ export function useCanvasPointerInteraction(
         handle: string,
         element: CanvasElement,
     ) {
+        event.preventDefault();
         event.stopPropagation();
         startResizeInteraction(element.id, handle, element, event.clientX, event.clientY);
     }
@@ -491,7 +498,9 @@ export function useCanvasPointerInteraction(
 
         onCanvasMouseMove?.(canvasX, canvasY);
 
-        if ((isDragging || isResizing) && (buttons & 1) !== 1) {
+        const isResizeInteractionActive = !!resizeHandleRef.current;
+
+        if ((isDragging || isResizeInteractionActive) && (buttons & 1) !== 1) {
             handleMouseUp();
             return;
         }
@@ -551,7 +560,10 @@ export function useCanvasPointerInteraction(
             ) {
                 const anchor = getDragSelectionAnchor(elements, dragStartRef.current.selectionIds);
                 if (anchor) {
-                    const duplicateResult = onDuplicateSelection(dragStartRef.current.selectionIds, anchor);
+                    const duplicateResult = onDuplicateSelection(dragStartRef.current.selectionIds, anchor, {
+                        preserveReferenceConnectors: false,
+                        stripReferenceState: true,
+                    });
 
                     if (duplicateResult?.copies.length) {
                         const nextDraggedElementId = draggedElementIdRef.current
@@ -629,16 +641,16 @@ export function useCanvasPointerInteraction(
             } else {
                 setDropTargetFrameId(null);
             }
-        } else if (isResizing && resizeHandleRef.current) {
+        } else if (isResizeInteractionActive && resizeHandleRef.current) {
             const { elementX, elementY, width, height, aspectRatio } = dragStartRef.current;
             const element = elements.find(el => el.id === draggedElementIdRef.current);
-            const isImage = element?.type === 'image';
+            const shouldPreserveAspectRatio = element?.type === 'image' || element?.type === 'video';
             const resizeHandle = resizeHandleRef.current;
             let { x: newX, y: newY, width: newWidth, height: newHeight } = calculateResizeBounds({
                 start: { elementX, elementY, width, height, aspectRatio },
                 handle: resizeHandle,
                 delta: { dx, dy },
-                preserveAspectRatio: !!(isImage && aspectRatio),
+                preserveAspectRatio: !!(shouldPreserveAspectRatio && aspectRatio),
             });
 
             const resizeSnap = computeResizeSnap({
@@ -691,7 +703,8 @@ export function useCanvasPointerInteraction(
             return;
         }
 
-        const resizedElementId = isResizing ? draggedElementIdRef.current : null;
+        const isResizeInteractionActive = isResizing || !!resizeHandleRef.current;
+        const resizedElementId = isResizeInteractionActive ? draggedElementIdRef.current : null;
 
         // Frame drawing completion
         if (isFrameDrawing && frameDrawBox) {

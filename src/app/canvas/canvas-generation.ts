@@ -20,6 +20,7 @@ import {
     createGenerationTaskPatch,
     type GenerationTaskPatch,
 } from '@/lib/generation-task-state';
+import { resolveVideoResolutionPixelDimensions } from '@/lib/canvas-media-dimensions';
 
 export type GeneratorSubmittingMap = Record<string, boolean>;
 
@@ -421,12 +422,15 @@ export function applyVideoGenerationSuccess(
             fallbackWidth: 400,
             fallbackHeight: 400,
         });
+        const mediaNaturalSize = resolveVideoResolutionPixelDimensions(element.selectedResolution, element.selectedAspectRatio);
 
         return {
             ...element,
             type: 'video',
             content: videoUrl,
             ...(bounds ? bounds : {}),
+            mediaNaturalWidth: mediaNaturalSize?.width ?? element.mediaNaturalWidth,
+            mediaNaturalHeight: mediaNaturalSize?.height ?? element.mediaNaturalHeight,
             sourceGenerationTaskId: normalizedTaskId ?? element.sourceGenerationTaskId,
             sourceGenerationTaskType: (normalizedTaskId ?? element.sourceGenerationTaskId) ? 'video' : undefined,
             ...createGenerationIdlePatch(),

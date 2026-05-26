@@ -7,6 +7,7 @@ import { SplitStoryboardPanel } from '@/components/lovart/SplitStoryboardPanel';
 import { StoryboardPlannerPanel } from '@/components/lovart/StoryboardPlannerPanel';
 import { VideoGeneratorPanel } from '@/components/lovart/VideoGeneratorPanel';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { isCanvasImageGenerationPanelElement, isCanvasVideoGenerationPanelElement } from '@/components/lovart/canvas-types';
 import { StoryboardExportSelection } from './StoryboardExportSelection';
 import { ZoomControl } from './ZoomControl';
 
@@ -161,7 +162,7 @@ export function CanvasFloatingToolPanels({
                 />
             )}
 
-            {selectedGeneratorElement?.type === 'image-generator' && selectedGeneratorPanelStyle && (
+            {isCanvasImageGenerationPanelElement(selectedGeneratorElement) && selectedGeneratorPanelStyle && (
                 <ImageGeneratorPanel
                     key={selectedGeneratorElement.id}
                     elementId={selectedGeneratorElement.id}
@@ -181,7 +182,7 @@ export function CanvasFloatingToolPanels({
                 />
             )}
 
-            {selectedGeneratorElement?.type === 'video-generator' && selectedGeneratorPanelStyle && (
+            {isCanvasVideoGenerationPanelElement(selectedGeneratorElement) && selectedGeneratorPanelStyle && (
                 <VideoGeneratorPanel
                     key={selectedGeneratorElement.id}
                     elementId={selectedGeneratorElement.id}

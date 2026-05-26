@@ -1,4 +1,5 @@
 import { getCanvasElementCenter, getCanvasElementRenderSize } from '@/lib/canvas-element-bounds';
+import { isCanvasGeneratedImageElement, isCanvasGeneratedVideoElement } from './canvas-types';
 import type { CanvasConnectorPort, CanvasElement, CanvasPoint } from './canvas-types';
 
 export const CANVAS_REFERENCE_CONNECTOR_KIND = 'reference-image' as const;
@@ -21,7 +22,7 @@ export type ReferenceConnectionClassification = {
 };
 
 export type ReferenceSourceElement = CanvasElement & { type: 'image' | 'video'; content: string };
-export type ReferenceTargetElement = CanvasElement & { type: 'image-generator' | 'video-generator' | 'storyboard-planner' };
+export type ReferenceTargetElement = CanvasElement & { type: 'image-generator' | 'video-generator' | 'storyboard-planner' | 'image' | 'video' };
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(max, Math.max(min, value));
@@ -36,8 +37,19 @@ export function isReferenceSourceElement(element: CanvasElement | null | undefin
     return (element?.type === 'image' || element?.type === 'video') && !!element.content;
 }
 
+export function isImageGenerationReferenceTargetElement(element: CanvasElement | null | undefined): element is ReferenceTargetElement {
+    return element?.type === 'image-generator'
+        || element?.type === 'storyboard-planner'
+        || isCanvasGeneratedImageElement(element);
+}
+
+export function isVideoGenerationReferenceTargetElement(element: CanvasElement | null | undefined): element is ReferenceTargetElement {
+    return element?.type === 'video-generator'
+        || isCanvasGeneratedVideoElement(element);
+}
+
 export function isReferenceTargetElement(element: CanvasElement | null | undefined): element is ReferenceTargetElement {
-    return element?.type === 'image-generator' || element?.type === 'video-generator' || element?.type === 'storyboard-planner';
+    return isImageGenerationReferenceTargetElement(element) || isVideoGenerationReferenceTargetElement(element);
 }
 
 export function canReferenceSourceConnectToTarget(
@@ -48,7 +60,7 @@ export function canReferenceSourceConnectToTarget(
         return false;
     }
 
-    return sourceElement.type === 'image' || targetElement.type === 'video-generator';
+    return sourceElement.type === 'image' || isVideoGenerationReferenceTargetElement(targetElement);
 }
 
 export function isCanvasReferenceConnector(
@@ -224,7 +236,7 @@ export function classifyReferenceConnectionTarget(params: {
         return { status: 'invalid' };
     }
 
-    if (sourceId === targetId && sourcePort === targetPort) {
+    if (sourceId === targetId) {
         return { status: 'invalid' };
     }
 

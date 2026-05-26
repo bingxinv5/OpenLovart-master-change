@@ -18,14 +18,15 @@ function makeElement(type: CanvasElement['type']): CanvasElement {
 }
 
 describe('ScreenSpaceResizeOverlay', () => {
-    it('allows regular canvas elements', () => {
-        expect(canUseScreenSpaceResizeOverlayForElement(makeElement('image'))).toBe(true);
+    it('allows regular non-media canvas elements', () => {
         expect(canUseScreenSpaceResizeOverlayForElement(makeElement('text'))).toBe(true);
         expect(canUseScreenSpaceResizeOverlayForElement(makeElement('frame'))).toBe(true);
     });
 
-    it('blocks connector and generator panel elements', () => {
+    it('blocks media, connector, and generator panel elements', () => {
         expect(canUseScreenSpaceResizeOverlayForElement(null)).toBe(false);
+        expect(canUseScreenSpaceResizeOverlayForElement(makeElement('image'))).toBe(false);
+        expect(canUseScreenSpaceResizeOverlayForElement(makeElement('video'))).toBe(false);
         expect(canUseScreenSpaceResizeOverlayForElement(makeElement('connector'))).toBe(false);
         expect(canUseScreenSpaceResizeOverlayForElement(makeElement('image-generator'))).toBe(false);
         expect(canUseScreenSpaceResizeOverlayForElement(makeElement('video-generator'))).toBe(false);
@@ -58,7 +59,7 @@ describe('ScreenSpaceResizeOverlay', () => {
         expect(getSuppressedResizeHandlesForReferenceConnectionPriority(overlay)).toEqual(['e']);
     });
 
-    it('always suppresses the middle-right resize hit area for images', () => {
+    it('keeps media resize corner-first so reference ports keep the sides', () => {
         const wideImageOverlay: ScreenSpaceResizeOverlayState = {
             element: { ...makeElement('image'), width: 320, height: 192 },
             left: 0,
@@ -68,8 +69,18 @@ describe('ScreenSpaceResizeOverlay', () => {
         };
 
         expect(shouldPreferReferenceConnectionOnRight(wideImageOverlay)).toBe(false);
-        expect(getAlwaysSuppressedResizeHandles(wideImageOverlay)).toEqual(['e']);
+        expect(getAlwaysSuppressedResizeHandles(wideImageOverlay)).toEqual(['n', 's', 'e', 'w']);
         expect(getSuppressedResizeHandlesForReferenceConnectionPriority(wideImageOverlay)).toEqual([]);
+
+        const videoOverlay: ScreenSpaceResizeOverlayState = {
+            element: { ...makeElement('video'), width: 320, height: 180 },
+            left: 0,
+            top: 0,
+            width: 320,
+            height: 180,
+        };
+
+        expect(getAlwaysSuppressedResizeHandles(videoOverlay)).toEqual(['n', 's', 'e', 'w']);
     });
 
     it('keeps non-image overlays fully resizable', () => {

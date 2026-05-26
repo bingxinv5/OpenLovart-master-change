@@ -1,4 +1,5 @@
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { isCanvasGeneratedImageElement, isCanvasGeneratedVideoElement } from '@/components/lovart/canvas-types';
 import { resolveGeneratorAspectRatioBounds } from '@/components/lovart/generator-aspect-ratio-layout';
 
 export type CanvasGeneratorElementType = Extract<CanvasElement['type'], 'image-generator' | 'video-generator' | 'storyboard-planner'>;
@@ -17,16 +18,43 @@ type GeneratorSettingKey = keyof Pick<CanvasElement,
     | 'selectedModel'
     | 'selectedAspectRatio'
     | 'selectedImageSize'
+    | 'selectedImageQuality'
+    | 'selectedGenerateCount'
+    | 'selectedDuration'
+    | 'selectedEnhancePrompt'
+    | 'selectedDomesticMode'
+    | 'selectedResolution'
+    | 'selectedGenerateAudio'
 >;
 
 const GENERATOR_SETTING_KEYS: Record<CanvasGeneratorElementType, readonly GeneratorSettingKey[]> = {
-    'image-generator': ['selectedModel', 'selectedAspectRatio', 'selectedImageSize'],
-    'video-generator': ['selectedModel', 'selectedAspectRatio'],
+    'image-generator': ['selectedModel', 'selectedAspectRatio', 'selectedImageSize', 'selectedImageQuality', 'selectedGenerateCount'],
+    'video-generator': ['selectedModel', 'selectedAspectRatio', 'selectedDuration', 'selectedEnhancePrompt', 'selectedDomesticMode', 'selectedResolution', 'selectedGenerateAudio'],
     'storyboard-planner': [],
 };
 
 export function isCanvasGeneratorElementType(type: CanvasElement['type']): type is CanvasGeneratorElementType {
     return type === 'image-generator' || type === 'video-generator' || type === 'storyboard-planner';
+}
+
+export function getGeneratorSettingsTypeForElement(element: CanvasElement | null | undefined): CanvasGeneratorElementType | null {
+    if (!element) {
+        return null;
+    }
+
+    if (isCanvasGeneratorElementType(element.type)) {
+        return element.type;
+    }
+
+    if (isCanvasGeneratedImageElement(element)) {
+        return 'image-generator';
+    }
+
+    if (isCanvasGeneratedVideoElement(element)) {
+        return 'video-generator';
+    }
+
+    return null;
 }
 
 export function createEmptyRecentGeneratorSettingsMap(): Record<CanvasGeneratorElementType, Partial<CanvasElement>> {
@@ -60,7 +88,7 @@ export function findLatestGeneratorSettingsFromElements(
 ): Partial<CanvasElement> {
     for (let index = elements.length - 1; index >= 0; index -= 1) {
         const element = elements[index];
-        if (element.type !== type) {
+        if (getGeneratorSettingsTypeForElement(element) !== type) {
             continue;
         }
 

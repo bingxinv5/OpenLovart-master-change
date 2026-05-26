@@ -75,6 +75,7 @@ describe('applyVideoGenerationSuccess', () => {
                 width: 400,
                 height: 300,
                 selectedAspectRatio: '9:16',
+                selectedResolution: '720p',
             },
         ];
 
@@ -86,6 +87,8 @@ describe('applyVideoGenerationSuccess', () => {
             y: -185,
             width: 400,
             height: 711,
+            mediaNaturalWidth: 720,
+            mediaNaturalHeight: 1280,
         });
     });
 });

@@ -25,6 +25,7 @@ import { CanvasAreaHud } from './CanvasAreaHud';
 import {
     classifyReferenceConnectionTarget,
     getConnectorPortPoint,
+    isVideoGenerationReferenceTargetElement,
     isReferenceSourceElement,
     isReferenceTargetElement,
     type ReferenceConnectionStatus,
@@ -105,11 +106,11 @@ function getReferenceNodeTypesForConnectionStart(element: CanvasElement | undefi
     }
 
     if (port === 'image-output') {
-        return ALL_REFERENCE_NODE_TYPES;
+        return element.type === 'video' ? VIDEO_ONLY_REFERENCE_NODE_TYPES : ALL_REFERENCE_NODE_TYPES;
     }
 
     if (port === 'generator-reference-input') {
-        return element.type === 'video-generator'
+        return isVideoGenerationReferenceTargetElement(element)
             ? ALL_REFERENCE_NODE_TYPES
             : IMAGE_STORYBOARD_REFERENCE_NODE_TYPES;
     }

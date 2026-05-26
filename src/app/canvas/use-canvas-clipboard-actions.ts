@@ -1,13 +1,133 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
+import { CANVAS_REFERENCE_CONNECTOR_KIND } from '@/components/lovart/canvas-reference-connectors';
 import { cloneCanvasElement } from './canvas-element-naming';
 import type { CanvasToastType } from './canvas-feedback';
 
-type DuplicateSelectionResult = {
+export type DuplicateSelectionResult = {
     copies: CanvasElement[];
     sourceToCopyId: Record<string, string>;
 };
+
+export type DuplicateSelectionOptions = {
+    preserveReferenceConnectors?: boolean;
+    stripReferenceState?: boolean;
+};
+
+type BuildDuplicateElementsResult = DuplicateSelectionResult & {
+    connectorCopies: CanvasElement[];
+};
+
+function isReferenceConnector(element: CanvasElement) {
+    return element.type === 'connector' && element.connectorKind === CANVAS_REFERENCE_CONNECTOR_KIND;
+}
+
+export function stripReferenceStateForDuplicate(element: CanvasElement): CanvasElement {
+    if (element.type === 'connector') {
+        return element;
+    }
+
+    return {
+        ...element,
+        referenceImageId: undefined,
+        savedReferenceImage: undefined,
+        savedReferenceImages: undefined,
+        flowReferenceImages: undefined,
+        savedFrameImages: undefined,
+        savedReferenceVideos: undefined,
+        savedReferenceAudios: undefined,
+        savedPromptMentionIds: undefined,
+        savedPromptMentionBindings: undefined,
+    };
+}
+
+function remapConnectorEndpoints(element: CanvasElement, sourceToCopyId: Record<string, string>): CanvasElement {
+    if (element.type !== 'connector') {
+        return element;
+    }
+
+    return {
+        ...element,
+        connectorFrom: element.connectorFrom ? sourceToCopyId[element.connectorFrom] ?? element.connectorFrom : element.connectorFrom,
+        connectorTo: element.connectorTo ? sourceToCopyId[element.connectorTo] ?? element.connectorTo : element.connectorTo,
+    };
+}
+
+export function buildDuplicateElements(params: {
+    elements: CanvasElement[];
+    ids: string[];
+    anchor?: { x: number; y: number };
+    nextId: () => string;
+    options?: DuplicateSelectionOptions;
+}): BuildDuplicateElementsResult {
+    const selectedIdSet = new Set(params.ids);
+    const shouldStripReferenceState = !!params.options?.stripReferenceState;
+    const shouldPreserveReferenceConnectors = params.options?.preserveReferenceConnectors !== false;
+    const sourceElements = params.elements
+        .filter((element) => selectedIdSet.has(element.id))
+        .filter((element) => !(shouldStripReferenceState && isReferenceConnector(element)));
+
+    if (sourceElements.length === 0) {
+        return {
+            copies: [],
+            connectorCopies: [],
+            sourceToCopyId: {},
+        };
+    }
+
+    const minX = Math.min(...sourceElements.map((element) => element.x));
+    const minY = Math.min(...sourceElements.map((element) => element.y));
+    const targetX = params.anchor?.x ?? minX + 30;
+    const targetY = params.anchor?.y ?? minY + 30;
+    const offsetX = targetX - minX;
+    const offsetY = targetY - minY;
+    const sourceToCopyId: Record<string, string> = {};
+    for (const element of sourceElements) {
+        sourceToCopyId[element.id] = params.nextId();
+    }
+
+    const copies = sourceElements.map((element) => {
+        const nextElement = {
+            ...cloneCanvasElement(element),
+            id: sourceToCopyId[element.id],
+            x: element.x + offsetX,
+            y: element.y + offsetY,
+        };
+
+        const normalized = shouldStripReferenceState
+            ? stripReferenceStateForDuplicate(nextElement)
+            : nextElement;
+        return remapConnectorEndpoints(normalized, sourceToCopyId);
+    });
+
+    const connectorCopies = shouldPreserveReferenceConnectors
+        ? params.elements.flatMap((element) => {
+            if (!isReferenceConnector(element) || selectedIdSet.has(element.id)) {
+                return [];
+            }
+
+            const mapsFrom = !!(element.connectorFrom && sourceToCopyId[element.connectorFrom]);
+            const mapsTo = !!(element.connectorTo && sourceToCopyId[element.connectorTo]);
+            if (!mapsFrom && !mapsTo) {
+                return [];
+            }
+
+            return [remapConnectorEndpoints({
+                ...cloneCanvasElement(element),
+                id: params.nextId(),
+                x: element.x + offsetX,
+                y: element.y + offsetY,
+            }, sourceToCopyId)];
+        })
+        : [];
+
+    return {
+        copies,
+        connectorCopies,
+        sourceToCopyId,
+    };
+}
 
 interface UseCanvasClipboardActionsParams {
     elements: CanvasElement[];
@@ -46,35 +166,25 @@ export function useCanvasClipboardActions({
         return () => window.removeEventListener('blur', handleWindowBlur);
     }, []);
 
-    const duplicateElementsByIds = useCallback((ids: string[], anchor?: { x: number; y: number }): DuplicateSelectionResult => {
-        const sourceElements = elements.filter((element) => ids.includes(element.id));
-        if (sourceElements.length === 0) {
+    const duplicateElementsByIds = useCallback((ids: string[], anchor?: { x: number; y: number }, options?: DuplicateSelectionOptions): DuplicateSelectionResult => {
+        const duplicateResult = buildDuplicateElements({
+            elements,
+            ids,
+            anchor,
+            nextId: uuidv4,
+            options,
+        });
+        const elementsToAdd = [...duplicateResult.copies, ...duplicateResult.connectorCopies];
+
+        if (elementsToAdd.length === 0) {
             return {
                 copies: [],
                 sourceToCopyId: {},
             };
         }
 
-        const minX = Math.min(...sourceElements.map((element) => element.x));
-        const minY = Math.min(...sourceElements.map((element) => element.y));
-        const targetX = anchor?.x ?? minX + 30;
-        const targetY = anchor?.y ?? minY + 30;
-        const offsetX = targetX - minX;
-        const offsetY = targetY - minY;
-        const sourceToCopyId: Record<string, string> = {};
-
-        const copies = sourceElements.map((element) => ({
-            ...cloneCanvasElement(element),
-            id: (() => {
-                const nextId = uuidv4();
-                sourceToCopyId[element.id] = nextId;
-                return nextId;
-            })(),
-            x: element.x + offsetX,
-            y: element.y + offsetY,
-        }));
-
-        addElements(copies);
+        addElements(elementsToAdd);
+        const { copies, sourceToCopyId } = duplicateResult;
         setSelectedIds(copies.map((copy) => copy.id));
         return {
             copies,
@@ -133,14 +243,14 @@ export function useCanvasClipboardActions({
         });
     }, [addElements, markCanvasClipboardPreferred, runHistoryTransaction, setSelectedIds, showToast]);
 
-    const handleDuplicateSelection = useCallback((ids: string[], anchor?: { x: number; y: number }): DuplicateSelectionResult => {
+    const handleDuplicateSelection = useCallback((ids: string[], anchor?: { x: number; y: number }, options?: DuplicateSelectionOptions): DuplicateSelectionResult => {
         let duplicateResult: DuplicateSelectionResult = {
             copies: [],
             sourceToCopyId: {},
         };
 
         runHistoryTransaction({ label: '复制副本', source: 'selection-duplicate' }, () => {
-            duplicateResult = duplicateElementsByIds(ids, anchor);
+            duplicateResult = duplicateElementsByIds(ids, anchor, options);
             if (duplicateResult.copies.length > 0) {
                 showToast(`已创建 ${duplicateResult.copies.length} 个副本`, 'success');
             }

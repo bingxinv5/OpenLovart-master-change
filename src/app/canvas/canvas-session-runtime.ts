@@ -259,8 +259,9 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
 
             const isRecoverableGenerator = el.type === 'image-generator' || el.type === 'video-generator';
             const isRecoverableImageEdit = el.type === 'image' && sub.taskType === 'image' && !!el.content;
+            const isRecoverableVideoEdit = el.type === 'video' && sub.taskType === 'video' && !!el.content;
 
-            if (!isRecoverableGenerator && !isRecoverableImageEdit) {
+            if (!isRecoverableGenerator && !isRecoverableImageEdit && !isRecoverableVideoEdit) {
                 clearSubmission(pid, elementId);
                 continue;
             }
@@ -350,7 +351,9 @@ export function useCanvasSessionRuntime(deps: CanvasSessionRuntimeDeps) {
                     images: parseSavedFrameImages(el.savedFrameImages),
                     videos: parseSavedReferenceUrls(el.savedReferenceVideos),
                     audios: parseSavedReferenceUrls(el.savedReferenceAudios),
-                    resolution: el.selectedResolution === '480p' || el.selectedResolution === '720p'
+                    resolution: sub.resolution === '480p' || sub.resolution === '720p' || sub.resolution === '1080p'
+                        ? sub.resolution
+                        : el.selectedResolution === '480p' || el.selectedResolution === '720p' || el.selectedResolution === '1080p'
                         ? el.selectedResolution
                         : undefined,
                     generateAudio: typeof el.selectedGenerateAudio === 'boolean' ? el.selectedGenerateAudio : undefined,

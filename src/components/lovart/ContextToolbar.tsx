@@ -6,6 +6,7 @@ import { WorkbenchImage } from './WorkbenchImage';
 import { getCanvasImageTool } from '@/lib/canvas-tools';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { validateStoryboardDuration, validateStoryboardShotCode } from '@/lib/storyboard-utils';
+import { getMediaToolbarDimensions } from '@/lib/canvas-media-dimensions';
 import { mockupTemplates, bgOptions, parseSavedReferenceImages } from './toolbar-actions';
 import { StableColorInput } from './canvas-ui-utils';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
@@ -191,7 +192,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
     const handleClearProjectReferences = () => {
         setSelectedReferenceImages([]);
-        onUpdate(element.id, { savedReferenceImages: undefined });
+        onUpdate(element.id, { savedReferenceImages: undefined, flowReferenceImages: undefined });
     };
 
     const getElementWithCurrentProjectReferences = () => {
@@ -287,6 +288,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
 
     // 针对图片和视频元素显示特殊的工具栏
     if (element.type === 'image' || element.type === 'video') {
+        const mediaToolbarDimensions = getMediaToolbarDimensions(element);
         const editInputPositionClassName = buildFloatingPanelPositionClassName('context-toolbar-edit-input-position', element.id);
         const editInputPositionCss = `
 .${editInputPositionClassName} {
@@ -412,7 +414,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                 >
                     {/* 图片尺寸显示 */}
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-500">
-                        <span className="font-mono font-semibold text-slate-700">{Math.round(element.width || 0)}<span className="text-slate-400">×</span>{Math.round(element.height || 0)}</span>
+                        <span className="font-mono font-semibold text-slate-700">{mediaToolbarDimensions.width}<span className="text-slate-400">×</span>{mediaToolbarDimensions.height}</span>
                     </div>
 
                     <div className="w-px h-5 bg-slate-200/60" />
@@ -663,7 +665,13 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                     {element.content && (
                         <div className="pointer-events-auto relative" ref={downloadMenuRef}>
                             <button
-                                onClick={() => canOpenExportMenu ? setShowDownloadMenu((value) => !value) : handleDownload()}
+                                onClick={() => {
+                                    if (canOpenExportMenu) {
+                                        setShowDownloadMenu((value) => !value);
+                                        return;
+                                    }
+                                    handleDownload();
+                                }}
                                 className={`p-2 rounded-lg text-slate-500 transition-all ${showDownloadMenu ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
                                 title={canOpenExportMenu ? '导出媒体' : '下载'}
                             >

@@ -93,7 +93,7 @@ interface ImageGeneratorPanelProps {
     style?: React.CSSProperties;
     canvasElements?: GeneratorCanvasElement[];
     onElementChange?: (id: string, attrs: Record<string, unknown>) => void;
-    onSubmittingChange?: (id: string, isSubmitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; quality?: string; generateCount?: number }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => void;
+    onSubmittingChange?: (id: string, isSubmitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; quality?: string; generateCount?: number; resolution?: string }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => void;
     onAddElement?: (element: { id: string; type: string; x: number; y: number; width: number; height: number; content?: string; generatingTaskId?: string; generatingTaskType?: string; generatingProgress?: number; savedPrompt?: string; selectedModel?: string; selectedAspectRatio?: string; selectedImageSize?: string; selectedImageQuality?: string; selectedGenerateCount?: number; generationResultIndex?: number; savedReferenceImages?: string; sourceGenerationTaskId?: string; sourceGenerationTaskType?: 'image' | 'video' }) => void;
     onRequestCanvasSelect?: () => void;
     projectReferenceImages?: ProjectReferenceImageItem[];
@@ -128,6 +128,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         if (currentElement?.savedReferenceImage) {
             return [currentElement.savedReferenceImage];
         }
+        if (currentElement?.flowReferenceImages) {
+            try { return JSON.parse(currentElement.flowReferenceImages) as string[]; } catch { return []; }
+        }
         return [];
     });
     const [recentHistory, setRecentHistory] = useState<ImageGenerationHistoryItem[]>([]);
@@ -137,7 +140,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [favoriteLabelDraft, setFavoriteLabelDraft] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isRecovering, setIsRecovering] = useState(false);
-    const [recoveryTaskId, setRecoveryTaskId] = useState(currentElement?.generatingTaskId || '');
+    const [recoveryTaskId, setRecoveryTaskId] = useState(currentElement?.generatingTaskId || currentElement?.sourceGenerationTaskId || '');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const isSubmittingToApi = isSubmitting || isGeneratingFromParent;
@@ -506,6 +509,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             referenceImageId: undefined,
             savedReferenceImage: undefined,
             savedReferenceImages: undefined,
+            flowReferenceImages: undefined,
         });
     }, [currentElement?.referenceImageId, elementId, onElementChange]);
 
@@ -567,7 +571,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     useEffect(() => {
         const serializedReferences = currentElement?.savedReferenceImages
-            ?? (currentElement?.savedReferenceImage ? JSON.stringify([currentElement.savedReferenceImage]) : undefined);
+            ?? (currentElement?.savedReferenceImage ? JSON.stringify([currentElement.savedReferenceImage]) : undefined)
+            ?? currentElement?.flowReferenceImages;
         if (!serializedReferences) {
             return;
         }
@@ -592,7 +597,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         } catch {
             // Ignore malformed persisted reference payloads.
         }
-    }, [currentElement?.savedReferenceImage, currentElement?.savedReferenceImages]);
+    }, [currentElement?.flowReferenceImages, currentElement?.savedReferenceImage, currentElement?.savedReferenceImages]);
 
     // Sync with workbench settings changes (reactive via useImageGenerationDefaults)
     useEffect(() => {
@@ -620,10 +625,10 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [imageDefaults, currentElement?.selectedAspectRatio, currentElement?.selectedGenerateCount, currentElement?.selectedImageQuality, currentElement?.selectedImageSize, currentElement?.selectedModel]);
 
     useEffect(() => {
-        if (currentElement?.generatingTaskId && !isRecovering) {
-            setRecoveryTaskId(currentElement.generatingTaskId);
+        if (!isRecovering) {
+            setRecoveryTaskId(currentElement?.generatingTaskId || currentElement?.sourceGenerationTaskId || '');
         }
-    }, [currentElement?.generatingTaskId, isRecovering]);
+    }, [currentElement?.generatingTaskId, currentElement?.sourceGenerationTaskId, isRecovering]);
 
     useEffect(() => {
         refreshRecentHistory();
@@ -659,6 +664,10 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [elementId, canvasElements, currentElement?.referenceImageId, currentElement?.savedReferenceImage, currentElement?.savedReferenceImages]);
 
     useEffect(() => {
+        if (currentElement?.type !== 'image-generator') {
+            return;
+        }
+
         const patch = buildGeneratorAspectRatioPatch(aspectRatio, currentElement, {
             fallbackWidth: 400,
             fallbackHeight: 400,

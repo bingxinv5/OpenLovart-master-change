@@ -29,6 +29,8 @@ export interface CanvasElement {
     content?: string;
     width?: number;
     height?: number;
+    mediaNaturalWidth?: number;
+    mediaNaturalHeight?: number;
     color?: string;
     shapeType?: 'square' | 'circle' | 'triangle' | 'star' | 'message' | 'arrow-left' | 'arrow-right';
     fontSize?: number;
@@ -125,6 +127,8 @@ export type BaseCanvasElementProps = Pick<CanvasElement,
     | 'y'
     | 'width'
     | 'height'
+    | 'mediaNaturalWidth'
+    | 'mediaNaturalHeight'
     | 'hidden'
     | 'locked'
     | 'displayName'
@@ -291,6 +295,11 @@ export type CanvasStoryboardPlannerElement = CanvasElementOfType<'storyboard-pla
 export type CanvasGeneratorElement = CanvasImageGeneratorElement | CanvasVideoGeneratorElement | CanvasStoryboardPlannerElement;
 export type CanvasMediaElement = CanvasImageElement | CanvasVideoElement;
 export type CanvasDrawableElement = CanvasImageElement | CanvasTextElement | CanvasShapeElement | CanvasPathElement;
+export type CanvasGeneratedImageElement = CanvasImageElement;
+export type CanvasGeneratedVideoElement = CanvasVideoElement;
+export type CanvasImageGenerationPanelElement = CanvasImageGeneratorElement | CanvasGeneratedImageElement;
+export type CanvasVideoGenerationPanelElement = CanvasVideoGeneratorElement | CanvasGeneratedVideoElement;
+export type CanvasGenerationPanelElement = CanvasGeneratorElement | CanvasGeneratedImageElement | CanvasGeneratedVideoElement;
 
 export const CANVAS_ELEMENT_TYPES = [
     'image',
@@ -341,6 +350,42 @@ export function isCanvasGeneratorElement(element: CanvasElement | null | undefin
 
 export function isCanvasMediaElement(element: CanvasElement | null | undefined): element is CanvasMediaElement {
     return !!element && (CANVAS_MEDIA_ELEMENT_TYPES as readonly CanvasElementType[]).includes(element.type);
+}
+
+function hasGeneratedMediaMetadata(element: CanvasElement, taskType: 'image' | 'video') {
+    return element.sourceGenerationTaskType === taskType
+        || element.generatingTaskType === taskType
+        || (!!element.sourceGenerationTaskId && !element.sourceGenerationTaskType)
+        || (!!element.generatingTaskId && !element.generatingTaskType)
+        || !!element.savedPrompt?.trim();
+}
+
+export function isCanvasGeneratedImageElement(element: CanvasElement | null | undefined): element is CanvasGeneratedImageElement {
+    return !!element
+        && element.type === 'image'
+        && (!!element.content || !!element.generatingTaskId)
+        && hasGeneratedMediaMetadata(element, 'image');
+}
+
+export function isCanvasGeneratedVideoElement(element: CanvasElement | null | undefined): element is CanvasGeneratedVideoElement {
+    return !!element
+        && element.type === 'video'
+        && (!!element.content || !!element.generatingTaskId)
+        && hasGeneratedMediaMetadata(element, 'video');
+}
+
+export function isCanvasImageGenerationPanelElement(element: CanvasElement | null | undefined): element is CanvasImageGenerationPanelElement {
+    return element?.type === 'image-generator' || isCanvasGeneratedImageElement(element);
+}
+
+export function isCanvasVideoGenerationPanelElement(element: CanvasElement | null | undefined): element is CanvasVideoGenerationPanelElement {
+    return element?.type === 'video-generator' || isCanvasGeneratedVideoElement(element);
+}
+
+export function isCanvasGenerationPanelElement(element: CanvasElement | null | undefined): element is CanvasGenerationPanelElement {
+    return isCanvasGeneratorElement(element)
+        || isCanvasGeneratedImageElement(element)
+        || isCanvasGeneratedVideoElement(element);
 }
 
 export function isCanvasDrawableElement(element: CanvasElement | null | undefined): element is CanvasDrawableElement {

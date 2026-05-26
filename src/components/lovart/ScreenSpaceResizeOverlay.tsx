@@ -2,12 +2,15 @@
 
 import type { CSSProperties, MouseEvent } from 'react';
 import type { CanvasElement } from './canvas-types';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
+import { buildCssPropertiesRule } from './scoped-style-utils';
 
 const SCREENSPACE_RESIZE_HANDLE_SIZE = 10;
 const SCREENSPACE_RESIZE_HIT_SIZE = 24;
 const SCREENSPACE_RESIZE_EDGE_THICKNESS = 14;
 const SCREENSPACE_REFERENCE_CONNECTION_PRIORITY_MAX_WIDTH = 160;
 const SCREENSPACE_REFERENCE_CONNECTION_PRIORITY_MAX_EFFECTIVE_SCALE = 0.45;
+const MEDIA_RESIZE_SIDE_HANDLES = ['n', 's', 'e', 'w'] as const;
 
 const SCREENSPACE_RESIZE_HANDLE_SPECS = [
     { handle: 'nw', cursor: 'nw-resize', style: { left: 0, top: 0, transform: 'translate(-50%, -50%)' } },
@@ -82,6 +85,8 @@ export function canUseScreenSpaceResizeOverlayForElement(element?: CanvasElement
     }
 
     return element.type !== 'connector'
+        && element.type !== 'image'
+        && element.type !== 'video'
         && element.type !== 'image-generator'
         && element.type !== 'video-generator'
         && element.type !== 'storyboard-planner';
@@ -111,9 +116,13 @@ export function shouldPreferReferenceConnectionOnRight(overlay?: ScreenSpaceResi
         || (effectiveScale !== null && effectiveScale <= SCREENSPACE_REFERENCE_CONNECTION_PRIORITY_MAX_EFFECTIVE_SCALE);
 }
 
+function isMediaResizeElement(element?: CanvasElement | null) {
+    return element?.type === 'image' || element?.type === 'video';
+}
+
 export function getAlwaysSuppressedResizeHandles(overlay?: ScreenSpaceResizeOverlayState | null) {
-    return overlay?.element.type === 'image'
-        ? ['e']
+    return isMediaResizeElement(overlay?.element)
+        ? [...MEDIA_RESIZE_SIDE_HANDLES]
         : [];
 }
 
@@ -129,52 +138,59 @@ export function ScreenSpaceResizeOverlay({ overlay, onResizeStart }: ScreenSpace
         ...getSuppressedResizeHandlesForReferenceConnectionPriority(overlay),
     ]);
     const prefersReferenceConnectionOnRight = suppressedHandles.size > 0;
+    const overlayClassName = buildFloatingPanelPositionClassName('screen-resize-overlay', overlay.element.id);
+    const handleDotClassName = `${overlayClassName}-handle-dot`;
+    const edgeClassName = (handle: string) => `${overlayClassName}-edge-${handle}`;
+    const handleClassName = (handle: string) => `${overlayClassName}-handle-${handle}`;
+    const scopedCss = [
+        buildCssPropertiesRule(overlayClassName, {
+            left: overlay.left,
+            top: overlay.top,
+            width: overlay.width,
+            height: overlay.height,
+        }),
+        ...SCREENSPACE_RESIZE_EDGE_SPECS.map((edge) => buildCssPropertiesRule(edgeClassName(edge.handle), {
+            ...edge.style,
+            cursor: edge.cursor,
+        })),
+        ...SCREENSPACE_RESIZE_HANDLE_SPECS.map((handle) => buildCssPropertiesRule(handleClassName(handle.handle), {
+            ...handle.style,
+            width: SCREENSPACE_RESIZE_HIT_SIZE,
+            height: SCREENSPACE_RESIZE_HIT_SIZE,
+            cursor: handle.cursor,
+        })),
+        buildCssPropertiesRule(handleDotClassName, {
+            width: SCREENSPACE_RESIZE_HANDLE_SIZE,
+            height: SCREENSPACE_RESIZE_HANDLE_SIZE,
+        }),
+    ].join('');
 
     return (
-        <div
-            className="pointer-events-none absolute z-[118]"
-            data-screen-resize-priority={prefersReferenceConnectionOnRight ? 'reference-connection' : 'resize'}
-            style={{
-                left: overlay.left,
-                top: overlay.top,
-                width: overlay.width,
-                height: overlay.height,
-            }}
-        >
-            {SCREENSPACE_RESIZE_EDGE_SPECS.filter((edge) => !suppressedHandles.has(edge.handle)).map((edge) => (
-                <div
-                    key={`${overlay.element.id}-edge-${edge.handle}`}
-                    className="pointer-events-auto absolute bg-transparent"
-                    data-screen-resize-edge={edge.handle}
-                    style={{
-                        ...edge.style,
-                        cursor: edge.cursor,
-                    }}
-                    onMouseDown={(event) => onResizeStart(event, edge.handle, overlay.element)}
-                />
-            ))}
-            {SCREENSPACE_RESIZE_HANDLE_SPECS.filter((handle) => !suppressedHandles.has(handle.handle)).map((handle) => (
-                <div
-                    key={`${overlay.element.id}-handle-${handle.handle}`}
-                    className="pointer-events-auto absolute flex items-center justify-center rounded-full"
-                    data-screen-resize-handle={handle.handle}
-                    style={{
-                        ...handle.style,
-                        width: SCREENSPACE_RESIZE_HIT_SIZE,
-                        height: SCREENSPACE_RESIZE_HIT_SIZE,
-                        cursor: handle.cursor,
-                    }}
-                    onMouseDown={(event) => onResizeStart(event, handle.handle, overlay.element)}
-                >
+        <>
+            <style>{scopedCss}</style>
+            <div
+                className={`${overlayClassName} pointer-events-none absolute z-[118]`}
+                data-screen-resize-priority={prefersReferenceConnectionOnRight ? 'reference-connection' : 'resize'}
+            >
+                {SCREENSPACE_RESIZE_EDGE_SPECS.filter((edge) => !suppressedHandles.has(edge.handle)).map((edge) => (
                     <div
-                        className="rounded-full border border-blue-500 bg-white shadow-[0_1px_4px_rgba(37,99,235,0.28)]"
-                        style={{
-                            width: SCREENSPACE_RESIZE_HANDLE_SIZE,
-                            height: SCREENSPACE_RESIZE_HANDLE_SIZE,
-                        }}
+                        key={`${overlay.element.id}-edge-${edge.handle}`}
+                        className={`${edgeClassName(edge.handle)} pointer-events-auto absolute bg-transparent`}
+                        data-screen-resize-edge={edge.handle}
+                        onMouseDown={(event) => onResizeStart(event, edge.handle, overlay.element)}
                     />
-                </div>
-            ))}
-        </div>
+                ))}
+                {SCREENSPACE_RESIZE_HANDLE_SPECS.filter((handle) => !suppressedHandles.has(handle.handle)).map((handle) => (
+                    <div
+                        key={`${overlay.element.id}-handle-${handle.handle}`}
+                        className={`${handleClassName(handle.handle)} pointer-events-auto absolute flex items-center justify-center rounded-full`}
+                        data-screen-resize-handle={handle.handle}
+                        onMouseDown={(event) => onResizeStart(event, handle.handle, overlay.element)}
+                    >
+                        <div className={`${handleDotClassName} rounded-full border border-blue-500 bg-white shadow-[0_1px_4px_rgba(37,99,235,0.28)]`} />
+                    </div>
+                ))}
+            </div>
+        </>
     );
 }

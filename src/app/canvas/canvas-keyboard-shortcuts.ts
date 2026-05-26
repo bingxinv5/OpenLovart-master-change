@@ -29,6 +29,7 @@ interface UseCanvasKeyboardShortcutsOptions {
     onOpenCommandPalette?: () => void;
     onOpenShortcutHelp?: () => void;
     onShortcutTriggered?: (label: string, shortcut: string) => void;
+    onDuplicateSelection?: (ids: string[]) => void;
     redo: () => void;
     saveProject: () => void;
     undo: () => void;
@@ -128,6 +129,12 @@ export function useCanvasKeyboardShortcuts(options: UseCanvasKeyboardShortcutsOp
                     case 'd':
                         e.preventDefault();
                         if (latest.selectedIds.length > 0) {
+                            if (latest.onDuplicateSelection) {
+                                latest.onDuplicateSelection(latest.selectedIds);
+                                announce('复制所选元素', 'Ctrl+D');
+                                return;
+                            }
+
                             const copies = latest.elements
                                 .filter((element) => latest.selectedIds.includes(element.id))
                                 .map((element) => ({

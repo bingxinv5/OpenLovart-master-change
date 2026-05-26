@@ -25,6 +25,8 @@ export interface ResolveImageDisplayMetricsOptions {
 export interface ImageDisplayMetrics {
     width: number;
     height: number;
+    naturalWidth?: number;
+    naturalHeight?: number;
     x?: number;
     y?: number;
     aspectRatio?: string;
@@ -42,12 +44,16 @@ export function fitImageDisplayMetrics(
     if (!options?.anchor) {
         return {
             ...fitted,
+            naturalWidth: natural.width,
+            naturalHeight: natural.height,
             aspectRatio: actualAspectRatio,
         };
     }
 
     return {
         ...fitted,
+        naturalWidth: natural.width,
+        naturalHeight: natural.height,
         aspectRatio: actualAspectRatio,
         x: Math.round(options.anchor.x + (options.anchor.width - fitted.width) / 2),
         y: Math.round(options.anchor.y + (options.anchor.height - fitted.height) / 2),

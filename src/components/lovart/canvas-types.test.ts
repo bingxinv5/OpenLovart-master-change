@@ -8,8 +8,13 @@ import {
     isCanvasDrawableElement,
     isCanvasElementOfType,
     isCanvasElementType,
+    isCanvasGeneratedImageElement,
+    isCanvasGeneratedVideoElement,
+    isCanvasGenerationPanelElement,
     isCanvasGeneratorElement,
+    isCanvasImageGenerationPanelElement,
     isCanvasMediaElement,
+    isCanvasVideoGenerationPanelElement,
 } from './canvas-types';
 
 function makeElement(type: CanvasElement['type']): CanvasElement {
@@ -42,6 +47,8 @@ describe('canvas-types guards', () => {
         expect(isCanvasGeneratorElement(makeElement('storyboard-planner'))).toBe(true);
         expect(isCanvasGeneratorElement(makeElement('image'))).toBe(false);
 
+        expect(isCanvasGeneratorElement({ ...makeElement('image'), content: 'imgref://generated', sourceGenerationTaskType: 'image' })).toBe(false);
+
         expect(isCanvasMediaElement(makeElement('image'))).toBe(true);
         expect(isCanvasMediaElement(makeElement('video'))).toBe(true);
         expect(isCanvasMediaElement(makeElement('frame'))).toBe(false);
@@ -51,6 +58,26 @@ describe('canvas-types guards', () => {
         expect(isCanvasDrawableElement(makeElement('shape'))).toBe(true);
         expect(isCanvasDrawableElement(makeElement('path'))).toBe(true);
         expect(isCanvasDrawableElement(makeElement('connector'))).toBe(false);
+    });
+
+    it('classifies generated media separately from true generator nodes', () => {
+        const uploadedImage = { ...makeElement('image'), content: 'imgref://uploaded' };
+        const generatedImage = { ...makeElement('image'), content: 'imgref://generated', sourceGenerationTaskType: 'image' as const };
+        const promptBackedImage = { ...makeElement('image'), content: 'imgref://prompt-backed', savedPrompt: '继续生成' };
+        const uploadedVideo = { ...makeElement('video'), content: 'https://example.com/uploaded.mp4' };
+        const generatedVideo = { ...makeElement('video'), content: 'https://example.com/generated.mp4', sourceGenerationTaskType: 'video' as const };
+
+        expect(isCanvasGeneratedImageElement(uploadedImage)).toBe(false);
+        expect(isCanvasGeneratedImageElement(generatedImage)).toBe(true);
+        expect(isCanvasGeneratedImageElement(promptBackedImage)).toBe(true);
+        expect(isCanvasGeneratedVideoElement(uploadedVideo)).toBe(false);
+        expect(isCanvasGeneratedVideoElement(generatedVideo)).toBe(true);
+
+        expect(isCanvasImageGenerationPanelElement(generatedImage)).toBe(true);
+        expect(isCanvasVideoGenerationPanelElement(generatedVideo)).toBe(true);
+        expect(isCanvasGenerationPanelElement(generatedImage)).toBe(true);
+        expect(isCanvasGenerationPanelElement(generatedVideo)).toBe(true);
+        expect(isCanvasGenerationPanelElement(uploadedImage)).toBe(false);
     });
 
     it('narrows to per-type union members without widening every canvas field', () => {

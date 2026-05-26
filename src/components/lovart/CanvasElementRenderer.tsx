@@ -21,7 +21,7 @@ import { ImageElementOverlays } from './image-element-overlays';
 import { MarkElementRenderer } from './MarkElementRenderer';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 import { toCanvasElementPx } from './canvas-element-style-utils';
-import { isReferenceSourceElement } from './canvas-reference-connectors';
+import { isReferenceSourceElement, isReferenceTargetElement } from './canvas-reference-connectors';
 import type { ReferenceConnectionStatus } from './canvas-reference-connectors';
 
 type ReferenceConnectionTargetFeedback = {
@@ -313,12 +313,13 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
         const shouldPlayGeneratorCreationAnimation = isNewlyCreatedGenerator && isGeneratorBoundsAnimatedElement && !dragPreviewOffset;
         const isReferenceConnectionActive = !!referenceConnectionSourceId;
         const canStartReferenceConnection = isReferenceSourceElement(el) && !isLocked;
-        const canReceiveReferenceConnection = (el.type === 'image-generator' || el.type === 'video-generator' || el.type === 'storyboard-planner') && !isLocked;
+        const canReceiveReferenceConnection = isReferenceTargetElement(el) && !isLocked;
+        const canStartGeneratorFlowConnection = canReceiveReferenceConnection && !isReferenceSourceElement(el);
         const canCompleteGeneratorLeftPort = canReceiveReferenceConnection
             && isReferenceConnectionActive
             && referenceConnectionSourceId !== el.id
             && (referenceConnectionPort === 'image-output' || referenceConnectionPort === 'generator-flow-output');
-        const canCompleteGeneratorRightPort = canReceiveReferenceConnection
+        const canCompleteGeneratorRightPort = canStartGeneratorFlowConnection
             && isReferenceConnectionActive
             && referenceConnectionSourceId !== el.id
             && referenceConnectionPort === 'generator-reference-input';
@@ -586,44 +587,45 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                 )}
 
                 {canReceiveReferenceConnection && (
-                    <>
-                        <ReferencePortButton
-                            port="generator-reference-input"
-                            side="left"
-                            active={(referenceConnectionSourceId === el.id && referenceConnectionPort === 'generator-reference-input') || canCompleteGeneratorLeftPort}
-                            disabled={referenceFeedbackPort === 'generator-reference-input' && referenceFeedbackStatus !== 'valid'}
-                            feedbackStatus={referenceFeedbackPort === 'generator-reference-input' ? referenceFeedbackStatus : null}
-                            onMouseDown={(event) => {
-                                if (canCompleteGeneratorLeftPort) return;
-                                onStartReferenceConnection?.(el.id, 'generator-reference-input', event);
-                            }}
-                            onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                if (canCompleteGeneratorLeftPort) {
-                                    onCompleteReferenceConnection?.(el.id, 'generator-reference-input');
-                                }
-                            }}
-                        />
-                        <ReferencePortButton
-                            port="generator-flow-output"
-                            side="right"
-                            active={(referenceConnectionSourceId === el.id && referenceConnectionPort === 'generator-flow-output') || canCompleteGeneratorRightPort}
-                            disabled={referenceFeedbackPort === 'generator-flow-output' && referenceFeedbackStatus !== 'valid'}
-                            feedbackStatus={referenceFeedbackPort === 'generator-flow-output' ? referenceFeedbackStatus : null}
-                            onMouseDown={(event) => {
-                                if (canCompleteGeneratorRightPort) return;
-                                onStartReferenceConnection?.(el.id, 'generator-flow-output', event);
-                            }}
-                            onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                if (canCompleteGeneratorRightPort) {
-                                    onCompleteReferenceConnection?.(el.id, 'generator-flow-output');
-                                }
-                            }}
-                        />
-                    </>
+                    <ReferencePortButton
+                        port="generator-reference-input"
+                        side="left"
+                        active={(referenceConnectionSourceId === el.id && referenceConnectionPort === 'generator-reference-input') || canCompleteGeneratorLeftPort}
+                        disabled={referenceFeedbackPort === 'generator-reference-input' && referenceFeedbackStatus !== 'valid'}
+                        feedbackStatus={referenceFeedbackPort === 'generator-reference-input' ? referenceFeedbackStatus : null}
+                        onMouseDown={(event) => {
+                            if (canCompleteGeneratorLeftPort) return;
+                            onStartReferenceConnection?.(el.id, 'generator-reference-input', event);
+                        }}
+                        onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (canCompleteGeneratorLeftPort) {
+                                onCompleteReferenceConnection?.(el.id, 'generator-reference-input');
+                            }
+                        }}
+                    />
+                )}
+
+                {canStartGeneratorFlowConnection && (
+                    <ReferencePortButton
+                        port="generator-flow-output"
+                        side="right"
+                        active={(referenceConnectionSourceId === el.id && referenceConnectionPort === 'generator-flow-output') || canCompleteGeneratorRightPort}
+                        disabled={referenceFeedbackPort === 'generator-flow-output' && referenceFeedbackStatus !== 'valid'}
+                        feedbackStatus={referenceFeedbackPort === 'generator-flow-output' ? referenceFeedbackStatus : null}
+                        onMouseDown={(event) => {
+                            if (canCompleteGeneratorRightPort) return;
+                            onStartReferenceConnection?.(el.id, 'generator-flow-output', event);
+                        }}
+                        onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (canCompleteGeneratorRightPort) {
+                                onCompleteReferenceConnection?.(el.id, 'generator-flow-output');
+                            }
+                        }}
+                    />
                 )}
 
                 {/* ── Parent frame indicator badge ── */}

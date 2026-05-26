@@ -8,6 +8,8 @@ import { WorkbenchImage } from './WorkbenchImage';
 import type { CanvasElement } from './canvas-types';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
+const LOW_ZOOM_IMAGE_PREVIEW_MAX_SCALE = 0.2;
+
 export type ImagePreviewMetrics = {
     width: number;
     height: number;
@@ -104,7 +106,7 @@ export function resolveActiveImagePreviewElement(
     scale: number,
     disabled = false,
 ) {
-    if (disabled || scale > 0.12 || !activeImagePreviewId) {
+    if (disabled || scale > LOW_ZOOM_IMAGE_PREVIEW_MAX_SCALE || !activeImagePreviewId) {
         return null;
     }
 

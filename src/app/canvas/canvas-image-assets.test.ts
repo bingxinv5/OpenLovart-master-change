@@ -6,6 +6,8 @@ describe('canvas-image-assets', () => {
         expect(fitImageDisplayMetrics({ width: 4096, height: 2048 })).toEqual({
             width: 600,
             height: 300,
+            naturalWidth: 4096,
+            naturalHeight: 2048,
             aspectRatio: undefined,
         });
     });
@@ -18,6 +20,8 @@ describe('canvas-image-assets', () => {
         })).toEqual({
             width: 400,
             height: 225,
+            naturalWidth: 1600,
+            naturalHeight: 900,
             x: 100,
             y: 288,
             aspectRatio: '16:9',

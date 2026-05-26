@@ -6,8 +6,10 @@ import type { CanvasConnectorPort } from '@/components/lovart/canvas-types';
 import {
     CANVAS_REFERENCE_CONNECTOR_KIND,
     canReferenceSourceConnectToTarget,
+    isImageGenerationReferenceTargetElement,
     isReferenceSourceElement,
     isReferenceTargetElement,
+    isVideoGenerationReferenceTargetElement,
     mergeSerializedImageReferences,
     type ReferenceSourceElement,
     type ReferenceTargetElement,
@@ -308,13 +310,13 @@ function applyReferenceConnectionToElements(
             return {
                 ...element,
                 referenceImageId: undefined,
-                savedReferenceImages: sourceElement.type === 'image' && (element.type === 'image-generator' || element.type === 'storyboard-planner')
+                savedReferenceImages: sourceElement.type === 'image' && isImageGenerationReferenceTargetElement(element)
                     ? mergeSerializedImageReferences(element.savedReferenceImages, [sourceElement.content])
                     : element.savedReferenceImages,
-                savedFrameImages: sourceElement.type === 'image' && element.type === 'video-generator'
+                savedFrameImages: sourceElement.type === 'image' && isVideoGenerationReferenceTargetElement(element)
                     ? mergeSerializedFrameReferenceImages(element.savedFrameImages, sourceElement.content)
                     : element.savedFrameImages,
-                savedReferenceVideos: sourceElement.type === 'video' && element.type === 'video-generator'
+                savedReferenceVideos: sourceElement.type === 'video' && isVideoGenerationReferenceTargetElement(element)
                     ? mergeSerializedVideoReferences(element.savedReferenceVideos, sourceElement.content)
                     : element.savedReferenceVideos,
                 linkedElements: appendLinkedElements(element, [sourceElement.id, connectorElement.id]),
@@ -327,8 +329,8 @@ function applyReferenceConnectionToElements(
 
 function applyGeneratorFlowConnectionToElements(
     elements: CanvasElement[],
-    sourceElement: CanvasElement & { type: ReferenceConnectionTargetType },
-    targetElement: CanvasElement & { type: ReferenceConnectionTargetType },
+    sourceElement: ReferenceTargetElement,
+    targetElement: ReferenceTargetElement,
     connectorElement: CanvasElement,
 ) {
     return elements.map((element) => {
@@ -428,7 +430,7 @@ export function useCanvasFlowConnection({
         }
     }, [dirtyTrackerRef, setElements]);
 
-    const completeGeneratorFlowConnection = useCallback((sourceElement: CanvasElement & { type: ReferenceConnectionTargetType }, targetElement: CanvasElement & { type: ReferenceConnectionTargetType }) => {
+    const completeGeneratorFlowConnection = useCallback((sourceElement: ReferenceTargetElement, targetElement: ReferenceTargetElement) => {
         let addedConnectorId: string | null = null;
         let sourceWasModified = false;
         let targetWasModified = false;

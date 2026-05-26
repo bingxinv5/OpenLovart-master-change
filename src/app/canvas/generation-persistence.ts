@@ -39,6 +39,7 @@ export interface PendingSubmission {
     generateCount?: number;
     taskType: 'image' | 'video';
     duration?: string;
+    resolution?: string;
     timestamp: number;
 }
 

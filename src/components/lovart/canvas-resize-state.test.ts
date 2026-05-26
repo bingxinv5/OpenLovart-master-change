@@ -42,4 +42,22 @@ describe('canvas-resize-state', () => {
             preserveAspectRatio: true,
         })).toEqual({ x: 10, y: 30, width: 80, height: 40 });
     });
+
+    it('clamps resize bounds so elements do not invert past the dragged corner', () => {
+        expect(calculateResizeBounds({
+            start: { elementX: 10, elementY: 20, width: 100, height: 80 },
+            handle: 'nw',
+            delta: { dx: 140, dy: 120 },
+            preserveAspectRatio: false,
+        })).toEqual({ x: 94, y: 84, width: 16, height: 16 });
+    });
+
+    it('clamps aspect-preserving media bounds without losing the opposite edge anchor', () => {
+        expect(calculateResizeBounds({
+            start: { elementX: 10, elementY: 20, width: 100, height: 50, aspectRatio: 2 },
+            handle: 'nw',
+            delta: { dx: 140, dy: 120 },
+            preserveAspectRatio: true,
+        })).toEqual({ x: 78, y: 54, width: 32, height: 16 });
+    });
 });

@@ -18,11 +18,15 @@ export function calculateResizeBounds({
     handle,
     delta,
     preserveAspectRatio,
+    minWidth = 16,
+    minHeight = 16,
 }: {
     start: ResizeStartBounds;
     handle: string;
     delta: { dx: number; dy: number };
     preserveAspectRatio: boolean;
+    minWidth?: number;
+    minHeight?: number;
 }): CanvasResizeBounds {
     let x = start.elementX;
     let y = start.elementY;
@@ -48,6 +52,31 @@ export function calculateResizeBounds({
             width = height * start.aspectRatio;
             if (handle.includes('w')) x = start.elementX + (start.width - width);
             if (handle === 'n') y = start.elementY + (start.height - height);
+        }
+    }
+
+    if (preserveAspectRatio && start.aspectRatio) {
+        const aspectRatio = start.aspectRatio;
+        const resolvedMinWidth = Math.max(minWidth, minHeight * aspectRatio);
+        if (width < resolvedMinWidth) {
+            width = resolvedMinWidth;
+            height = width / aspectRatio;
+        }
+        const resolvedMinHeight = Math.max(minHeight, minWidth / aspectRatio);
+        if (height < resolvedMinHeight) {
+            height = resolvedMinHeight;
+            width = height * aspectRatio;
+        }
+        if (handle.includes('w')) x = start.elementX + (start.width - width);
+        if (handle.includes('n')) y = start.elementY + (start.height - height);
+    } else {
+        if (width < minWidth) {
+            width = minWidth;
+            if (handle.includes('w')) x = start.elementX + (start.width - width);
+        }
+        if (height < minHeight) {
+            height = minHeight;
+            if (handle.includes('n')) y = start.elementY + (start.height - height);
         }
     }
 

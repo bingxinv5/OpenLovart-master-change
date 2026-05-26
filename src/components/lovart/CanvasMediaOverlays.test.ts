@@ -29,7 +29,8 @@ describe('CanvasMediaOverlays', () => {
         ];
 
         expect(resolveActiveImagePreviewElement(elements, 'image-a', 0.1)?.id).toBe('image-a');
-        expect(resolveActiveImagePreviewElement(elements, 'image-a', 0.13)).toBeNull();
+        expect(resolveActiveImagePreviewElement(elements, 'image-a', 0.2)?.id).toBe('image-a');
+        expect(resolveActiveImagePreviewElement(elements, 'image-a', 0.21)).toBeNull();
         expect(resolveActiveImagePreviewElement(elements, 'image-hidden', 0.1)).toBeNull();
         expect(resolveActiveImagePreviewElement(elements, 'video-a', 0.1)).toBeNull();
         expect(resolveActiveImagePreviewElement(elements, 'image-a', 0.1, true)).toBeNull();

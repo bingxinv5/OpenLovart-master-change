@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react';
-import type { CanvasElement, CanvasGeneratorElement } from '@/components/lovart/canvas-types';
-import { isCanvasGeneratorElement } from '@/components/lovart/canvas-types';
+import type { CanvasElement, CanvasGenerationPanelElement } from '@/components/lovart/canvas-types';
+import { isCanvasGenerationPanelElement } from '@/components/lovart/canvas-types';
 
-/** @deprecated Use CanvasGeneratorElement from canvas-types directly. */
-export type SelectedGeneratorElement = CanvasGeneratorElement;
+/** @deprecated Use CanvasGenerationPanelElement from canvas-types directly. */
+export type SelectedGeneratorElement = CanvasGenerationPanelElement;
 
 const GENERATOR_PANEL_WIDTH = 620;
 const STORYBOARD_PANEL_WIDTH = 560;
@@ -20,13 +20,13 @@ export function getSelectedGeneratorElement(
         isDraggingElement: boolean;
         canvasSelectMode: string | null;
     },
-): CanvasGeneratorElement | null {
+): CanvasGenerationPanelElement | null {
     if (selectedIds.length !== 1 || options.isDraggingElement || options.canvasSelectMode) {
         return null;
     }
 
     const selectedElement = elements.find((element) => element.id === selectedIds[0]);
-    if (!isCanvasGeneratorElement(selectedElement)) {
+    if (!isCanvasGenerationPanelElement(selectedElement)) {
         return null;
     }
 

@@ -8,6 +8,7 @@ import {
     findIncomingReferenceConnectorForMedia,
     getConnectorRenderData,
     getOutgoingReferenceConnectors,
+    isReferenceTargetElement,
     resolveReferenceConnectorImages,
     resolveReferenceConnectorVideos,
 } from './canvas-reference-connectors';
@@ -99,6 +100,34 @@ describe('canvas-reference-connectors', () => {
         });
 
         expect(resolveReferenceConnectorImages(planner.id, [image, planner, connector])).toEqual(['imgref://a']);
+    });
+
+    it('supports generated image nodes as reference connector targets', () => {
+        const image = makeElement('image-a', { content: 'imgref://a' });
+        const generatedImage = makeElement('generated-image-a', {
+            type: 'image',
+            content: 'imgref://generated',
+            sourceGenerationTaskType: 'image',
+            x: 260,
+            y: 20,
+            width: 160,
+            height: 120,
+        });
+        const connector = makeElement('connector-a', {
+            type: 'connector',
+            connectorKind: CANVAS_REFERENCE_CONNECTOR_KIND,
+            connectorFrom: image.id,
+            connectorTo: generatedImage.id,
+        });
+        const data = getConnectorRenderData(connector, new Map([
+            [image.id, image],
+            [generatedImage.id, generatedImage],
+            [connector.id, connector],
+        ]));
+
+        expect(isReferenceTargetElement(generatedImage)).toBe(true);
+        expect(resolveReferenceConnectorImages(generatedImage.id, [image, generatedImage, connector])).toEqual(['imgref://a']);
+        expect(data?.to).toEqual({ x: 260, y: 80 });
     });
 
     it('resolves unique connected image contents and ignores missing sources', () => {
@@ -238,6 +267,66 @@ describe('canvas-reference-connectors', () => {
             sourceId: video.id,
             sourcePort: 'image-output',
             targetId: imageGenerator.id,
+            targetPort: 'generator-reference-input',
+            elements,
+        }).status).toBe('invalid');
+    });
+
+    it('applies generated media target compatibility rules for image and video sources', () => {
+        const image = makeElement('image-a', { content: 'imgref://a' });
+        const video = makeElement('video-a', { type: 'video', content: 'https://example.com/reference.mp4' });
+        const generatedImage = makeElement('generated-image-a', {
+            type: 'image',
+            content: 'imgref://generated',
+            sourceGenerationTaskType: 'image',
+        });
+        const generatedVideo = makeElement('generated-video-a', {
+            type: 'video',
+            content: 'https://example.com/generated.mp4',
+            sourceGenerationTaskType: 'video',
+        });
+        const uploadedImage = makeElement('uploaded-image-a', { content: 'imgref://uploaded' });
+        const elements = [image, video, generatedImage, generatedVideo, uploadedImage];
+
+        expect(classifyReferenceConnectionTarget({
+            sourceId: image.id,
+            sourcePort: 'image-output',
+            targetId: generatedImage.id,
+            targetPort: 'generator-reference-input',
+            elements,
+        }).status).toBe('valid');
+        expect(classifyReferenceConnectionTarget({
+            sourceId: image.id,
+            sourcePort: 'image-output',
+            targetId: generatedVideo.id,
+            targetPort: 'generator-reference-input',
+            elements,
+        }).status).toBe('valid');
+        expect(classifyReferenceConnectionTarget({
+            sourceId: video.id,
+            sourcePort: 'image-output',
+            targetId: generatedVideo.id,
+            targetPort: 'generator-reference-input',
+            elements,
+        }).status).toBe('valid');
+        expect(classifyReferenceConnectionTarget({
+            sourceId: video.id,
+            sourcePort: 'image-output',
+            targetId: generatedImage.id,
+            targetPort: 'generator-reference-input',
+            elements,
+        }).status).toBe('invalid');
+        expect(classifyReferenceConnectionTarget({
+            sourceId: image.id,
+            sourcePort: 'image-output',
+            targetId: uploadedImage.id,
+            targetPort: 'generator-reference-input',
+            elements,
+        }).status).toBe('invalid');
+        expect(classifyReferenceConnectionTarget({
+            sourceId: generatedImage.id,
+            sourcePort: 'image-output',
+            targetId: generatedImage.id,
             targetPort: 'generator-reference-input',
             elements,
         }).status).toBe('invalid');

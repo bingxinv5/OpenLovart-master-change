@@ -42,7 +42,7 @@ export function getFinalRequestPixels(displayPixels?: number, canvasScale = 1): 
     }
 
     if (canvasScale <= 0.25) {
-        return 64;
+        return 128;
     }
 
     if (canvasScale <= 0.4) {

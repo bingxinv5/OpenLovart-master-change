@@ -42,7 +42,7 @@ describe('use-image-finalizer helpers', () => {
         }), {
             imageUrl: 'https://example.com/result.png',
             taskId: ' task-2 ',
-            previewMetrics: { x: 30, y: 40, width: 160, height: 90, aspectRatio: '16:9' },
+            previewMetrics: { x: 30, y: 40, width: 160, height: 90, naturalWidth: 1600, naturalHeight: 900, aspectRatio: '16:9' },
             defaultImageSurface: 'light',
         });
 
@@ -50,26 +50,29 @@ describe('use-image-finalizer helpers', () => {
             type: 'image',
             content: 'https://example.com/result.png',
             flowReferenceImages: '["imgref:a"]',
+            savedReferenceImages: '["imgref:a"]',
             imageFit: 'cover',
             imageSurface: 'light',
             x: 30,
             y: 40,
             width: 160,
             height: 90,
+            mediaNaturalWidth: 1600,
+            mediaNaturalHeight: 900,
             sourceGenerationTaskId: 'task-2',
             sourceGenerationTaskType: 'image',
             generatingTaskId: undefined,
         });
     });
 
-    it('finalizes generated image elements with measured metrics and preserved flow references', () => {
+    it('finalizes generated image elements with measured metrics and preserved panel references', () => {
         const previous = createElement({
             flowReferenceImages: '["imgref:flow"]',
             selectedAspectRatio: '21:9',
         });
         const result = buildFinalizedGeneratedImageElement(createElement({ imageFit: 'cover' }), previous, {
             content: 'imgref:final',
-            metrics: { x: 50, y: 60, width: 500, height: 250, aspectRatio: '2:1' },
+            metrics: { x: 50, y: 60, width: 500, height: 250, naturalWidth: 1000, naturalHeight: 500, aspectRatio: '2:1' },
             taskId: 'task-3',
             defaultImageFit: 'contain',
             defaultImageSurface: 'checker',
@@ -80,7 +83,7 @@ describe('use-image-finalizer helpers', () => {
             content: 'imgref:final',
             flowReferenceImages: '["imgref:flow"]',
             referenceImageId: undefined,
-            savedReferenceImages: undefined,
+            savedReferenceImages: '["imgref:flow"]',
             imageFit: 'contain',
             imageSurface: 'checker',
             selectedAspectRatio: '2:1',
@@ -88,6 +91,8 @@ describe('use-image-finalizer helpers', () => {
             y: 60,
             width: 500,
             height: 250,
+            mediaNaturalWidth: 1000,
+            mediaNaturalHeight: 500,
             sourceGenerationTaskId: 'task-3',
             sourceGenerationTaskType: 'image',
             generatingTaskId: undefined,

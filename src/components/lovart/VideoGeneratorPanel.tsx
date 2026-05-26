@@ -114,7 +114,7 @@ interface VideoGeneratorPanelProps {
     style?: React.CSSProperties;
     canvasElements?: GeneratorCanvasElement[];
     onElementChange?: (id: string, attrs: Record<string, unknown>) => void;
-    onSubmittingChange?: (id: string, isSubmitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; duration?: string }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => void;
+    onSubmittingChange?: (id: string, isSubmitting: boolean, liveParams?: { prompt?: string; model?: string; aspectRatio?: string; imageSize?: string; duration?: string; resolution?: string }, completion?: { outcome: 'succeeded' | 'failed' | 'interrupted' }) => void;
     onRequestCanvasSelect?: (imageType: 'first_frame' | 'last_frame' | 'reference') => void;
     projectReferenceImages?: ProjectReferenceImageItem[];
     projectMediaItems?: ProjectMediaHistoryItem[];
@@ -365,6 +365,10 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     }, [resolution, resolutionOptions]);
 
     useEffect(() => {
+        if (currentElement?.type !== 'video-generator') {
+            return;
+        }
+
         const patch = buildGeneratorAspectRatioPatch(aspectRatio, currentElement, {
             fallbackWidth: 400,
             fallbackHeight: 400,
@@ -864,7 +868,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         const resolvedPrompt = materializePromptMentions(prompt, promptMentions);
 
         setIsSubmitting(true);
-        onSubmittingChange?.(elementId, true, { prompt: resolvedPrompt, model, aspectRatio, duration });
+        onSubmittingChange?.(elementId, true, { prompt: resolvedPrompt, model, aspectRatio, duration, resolution });
         setErrorMsg(null);
         let submissionAccepted = false;
         let submissionOutcome: 'succeeded' | 'failed' | 'interrupted' = 'failed';
