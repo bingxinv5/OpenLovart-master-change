@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Download, Trash2, Wand2, Copy, X, Send, Eye, EyeOff, Lock, Unlock, Wrench, LayoutGrid, Check, LibraryBig, BookmarkPlus } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Download, Trash2, Wand2, Copy, X, Send, Eye, EyeOff, Lock, Unlock, Wrench, LayoutGrid, Check, LibraryBig, BookmarkPlus, Maximize2 } from 'lucide-react';
 import type { CanvasElement, CanvasElementExportFormat } from './canvas-types';
 import { ExportMenu } from './ExportMenu';
 import { WorkbenchImage } from './WorkbenchImage';
@@ -10,6 +10,13 @@ import { getMediaToolbarDimensions } from '@/lib/canvas-media-dimensions';
 import { mockupTemplates, bgOptions, parseSavedReferenceImages } from './toolbar-actions';
 import { StableColorInput } from './canvas-ui-utils';
 import { buildFloatingPanelPositionClassName } from './floating-panel-position';
+import { ExpandedPromptEditorDialog } from './ExpandedPromptEditorDialog';
+import {
+    ReferenceMediaLightbox,
+    ReferenceThumbnailHoverPreview,
+    useReferenceThumbnailHoverPreview,
+    type ReferenceMediaPreviewSource,
+} from './ReferenceMediaPreview';
 
 // mockupTemplates, bgOptions, parseSavedReferenceImages — imported from toolbar-actions
 
@@ -103,7 +110,9 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
     const [showDownloadMenu, setShowDownloadMenu] = useState(false);
     const [showStoryboardMenu, setShowStoryboardMenu] = useState(false);
     const [showEditInput, setShowEditInput] = useState(false);
+    const [showExpandedEditPrompt, setShowExpandedEditPrompt] = useState(false);
     const [editPrompt, setEditPrompt] = useState(() => element.savedPrompt || '');
+    const [referenceLightboxIndex, setReferenceLightboxIndex] = useState<number | null>(null);
     const [recoveryTaskId, setRecoveryTaskId] = useState(() => element.generatingTaskId || element.sourceGenerationTaskId || '');
     const [recoverError, setRecoverError] = useState<string | null>(null);
     const [isRecovering, setIsRecovering] = useState(false);
@@ -120,7 +129,14 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
     const toolsMenuRef = useRef<HTMLDivElement>(null);
     const downloadMenuRef = useRef<HTMLDivElement>(null);
     const storyboardMenuRef = useRef<HTMLDivElement>(null);
-    const editInputRef = useRef<HTMLInputElement>(null);
+    const editInputRef = useRef<HTMLTextAreaElement>(null);
+    const referenceClickTimerRef = useRef<number | null>(null);
+    const {
+        preview: referenceHoverPreview,
+        schedulePreviewOpen: scheduleReferencePreviewOpen,
+        schedulePreviewClose: scheduleReferencePreviewClose,
+        closePreview: closeReferenceHoverPreview,
+    } = useReferenceThumbnailHoverPreview();
 
     // Close menus on outside click
     useEffect(() => {
@@ -167,11 +183,33 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
     const [selectedReferenceImages, setSelectedReferenceImages] = useState<string[]>(() => parseSavedReferenceImages(element.savedReferenceImages));
     const selectedReferenceCount = selectedReferenceImages.length;
     const canOpenReferenceMenu = projectReferenceImages.length > 0 || selectedReferenceCount > 0;
+    const visibleProjectReferenceImages = useMemo(() => projectReferenceImages.slice(0, 9), [projectReferenceImages]);
+    const projectReferencePreviewItems = useMemo<ReferenceMediaPreviewSource[]>(() => visibleProjectReferenceImages.map((item) => ({
+        id: item.id,
+        title: item.label,
+        content: item.image,
+        kind: 'image' as const,
+    })), [visibleProjectReferenceImages]);
     const isSavedAsProjectReference = element.type === 'image' && !!element.content && projectReferenceImages.some((item) => item.image === element.content);
 
     useEffect(() => {
         setSelectedReferenceImages(parseSavedReferenceImages(element.savedReferenceImages));
     }, [element.id, element.savedReferenceImages]);
+
+    useEffect(() => {
+        return () => {
+            if (referenceClickTimerRef.current !== null) {
+                window.clearTimeout(referenceClickTimerRef.current);
+                referenceClickTimerRef.current = null;
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!showReferenceMenu) {
+            closeReferenceHoverPreview();
+        }
+    }, [closeReferenceHoverPreview, showReferenceMenu]);
 
     const handleToggleProjectReference = (item: ProjectReferenceImageItem) => {
         const alreadySelected = selectedReferenceImages.includes(item.image);
@@ -188,6 +226,29 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
         if (!alreadySelected) {
             onUseProjectReferenceImage?.(item.id);
         }
+    };
+
+    const clearReferenceClickTimer = () => {
+        if (referenceClickTimerRef.current !== null) {
+            window.clearTimeout(referenceClickTimerRef.current);
+            referenceClickTimerRef.current = null;
+        }
+    };
+
+    const scheduleToggleProjectReference = (item: ProjectReferenceImageItem) => {
+        clearReferenceClickTimer();
+        referenceClickTimerRef.current = window.setTimeout(() => {
+            handleToggleProjectReference(item);
+            referenceClickTimerRef.current = null;
+        }, 180);
+    };
+
+    const openProjectReferenceLightbox = (item: ProjectReferenceImageItem) => {
+        clearReferenceClickTimer();
+        const nextIndex = projectReferencePreviewItems.findIndex((previewItem) => previewItem.id === item.id);
+        if (nextIndex < 0) return;
+        closeReferenceHoverPreview();
+        setReferenceLightboxIndex(nextIndex);
     };
 
     const handleClearProjectReferences = () => {
@@ -311,24 +372,61 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             </div>
                             <button type="button" onClick={() => setShowEditInput(false)} title="关闭 AI 智能编辑" aria-label="关闭 AI 智能编辑" className="text-slate-400 hover:text-slate-600 transition-colors"><X size={14} /></button>
                         </div>
-                        <div className="flex gap-2">
-                            <input
-                                ref={editInputRef}
-                                type="text"
-                                value={editPrompt}
-                                onChange={(e) => setEditPrompt(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleAiEditSubmit(); }}
-                                placeholder='输入编辑指令，如"把背景换成海边"'
-                                className="flex-1 text-sm border border-slate-200/60 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-slate-100 focus:border-slate-300"
-                            />
+                        <div className="flex items-start gap-2">
+                            <div className="relative min-w-0 flex-1">
+                                <textarea
+                                    ref={editInputRef}
+                                    value={editPrompt}
+                                    rows={2}
+                                    onChange={(e) => setEditPrompt(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        e.stopPropagation();
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleAiEditSubmit();
+                                        }
+                                    }}
+                                    onWheel={(e) => e.stopPropagation()}
+                                    placeholder='输入编辑指令，如"把背景换成海边"'
+                                    className="min-h-[42px] max-h-28 w-full resize-none rounded-lg border border-slate-200/60 px-3 py-2 pr-9 text-sm leading-5 outline-none transition-colors focus:border-slate-300 focus:ring-2 focus:ring-slate-100"
+                                />
+                                <button
+                                    type="button"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => setShowExpandedEditPrompt(true)}
+                                    className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                                    title="放大编辑提示词"
+                                    aria-label="放大编辑提示词"
+                                >
+                                    <Maximize2 size={12} />
+                                </button>
+                            </div>
                             <button
                                 onClick={handleAiEditSubmit}
                                 disabled={!editPrompt.trim()}
-                                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${editPrompt.trim() ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                                className={`min-h-[42px] px-3 py-2 rounded-lg text-sm font-medium transition-colors ${editPrompt.trim() ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                             >
                                 执行
                             </button>
                         </div>
+                        {showExpandedEditPrompt && (
+                            <ExpandedPromptEditorDialog
+                                title="AI 智能编辑"
+                                value={editPrompt}
+                                mentions={[]}
+                                ariaLabel="放大编辑 AI 智能编辑提示词"
+                                placeholder='输入编辑指令，如"把背景换成海边"'
+                                onApply={(nextPrompt) => {
+                                    setEditPrompt(nextPrompt);
+                                    setShowExpandedEditPrompt(false);
+                                    requestAnimationFrame(() => editInputRef.current?.focus());
+                                }}
+                                onClose={() => {
+                                    setShowExpandedEditPrompt(false);
+                                    requestAnimationFrame(() => editInputRef.current?.focus());
+                                }}
+                            />
+                        )}
                         {element.type === 'image' && onRecoverTask && (
                             <div className="mt-2 flex gap-2">
                                 <input
@@ -460,13 +558,24 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                                     </div>
                                     {projectReferenceImages.length > 0 ? (
                                         <div className="grid grid-cols-3 gap-1.5 p-2">
-                                            {projectReferenceImages.slice(0, 9).map((item) => {
+                                            {visibleProjectReferenceImages.map((item) => {
                                                 const selected = selectedReferenceImages.includes(item.image);
+                                                const previewSource = projectReferencePreviewItems.find((previewItem) => previewItem.id === item.id) || null;
                                                 return (
                                                     <button
                                                         key={item.id}
                                                         type="button"
-                                                        onClick={() => handleToggleProjectReference(item)}
+                                                        onMouseEnter={(event) => scheduleReferencePreviewOpen(previewSource, event.currentTarget)}
+                                                        onMouseLeave={scheduleReferencePreviewClose}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            scheduleToggleProjectReference(item);
+                                                        }}
+                                                        onDoubleClick={(event) => {
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            openProjectReferenceLightbox(item);
+                                                        }}
                                                         data-testid={`context-project-reference-${item.id}`}
                                                         className={`overflow-hidden rounded-md border text-left transition-colors ${selected ? 'ring-2 ring-slate-800 ring-offset-1 border-transparent' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                                                         title={item.label}
@@ -720,6 +829,15 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                         <Trash2 size={16} />
                     </button>
                 </div>
+                <ReferenceThumbnailHoverPreview preview={referenceHoverPreview} />
+                {referenceLightboxIndex !== null && (
+                    <ReferenceMediaLightbox
+                        items={projectReferencePreviewItems}
+                        activeIndex={referenceLightboxIndex}
+                        onActiveIndexChange={setReferenceLightboxIndex}
+                        onClose={() => setReferenceLightboxIndex(null)}
+                    />
+                )}
             </div>
         );
     }

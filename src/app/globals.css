@@ -715,6 +715,23 @@ body::before {
   box-shadow: 0 0 0 2px var(--canvas-focus-ring);
 }
 
+.expanded-prompt-editor-surface [role='textbox'] {
+  min-height: min(72vh, 680px);
+  max-height: min(78vh, 740px);
+  resize: vertical;
+}
+
+.generator-prompt-expanded [role='textbox'] {
+  min-height: min(66vh, 620px);
+  max-height: calc(100vh - 176px);
+  resize: vertical;
+}
+
+.generator-panel-expanded {
+  width: min(940px, calc(100vw - 24px));
+  max-height: calc(100vh - 12px);
+}
+
 .canvas-settings-section {
   background: var(--canvas-surface-elevated);
   border: 1px solid var(--canvas-border);

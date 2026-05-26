@@ -161,6 +161,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [showSettingsPanel, setShowSettingsPanel] = useState(false);
     const [showRecoveryPanel, setShowRecoveryPanel] = useState(false);
     const [showAddImageMenu, setShowAddImageMenu] = useState(false);
+    const [showExpandedPromptEditor, setShowExpandedPromptEditor] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
     const [resourceLibraryTab, setResourceLibraryTab] = useState<ImageResourceLibraryTab>('history');
     const [mentionQuery, setMentionQuery] = useState<TextareaMentionQuery | null>(null);
@@ -1087,13 +1088,22 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const canAddMoreImages = referenceImages.length < maxReferenceImages;
     const referencePreviewItems = useMemo(() => buildImageReferencePreviewItems(referenceImages), [referenceImages]);
     const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('image-generator-panel-position', elementId), [elementId]);
-    const panelPositionCss = useMemo(() => buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, style]);
+    const panelPositionCss = useMemo(() => showExpandedPromptEditor
+        ? `
+.${panelPositionClassName} {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    transform-origin: center center;
+}
+`
+        : buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, showExpandedPromptEditor, style]);
 
     return (
         <>
         <style>{panelPositionCss}</style>
         <div
-            className={`${panelPositionClassName} canvas-theme-panel-elevated absolute z-[130] w-[620px] rounded-[20px]`}
+            className={`${panelPositionClassName} canvas-theme-panel-elevated ${showExpandedPromptEditor ? 'generator-panel-expanded fixed z-[220] !w-[calc(100vw-24px)] max-w-[940px] !max-h-[calc(100vh-24px)] overflow-y-auto rounded-[22px]' : 'absolute z-[130] w-[620px] rounded-[20px]'}`}
             data-testid="image-generator-panel"
             ref={panelRef}
             onKeyDown={(e) => {
@@ -1156,6 +1166,11 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onUploadImage={() => { fileInputRef.current?.click(); setShowAddImageMenu(false); }}
                 onSelectFromCanvas={() => { setShowAddImageMenu(false); onRequestCanvasSelect?.(); }}
                 onApplyMention={handleInsertPromptReferenceToken}
+                isPromptExpanded={showExpandedPromptEditor}
+                onExpandPrompt={() => {
+                    closeAllMenus();
+                    setShowExpandedPromptEditor((value) => !value);
+                }}
             />
 
             {isGrokImageModel && (

@@ -1,9 +1,17 @@
 "use client";
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Film, Loader2, Plus, Search, Volume2, X, Zap } from 'lucide-react';
 import { GeneratorStatusCard, type GeneratorStatusState } from './GeneratorStatusCard';
 import { WorkbenchImage } from './WorkbenchImage';
+import {
+    ReferenceMediaLightbox,
+    ReferenceThumbnailHoverPreview,
+    useReferenceThumbnailHoverPreview,
+    type ReferenceMediaPreviewSource,
+} from './ReferenceMediaPreview';
+import { buildFloatingPanelPositionClassName } from './floating-panel-position';
 
 type GeneratorKind = 'image' | 'video';
 type ReferencePreviewKind = 'image' | 'video' | 'audio';
@@ -52,6 +60,19 @@ const REFERENCE_STACK_DELAY_CLASSES = [
     'delay-[400ms]',
     'delay-[440ms]',
 ];
+
+function getReferencePreviewSource(item: GeneratorReferencePreviewItem): ReferenceMediaPreviewSource | null {
+    if (item.kind !== 'image' || !item.previewImage) {
+        return null;
+    }
+
+    return {
+        id: item.id,
+        title: item.subtitle ? `${item.title} · ${item.subtitle}` : item.title,
+        content: item.previewImage,
+        kind: 'image',
+    };
+}
 
 export function ReferencePreviewTile({
     item,
@@ -104,8 +125,29 @@ export function GeneratorReferenceStack({
 }: GeneratorReferenceStackProps) {
     const hasExpandableReferences = items.length > 0;
     const [isHoverExpanded, setIsHoverExpanded] = React.useState(false);
+    const [lightboxIndex, setLightboxIndex] = React.useState<number | null>(null);
     const openTimerRef = React.useRef<number | null>(null);
     const closeTimerRef = React.useRef<number | null>(null);
+    const {
+        preview: hoverPreview,
+        schedulePreviewOpen,
+        schedulePreviewClose,
+        closePreview,
+    } = useReferenceThumbnailHoverPreview();
+    const previewSources = React.useMemo(() => items.flatMap((item) => {
+        const source = getReferencePreviewSource(item);
+        return source ? [source] : [];
+    }), [items]);
+
+    const openLightboxForSource = React.useCallback((sourceId: string) => {
+        const nextIndex = previewSources.findIndex((source) => source.id === sourceId);
+        if (nextIndex < 0) {
+            return;
+        }
+
+        closePreview();
+        setLightboxIndex(nextIndex);
+    }, [closePreview, previewSources]);
 
     const clearOpenTimer = React.useCallback(() => {
         if (openTimerRef.current !== null) {
@@ -159,7 +201,15 @@ export function GeneratorReferenceStack({
         clearOpenTimer();
         clearCloseTimer();
         setIsHoverExpanded(false);
-    }, [clearCloseTimer, clearOpenTimer, hasExpandableReferences]);
+        closePreview();
+        setLightboxIndex(null);
+    }, [clearCloseTimer, clearOpenTimer, closePreview, hasExpandableReferences]);
+
+    React.useEffect(() => {
+        if (lightboxIndex !== null && previewSources.length === 0) {
+            setLightboxIndex(null);
+        }
+    }, [lightboxIndex, previewSources.length]);
 
     React.useEffect(() => {
         return () => {
@@ -169,6 +219,7 @@ export function GeneratorReferenceStack({
     }, [clearCloseTimer, clearOpenTimer]);
 
     return (
+        <>
         <div
             className="relative px-3 pb-2.5"
             data-testid={testId}
@@ -230,13 +281,26 @@ export function GeneratorReferenceStack({
                         {items.map((item, index) => (
                             <div
                                 key={item.id}
-                                className={`group/item relative shrink-0 transition-all duration-200 ease-out ${REFERENCE_STACK_DELAY_CLASSES[index] || 'delay-[440ms]'}`}
+                                className={`group/item relative shrink-0 transition-all duration-200 ease-out ${getReferencePreviewSource(item) ? 'cursor-zoom-in' : ''} ${REFERENCE_STACK_DELAY_CLASSES[index] || 'delay-[440ms]'}`}
                                 title={`${item.title}${item.subtitle ? ` · ${item.subtitle}` : ''}`}
+                                onMouseEnter={(event) => schedulePreviewOpen(getReferencePreviewSource(item), event.currentTarget)}
+                                onMouseLeave={schedulePreviewClose}
+                                onDoubleClick={(event) => {
+                                    const source = getReferencePreviewSource(item);
+                                    if (!source) return;
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    openLightboxForSource(source.id);
+                                }}
                             >
                                 <ReferencePreviewTile item={item} sizeClassName="h-10 w-10 rounded-xl border border-slate-200/60" imageClassName="rounded-xl" iconSize={14} />
                                 <button
                                     type="button"
-                                    onClick={() => onRemove(item, index)}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        onRemove(item, index);
+                                    }}
+                                    onDoubleClick={(event) => event.stopPropagation()}
                                     className="canvas-reference-remove-button absolute -right-1 -top-1 z-20 hidden h-4 w-4 items-center justify-center rounded-full transition-colors group-hover/item:flex"
                                     title={`移除${item.subtitle || item.title}`}
                                 >
@@ -260,6 +324,16 @@ export function GeneratorReferenceStack({
                 )}
             </div>
         </div>
+        <ReferenceThumbnailHoverPreview preview={hoverPreview} />
+        {lightboxIndex !== null && (
+            <ReferenceMediaLightbox
+                items={previewSources}
+                activeIndex={lightboxIndex}
+                onActiveIndexChange={setLightboxIndex}
+                onClose={() => setLightboxIndex(null)}
+            />
+        )}
+        </>
     );
 }
 
@@ -278,17 +352,69 @@ export function MentionComposerSuggestions({
     activeIndex = 0,
     emptyText,
     onApply,
+    portalAnchorRef,
+    portal = false,
 }: {
     title: string;
     suggestions: GeneratorMentionSuggestionItem[];
     activeIndex?: number;
     emptyText: string;
     onApply: (item: GeneratorMentionSuggestionItem) => void;
+    portalAnchorRef?: React.RefObject<HTMLElement | null>;
+    portal?: boolean;
 }) {
-    return (
-        <div className="canvas-popover absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl">
+    const [portalMetrics, setPortalMetrics] = React.useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
+
+    React.useLayoutEffect(() => {
+        if (!portal || !portalAnchorRef?.current) {
+            setPortalMetrics(null);
+            return;
+        }
+
+        const updateMetrics = () => {
+            const anchor = portalAnchorRef.current;
+            if (!anchor) return;
+
+            const rect = anchor.getBoundingClientRect();
+            const edge = 12;
+            const gap = 8;
+            const viewportHeight = window.innerHeight;
+            const maxHeight = Math.min(300, Math.max(180, viewportHeight - edge * 2));
+            const belowTop = rect.bottom + gap;
+            const hasRoomBelow = belowTop + maxHeight <= viewportHeight - edge;
+            const top = hasRoomBelow ? belowTop : Math.max(edge, rect.top - maxHeight - gap);
+            setPortalMetrics({
+                left: Math.max(edge, Math.min(rect.left, window.innerWidth - rect.width - edge)),
+                top,
+                width: Math.max(280, rect.width),
+                maxHeight,
+            });
+        };
+
+        updateMetrics();
+        window.addEventListener('resize', updateMetrics);
+        window.addEventListener('scroll', updateMetrics, true);
+        return () => {
+            window.removeEventListener('resize', updateMetrics);
+            window.removeEventListener('scroll', updateMetrics, true);
+        };
+    }, [portal, portalAnchorRef, suggestions.length, title]);
+
+    const portalClassName = React.useMemo(() => buildFloatingPanelPositionClassName('mention-composer-suggestions', `${title}-${suggestions.length}`), [suggestions.length, title]);
+    const portalCss = portalMetrics ? `
+.${portalClassName} {
+    left: ${Math.round(portalMetrics.left)}px;
+    top: ${Math.round(portalMetrics.top)}px;
+    width: ${Math.round(portalMetrics.width)}px;
+    max-height: ${Math.round(portalMetrics.maxHeight)}px;
+}
+` : '';
+
+    const content = (
+        <div className={`canvas-popover overflow-hidden rounded-2xl ${portal ? `${portalClassName} fixed z-[280]` : 'absolute left-0 right-0 top-full z-[80] mt-2'}`} data-popover-menu>
+            {portalMetrics && <style>{portalCss}</style>}
             <div className="border-b border-[var(--canvas-border)] px-3 py-2 text-[11px] font-medium text-[var(--canvas-text-secondary)]">{title}</div>
-            <div className="max-h-[220px] overflow-y-auto p-2">
+            <div className="max-h-[min(240px,calc(100vh-96px))] overflow-y-auto p-2">
                 {suggestions.length > 0 ? suggestions.map((item, index) => {
                     const isActive = index === Math.max(0, Math.min(activeIndex, suggestions.length - 1));
                     return (
@@ -323,6 +449,12 @@ export function MentionComposerSuggestions({
             </div>
         </div>
     );
+
+    if (portal && portalMetrics && typeof document !== 'undefined') {
+        return createPortal(content, document.body);
+    }
+
+    return content;
 }
 
 export function GeneratorRecoveryTaskCard({

@@ -211,6 +211,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     const [resourceLibraryTab, setResourceLibraryTab] = useState<ResourceLibraryTab>('image');
     const [showSettingsPanel, setShowSettingsPanel] = useState(false);
     const [showRecoveryPanel, setShowRecoveryPanel] = useState(false);
+    const [showExpandedPromptEditor, setShowExpandedPromptEditor] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
 
     const imageInputRef = useRef<HTMLInputElement>(null);
@@ -1130,13 +1131,22 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         referenceAudios,
     }), [frameImages, referenceAudios, referenceVideos]);
     const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('video-generator-panel-position', elementId), [elementId]);
-    const panelPositionCss = useMemo(() => buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, style]);
+    const panelPositionCss = useMemo(() => showExpandedPromptEditor
+        ? `
+.${panelPositionClassName} {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    transform-origin: center center;
+}
+`
+        : buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, showExpandedPromptEditor, style]);
 
     return (
         <>
         <style>{panelPositionCss}</style>
         <div
-            className={`${panelPositionClassName} canvas-theme-panel-elevated absolute z-[130] w-[620px] rounded-[20px]`}
+            className={`${panelPositionClassName} canvas-theme-panel-elevated ${showExpandedPromptEditor ? 'generator-panel-expanded fixed z-[220] !w-[calc(100vw-24px)] max-w-[940px] !max-h-[calc(100vh-24px)] overflow-y-auto rounded-[22px]' : 'absolute z-[130] w-[620px] rounded-[20px]'}`}
             data-testid="video-generator-panel"
             ref={panelRef}
             onKeyDown={(e) => {
@@ -1213,6 +1223,11 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
                 onUploadAudio={() => { audioInputRef.current?.click(); setShowAddImageMenu(false); }}
                 onSelectFromCanvas={(imageType) => { setShowAddImageMenu(false); onRequestCanvasSelect?.(imageType); }}
                 onApplyMention={applyPromptMention}
+                isPromptExpanded={showExpandedPromptEditor}
+                onExpandPrompt={() => {
+                    closeAllMenus();
+                    setShowExpandedPromptEditor((value) => !value);
+                }}
             />
 
             <GeneratorStatusSection

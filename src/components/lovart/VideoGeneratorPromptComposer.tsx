@@ -1,4 +1,5 @@
 import React from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import {
     GeneratorReferenceStack,
     MentionComposerSuggestions,
@@ -52,6 +53,8 @@ interface VideoGeneratorPromptComposerProps {
     onUploadAudio: () => void;
     onSelectFromCanvas: (imageType: VideoAddImageType) => void;
     onApplyMention: (mention: PromptMention) => void;
+    isPromptExpanded: boolean;
+    onExpandPrompt: () => void;
 }
 
 export function VideoGeneratorPromptComposer({
@@ -94,10 +97,14 @@ export function VideoGeneratorPromptComposer({
     onUploadAudio,
     onSelectFromCanvas,
     onApplyMention,
+    isPromptExpanded,
+    onExpandPrompt,
 }: VideoGeneratorPromptComposerProps) {
+    const mentionAnchorRef = React.useRef<HTMLDivElement>(null);
+
     return (
-        <div className="p-3 pb-2">
-            <div className="relative">
+        <div className={`p-3 pb-2 ${isPromptExpanded ? 'generator-prompt-expanded' : ''}`}>
+            <div ref={mentionAnchorRef} className="relative">
                 <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm">
                     <div className="relative px-3 py-2.5">
                         <GeneratorPromptMentionEditor
@@ -122,9 +129,19 @@ export function VideoGeneratorPromptComposer({
                             onCompositionStart={onPromptCompositionStart}
                             onCompositionEnd={onPromptCompositionEnd}
                             onBlur={onPromptBlur}
-                            className="text-slate-700 caret-[var(--canvas-text-primary)]"
+                            className={`text-slate-700 caret-[var(--canvas-text-primary)] ${isPromptExpanded ? '!min-h-[66vh] !max-h-[calc(100vh-176px)] resize-y' : ''}`}
                             placeholderClassName="text-slate-400/60"
                         />
+                        <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={onExpandPrompt}
+                            className="absolute right-3 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-slate-200/80 bg-white/90 text-slate-400 opacity-70 shadow-sm backdrop-blur transition hover:bg-slate-100 hover:text-slate-700 hover:opacity-100"
+                            title={isPromptExpanded ? '收起提示词编辑' : '放大编辑提示词'}
+                            aria-label={isPromptExpanded ? '收起提示词编辑' : '放大编辑提示词'}
+                        >
+                            {isPromptExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                        </button>
                     </div>
 
                     <GeneratorReferenceStack
@@ -174,6 +191,8 @@ export function VideoGeneratorPromptComposer({
                             const mention = mentionSuggestions.find((candidate) => candidate.id === item.id);
                             if (mention) onApplyMention(mention);
                         }}
+                        portal={isPromptExpanded}
+                        portalAnchorRef={mentionAnchorRef}
                     />
                 )}
             </div>

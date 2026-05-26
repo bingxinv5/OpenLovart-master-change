@@ -1,4 +1,5 @@
 import React from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import {
     GeneratorReferenceStack,
     MentionComposerSuggestions,
@@ -38,6 +39,8 @@ interface ImageGeneratorPromptComposerProps {
     onUploadImage: () => void;
     onSelectFromCanvas: () => void;
     onApplyMention: (mention: PromptReferenceMention) => void;
+    isPromptExpanded: boolean;
+    onExpandPrompt: () => void;
 }
 
 export function ImageGeneratorPromptComposer({
@@ -65,10 +68,14 @@ export function ImageGeneratorPromptComposer({
     onUploadImage,
     onSelectFromCanvas,
     onApplyMention,
+    isPromptExpanded,
+    onExpandPrompt,
 }: ImageGeneratorPromptComposerProps) {
+    const mentionAnchorRef = React.useRef<HTMLDivElement>(null);
+
     return (
-        <div className="p-3 pb-2">
-            <div className="relative">
+        <div className={`p-3 pb-2 ${isPromptExpanded ? 'generator-prompt-expanded' : ''}`}>
+            <div ref={mentionAnchorRef} className="relative">
                 <div className="canvas-settings-input rounded-2xl shadow-sm">
                     <div className="relative px-3 py-2.5">
                         <GeneratorPromptMentionEditor
@@ -93,8 +100,18 @@ export function ImageGeneratorPromptComposer({
                             onCompositionStart={onPromptCompositionStart}
                             onCompositionEnd={onPromptCompositionEnd}
                             onBlur={onPromptBlur}
-                            className="text-[var(--canvas-text-primary)] caret-[var(--canvas-text-primary)]"
+                            className={`text-[var(--canvas-text-primary)] caret-[var(--canvas-text-primary)] ${isPromptExpanded ? '!min-h-[66vh] !max-h-[calc(100vh-176px)] resize-y' : ''}`}
                         />
+                        <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={onExpandPrompt}
+                            className="absolute right-3 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-[var(--canvas-border)] bg-[var(--canvas-surface-elevated)]/90 text-[var(--canvas-text-tertiary)] opacity-70 shadow-sm backdrop-blur transition hover:bg-[var(--canvas-hover)] hover:text-[var(--canvas-text-primary)] hover:opacity-100"
+                            title={isPromptExpanded ? '收起提示词编辑' : '放大编辑提示词'}
+                            aria-label={isPromptExpanded ? '收起提示词编辑' : '放大编辑提示词'}
+                        >
+                            {isPromptExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                        </button>
                     </div>
 
                     <GeneratorReferenceStack
@@ -134,6 +151,8 @@ export function ImageGeneratorPromptComposer({
                             const mention = mentionSuggestions.find((candidate) => candidate.id === item.id);
                             if (mention) onApplyMention(mention);
                         }}
+                        portal={isPromptExpanded}
+                        portalAnchorRef={mentionAnchorRef}
                     />
                 )}
             </div>

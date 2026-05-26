@@ -364,11 +364,13 @@ export function MediaLightboxPreviewOverlay({
     activeIndex,
     onActiveIndexChange,
     onClose,
+    fullBleed = false,
 }: {
     items: MediaPreviewItem[];
     activeIndex: number;
     onActiveIndexChange: (index: number) => void;
     onClose: () => void;
+    fullBleed?: boolean;
 }) {
     const [viewportSize, setViewportSize] = useState(() => ({
         width: typeof window === 'undefined' ? 1280 : window.innerWidth,
@@ -418,7 +420,14 @@ export function MediaLightboxPreviewOverlay({
         return null;
     }
 
-    const previewSize = resolveMediaLightboxSize(activeElement, viewportSize, activeNaturalImageSize);
+    const regularPreviewSize = resolveMediaLightboxSize(activeElement, viewportSize, activeNaturalImageSize);
+    const previewSize = fullBleed
+        ? {
+            width: viewportSize.width,
+            height: viewportSize.height,
+            displayPixels: regularPreviewSize.displayPixels,
+        }
+        : regularPreviewSize;
     const lightboxSizeClassName = buildFloatingPanelPositionClassName('media-lightbox-preview-size', activeElement.id);
     const lightboxSizeCss = `
 .${lightboxSizeClassName} {
@@ -441,7 +450,7 @@ export function MediaLightboxPreviewOverlay({
 
     return (
         <div
-            className="fixed inset-0 z-[240] flex items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm"
+            className={`fixed inset-0 z-[240] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm ${fullBleed ? 'p-0' : 'p-6'}`}
             onMouseDown={onClose}
         >
             <div
@@ -470,7 +479,7 @@ export function MediaLightboxPreviewOverlay({
                     </button>
                 )}
 
-                <div className={`${lightboxSizeClassName} overflow-hidden rounded-xl bg-slate-950 shadow-2xl`}>
+                <div className={`${lightboxSizeClassName} overflow-hidden bg-slate-950 ${fullBleed ? '' : 'rounded-xl shadow-2xl'}`}>
                     <style>{lightboxSizeCss}</style>
                     {activeElement.type === 'image' ? (
                         <WorkbenchImage
@@ -483,8 +492,8 @@ export function MediaLightboxPreviewOverlay({
                             prioritizeDetail
                             forceOriginal
                             alt="Image preview"
-                            containerClassName="h-full w-full rounded-xl"
-                            imageClassName="rounded-xl"
+                            containerClassName={fullBleed ? 'h-full w-full' : 'h-full w-full rounded-xl'}
+                            imageClassName={fullBleed ? '' : 'rounded-xl'}
                             fit="contain"
                             surfaceMode="dark"
                             loading="eager"
