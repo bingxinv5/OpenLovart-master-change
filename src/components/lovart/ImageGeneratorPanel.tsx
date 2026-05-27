@@ -84,6 +84,26 @@ import { buildGeneratorAspectRatioPatch, resolveGeneratorAspectRatioBounds } fro
 import type { PromptMentionEditorContext, PromptMentionEditorHandle } from './GeneratorPromptMentionEditor';
 
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
+const PROMPT_STATE_SYNC_DELAY_MS = 140;
+const PROMPT_REFERENCE_TOKEN_SCAN_REGEX = /@图\d+/g;
+
+function areMentionQueriesEqual(left: TextareaMentionQuery | null, right: TextareaMentionQuery | null) {
+    return left === right || (!!left && !!right && left.start === right.start && left.end === right.end && left.query === right.query);
+}
+
+function extractPromptReferenceTokens(value: string) {
+    const tokens: string[] = [];
+    const seen = new Set<string>();
+    for (const match of value.matchAll(PROMPT_REFERENCE_TOKEN_SCAN_REGEX)) {
+        const token = match[0];
+        if (!seen.has(token)) {
+            seen.add(token);
+            tokens.push(token);
+        }
+    }
+
+    return tokens;
+}
 
 interface ImageGeneratorPanelProps {
     elementId: string;
@@ -106,9 +126,11 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const { elementId, onGenerate, onRecoverTask, isGenerating: isGeneratingFromParent, style, canvasElements, onElementChange, onSubmittingChange, onAddElement, onRequestCanvasSelect, projectReferenceImages = [], onUseProjectReferenceImage, onDeleteReferenceConnector, onCreateReferenceConnectorFromCanvasSelection } = props;
     const imageDefaults = useImageGenerationDefaults();
     const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.image);
+    const canvasElementList = useMemo(() => (canvasElements || []) as unknown as CanvasElement[], [canvasElements]);
+    const canvasElementMap = useMemo(() => new Map(canvasElementList.map((element) => [element.id, element])), [canvasElementList]);
 
     // Read initial values from element
-    const currentElement = findGeneratorElement(canvasElements, elementId);
+    const currentElement = useMemo(() => findGeneratorElement(canvasElements, elementId), [canvasElements, elementId]);
     const [prompt, setPrompt] = useState(currentElement?.savedPrompt || '');
     const [model, setModel] = useState<ImageModel>(isImageModel(currentElement?.selectedModel) ? currentElement.selectedModel : imageDefaults.model);
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>((currentElement?.selectedAspectRatio as AspectRatio) || imageDefaults.aspectRatio);
@@ -166,6 +188,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const [resourceLibraryTab, setResourceLibraryTab] = useState<ImageResourceLibraryTab>('history');
     const [mentionQuery, setMentionQuery] = useState<TextareaMentionQuery | null>(null);
     const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+    const [hasPromptContent, setHasPromptContent] = useState(() => prompt.trim().length > 0);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const promptInputRef = useRef<PromptMentionEditorHandle>(null);
@@ -176,24 +199,72 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     });
     const promptDraftRef = useRef(prompt);
     const persistedPromptRef = useRef(currentElement?.savedPrompt || '');
+    const promptStateSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const hasPromptContentRef = useRef(prompt.trim().length > 0);
     const previousImageDefaultsRef = useRef(imageDefaults);
     const legacyReferenceMigratedRef = useRef(false);
     const isPromptComposingRef = useRef(false);
     const dismissedCanvasReferenceSourceIdsRef = useRef<Set<string>>(new Set());
+
+    const updateHasPromptContent = useCallback((nextPrompt: string) => {
+        const nextHasContent = nextPrompt.trim().length > 0;
+        if (hasPromptContentRef.current === nextHasContent) {
+            return;
+        }
+
+        hasPromptContentRef.current = nextHasContent;
+        setHasPromptContent(nextHasContent);
+    }, []);
+
+    const clearPromptStateSyncTimer = useCallback(() => {
+        if (promptStateSyncTimerRef.current) {
+            clearTimeout(promptStateSyncTimerRef.current);
+            promptStateSyncTimerRef.current = null;
+        }
+    }, []);
+
+    const commitPromptState = useCallback((nextPrompt: string) => {
+        setPrompt((current) => (current === nextPrompt ? current : nextPrompt));
+    }, []);
+
+    const syncPromptState = useCallback((nextPrompt: string, mode: 'deferred' | 'immediate' = 'deferred') => {
+        promptDraftRef.current = nextPrompt;
+        updateHasPromptContent(nextPrompt);
+
+        if (mode === 'immediate') {
+            clearPromptStateSyncTimer();
+            commitPromptState(nextPrompt);
+            return;
+        }
+
+        clearPromptStateSyncTimer();
+        promptStateSyncTimerRef.current = setTimeout(() => {
+            promptStateSyncTimerRef.current = null;
+            commitPromptState(promptDraftRef.current);
+        }, PROMPT_STATE_SYNC_DELAY_MS);
+    }, [clearPromptStateSyncTimer, commitPromptState, updateHasPromptContent]);
+
+    const setMentionQueryIfChanged = useCallback((nextQuery: TextareaMentionQuery | null) => {
+        setMentionQuery((current) => (areMentionQueriesEqual(current, nextQuery) ? current : nextQuery));
+    }, []);
+
     const promptReferenceMentions = useMemo(() => buildPromptReferenceMentions(referenceImages), [referenceImages]);
     const promptReferenceTokens = useMemo(() => promptReferenceMentions.map((mention) => mention.token), [promptReferenceMentions]);
+    const promptReferenceMentionByToken = useMemo(() => new Map(promptReferenceMentions.map((mention) => [mention.token, mention])), [promptReferenceMentions]);
     const mentionSuggestions = useMemo(
         () => getPromptMentionSuggestions(promptReferenceMentions, mentionQuery),
         [mentionQuery, promptReferenceMentions],
     );
-    const referencedMentions = useMemo(
-        () => promptReferenceMentions.filter((mention) => prompt.includes(mention.token)),
-        [prompt, promptReferenceMentions],
-    );
+    const referencedMentions = useMemo(() => extractPromptReferenceTokens(prompt).flatMap((token) => {
+        const mention = promptReferenceMentionByToken.get(token);
+        return mention ? [mention] : [];
+    }), [prompt, promptReferenceMentionByToken]);
 
     useEffect(() => {
         setMentionActiveIndex(0);
     }, [mentionQuery?.start, mentionQuery?.query, mentionSuggestions.length]);
+
+    useEffect(() => () => clearPromptStateSyncTimer(), [clearPromptStateSyncTimer]);
 
     useEffect(() => {
         const normalizedPrompt = stripPromptMentionInlinePadding(prompt, promptReferenceTokens);
@@ -206,8 +277,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             end: Math.min(promptSelectionRef.current.end, normalizedPrompt.length),
         };
         promptSelectionRef.current = nextSelection;
-        setPrompt(normalizedPrompt);
-    }, [prompt, promptReferenceTokens]);
+        syncPromptState(normalizedPrompt, 'immediate');
+    }, [prompt, promptReferenceTokens, syncPromptState]);
 
     const closeAllMenus = useCallback(() => {
         setShowModelMenu(false);
@@ -226,7 +297,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     useEffect(() => {
         promptDraftRef.current = prompt;
-    }, [prompt]);
+        updateHasPromptContent(prompt);
+    }, [prompt, updateHasPromptContent]);
 
     useEffect(() => {
         persistedPromptRef.current = currentElement?.savedPrompt || '';
@@ -361,9 +433,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
 
         setReferenceImages((prev) => prev.slice(0, maxReferenceImages));
-        setPrompt((prev) => clampPromptReferenceTokens(prev, maxReferenceImages));
-        setMentionQuery(null);
-    }, [maxReferenceImages, referenceImages.length]);
+        syncPromptState(clampPromptReferenceTokens(promptInputRef.current?.getValue() ?? promptDraftRef.current, maxReferenceImages), 'immediate');
+        setMentionQueryIfChanged(null);
+    }, [maxReferenceImages, referenceImages.length, setMentionQueryIfChanged, syncPromptState]);
 
     const refreshRecentHistory = useCallback(() => {
         setRecentHistory(readImageGenerationHistory());
@@ -374,13 +446,14 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setFavoriteReferences(readFavoriteReferenceImages());
     }, []);
 
+    const incomingReferenceConnectors = useMemo(
+        () => getIncomingReferenceConnectors(elementId, canvasElementList, canvasElementMap),
+        [canvasElementList, canvasElementMap, elementId],
+    );
     const connectorReferenceImages = useMemo(() => (
-        resolveReferenceConnectorImages(elementId, (canvasElements || []) as unknown as CanvasElement[])
-    ), [canvasElements, elementId]);
-    const connectorReferenceConnectorIds = useMemo(() => {
-        const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
-        return getIncomingReferenceConnectors(elementId, canvasElementList).map((connector) => connector.id);
-    }, [canvasElements, elementId]);
+        resolveReferenceConnectorImages(elementId, canvasElementList, canvasElementMap)
+    ), [canvasElementList, canvasElementMap, elementId]);
+    const connectorReferenceConnectorIds = useMemo(() => incomingReferenceConnectors.map((connector) => connector.id), [incomingReferenceConnectors]);
 
     const mergeReferenceImages = useCallback((current: (File | string)[], incoming: (File | string)[]) => {
         const next = [...current];
@@ -424,8 +497,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, [connectorReferenceImages, mergeReferenceImages]);
 
     const syncPromptMentionQuery = useCallback((nextPrompt: string, caretIndex: number) => {
-        setMentionQuery(resolveTextareaMentionQuery(nextPrompt, caretIndex, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens }));
-    }, [promptReferenceTokens]);
+        setMentionQueryIfChanged(resolveTextareaMentionQuery(nextPrompt, caretIndex, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens }));
+    }, [promptReferenceTokens, setMentionQueryIfChanged]);
 
     const syncPromptSelectionFromEditor = useCallback((selection: TextareaSelection, nextPrompt = promptDraftRef.current) => {
         promptSelectionRef.current = selection;
@@ -460,7 +533,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const handleInsertPromptReferenceToken = useCallback((mention: PromptReferenceMention) => {
         const editor = promptInputRef.current;
-        const basePrompt = editor?.getValue() ?? prompt;
+        const basePrompt = editor?.getValue() ?? promptDraftRef.current;
         const selection = editor?.getSelection() ?? promptSelectionRef.current;
         const activeQuery = selection.start === selection.end
             ? resolveTextareaMentionQuery(basePrompt, selection.start, '@', { requireWhitespacePrefix: false, ignoredTokens: promptReferenceTokens })
@@ -477,17 +550,17 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
         promptSelectionRef.current = nextSelection;
         editor?.commitValue(nextValue, nextSelection);
-        setPrompt(nextValue);
-        setMentionQuery(null);
-    }, [prompt, promptReferenceTokens]);
+        syncPromptState(nextValue, 'immediate');
+        setMentionQueryIfChanged(null);
+    }, [promptReferenceTokens, setMentionQueryIfChanged, syncPromptState]);
 
     const handlePromptChange = useCallback((nextPrompt: string, selection: TextareaSelection) => {
         promptSelectionRef.current = selection;
-        setPrompt(nextPrompt);
+        syncPromptState(nextPrompt, 'deferred');
         if (!isPromptComposingRef.current) {
             syncPromptMentionQuery(nextPrompt, selection.start);
         }
-    }, [syncPromptMentionQuery]);
+    }, [syncPromptMentionQuery, syncPromptState]);
 
     const handlePromptSelectionChange = useCallback((selection: TextareaSelection) => {
         syncPromptSelectionFromEditor(selection, promptInputRef.current?.getValue() ?? promptDraftRef.current);
@@ -496,9 +569,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const handlePromptCompositionEnd = useCallback((_event: React.CompositionEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
         isPromptComposingRef.current = false;
         promptSelectionRef.current = context.selection;
-        setPrompt(context.value);
+        syncPromptState(context.value, 'immediate');
         syncPromptMentionQuery(context.value, context.selection.start);
-    }, [syncPromptMentionQuery]);
+    }, [syncPromptMentionQuery, syncPromptState]);
 
     const clearCanvasReferenceBinding = useCallback(() => {
         const sourceId = currentElement?.referenceImageId;
@@ -516,21 +589,21 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const handleClearReferenceImages = useCallback(() => {
         connectorReferenceConnectorIds.forEach((connectorId) => onDeleteReferenceConnector?.(connectorId));
-        setPrompt((prev) => removeMentionTokens(prev, promptReferenceMentions.map((mention) => mention.token)));
+        syncPromptState(removeMentionTokens(promptInputRef.current?.getValue() ?? promptDraftRef.current, promptReferenceMentions.map((mention) => mention.token)), 'immediate');
         setReferenceImages([]);
-        setMentionQuery(null);
+        setMentionQueryIfChanged(null);
         clearCanvasReferenceBinding();
-    }, [clearCanvasReferenceBinding, connectorReferenceConnectorIds, onDeleteReferenceConnector, promptReferenceMentions]);
+    }, [clearCanvasReferenceBinding, connectorReferenceConnectorIds, onDeleteReferenceConnector, promptReferenceMentions, setMentionQueryIfChanged, syncPromptState]);
 
     const handleRemoveReferenceImage = useCallback((index: number) => {
         const imageToRemove = referenceImages[index];
         if (typeof imageToRemove === 'string') {
-            const connector = findIncomingReferenceConnectorForImage(elementId, (canvasElements || []) as unknown as CanvasElement[], imageToRemove);
+            const connector = findIncomingReferenceConnectorForImage(elementId, canvasElementList, imageToRemove, canvasElementMap);
             if (connector) {
                 onDeleteReferenceConnector?.(connector.id);
             }
         }
-        setPrompt((prev) => remapPromptReferenceTokensAfterRemoval(prev, index + 1));
+        syncPromptState(remapPromptReferenceTokensAfterRemoval(promptInputRef.current?.getValue() ?? promptDraftRef.current, index + 1), 'immediate');
         setReferenceImages((prev) => {
             const next = prev.filter((_, itemIndex) => itemIndex !== index);
             if (next.length === 0) {
@@ -538,8 +611,8 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             }
             return next;
         });
-        setMentionQuery(null);
-    }, [canvasElements, clearCanvasReferenceBinding, elementId, onDeleteReferenceConnector, referenceImages]);
+        setMentionQueryIfChanged(null);
+    }, [canvasElementList, canvasElementMap, clearCanvasReferenceBinding, elementId, onDeleteReferenceConnector, referenceImages, setMentionQueryIfChanged, syncPromptState]);
 
     useImageGeneratorPanelPersistence({
         elementId,
@@ -647,22 +720,19 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     // Auto-fill reference image from source
     useEffect(() => {
-        if (canvasElements) {
-            const currentElement = findGeneratorElement(canvasElements, elementId);
-            const sourceId = currentElement?.referenceImageId;
-            if (
-                sourceId
-                && !currentElement.savedReferenceImages
-                && !currentElement.savedReferenceImage
-                && !dismissedCanvasReferenceSourceIdsRef.current.has(sourceId)
-            ) {
-                const sourceImage = canvasElements.find(el => el.id === sourceId);
-                if (sourceImage?.content) {
-                    setReferenceImages((prev) => (prev.length === 0 ? [sourceImage.content!] : prev));
-                }
+        const sourceId = currentElement?.referenceImageId;
+        if (
+            sourceId
+            && !currentElement?.savedReferenceImages
+            && !currentElement?.savedReferenceImage
+            && !dismissedCanvasReferenceSourceIdsRef.current.has(sourceId)
+        ) {
+            const sourceImage = canvasElementMap.get(sourceId);
+            if (sourceImage?.content) {
+                setReferenceImages((prev) => (prev.length === 0 ? [sourceImage.content!] : prev));
             }
         }
-    }, [elementId, canvasElements, currentElement?.referenceImageId, currentElement?.savedReferenceImage, currentElement?.savedReferenceImages]);
+    }, [canvasElementMap, currentElement?.referenceImageId, currentElement?.savedReferenceImage, currentElement?.savedReferenceImages]);
 
     useEffect(() => {
         if (currentElement?.type !== 'image-generator') {
@@ -683,15 +753,14 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string; sourceElementId?: string }) => {
         if (detail.imageContent) {
             setReferenceImages((prev) => mergeReferenceImages(prev, [detail.imageContent!]));
-            const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
             const hasSameSourceConnector = detail.sourceElementId
-                ? getIncomingReferenceConnectors(elementId, canvasElementList).some((connector) => connector.connectorFrom === detail.sourceElementId)
+                ? incomingReferenceConnectors.some((connector) => connector.connectorFrom === detail.sourceElementId)
                 : false;
             if (detail.sourceElementId && !hasSameSourceConnector) {
                 onCreateReferenceConnectorFromCanvasSelection?.(detail.sourceElementId, elementId);
             }
         }
-    }, [canvasElements, elementId, mergeReferenceImages, onCreateReferenceConnectorFromCanvasSelection]);
+    }, [elementId, incomingReferenceConnectors, mergeReferenceImages, onCreateReferenceConnectorFromCanvasSelection]);
 
     useCanvasImageSelectionEvent(elementId, handleCanvasSelectionEvent);
 
@@ -717,7 +786,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
             if (e.key === 'Escape') {
                 e.preventDefault();
-                setMentionQuery(null);
+                setMentionQueryIfChanged(null);
                 return;
             }
 
@@ -732,16 +801,16 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     };
 
     const applyHistoryItem = useCallback((item: ImageGenerationHistoryItem) => {
-        setPrompt(item.prompt);
+        syncPromptState(item.prompt, 'immediate');
         setModel(item.model);
         setAspectRatio(item.aspectRatio);
         setImageSize(item.imageSize);
         setQuality(item.quality);
         setGenerateCount(item.generateCount);
         setReferenceImages(item.referenceImages);
-        setMentionQuery(null);
+        setMentionQueryIfChanged(null);
         setErrorMsg(null);
-    }, []);
+    }, [setMentionQueryIfChanged, syncPromptState]);
 
     const handleApplyReferenceLibraryImage = useCallback((image: string) => {
         setReferenceImages((prev) => mergeReferenceImages(prev, [image]));
@@ -791,12 +860,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         const image = await resolveReferenceImageValue(value);
         if (!image) return;
         try {
-            const nextFavorites = await saveFavoriteReferenceImage(image, buildFavoriteLabel(seedLabel || prompt));
+            const nextFavorites = await saveFavoriteReferenceImage(image, buildFavoriteLabel(seedLabel || promptInputRef.current?.getValue() || promptDraftRef.current));
             setFavoriteReferences(nextFavorites);
         } catch {
             setErrorMsg('收藏参考图失败');
         }
-    }, [buildFavoriteLabel, prompt, resolveReferenceImageValue]);
+    }, [buildFavoriteLabel, resolveReferenceImageValue]);
 
     const handleApplyFavoriteReference = useCallback((item: FavoriteReferenceImageItem) => {
         setReferenceImages((prev) => mergeReferenceImages(prev, [item.image]));
@@ -833,7 +902,9 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     }, []);
 
     const handleGenerate = async () => {
-        const { materializedPrompt, invalidTokens } = resolvePromptReferenceMentions(prompt, promptReferenceMentions);
+        const livePrompt = promptInputRef.current?.getValue() ?? promptDraftRef.current;
+        syncPromptState(livePrompt, 'immediate');
+        const { materializedPrompt, invalidTokens } = resolvePromptReferenceMentions(livePrompt, promptReferenceMentions);
         if (invalidTokens.length > 0) {
             setErrorMsg(`提示词引用了不存在的参考图：${invalidTokens.join('、')}。请先上传对应参考图，或修改提示词。`);
             return;
@@ -857,7 +928,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             }
 
             const nextHistory = await appendImageGenerationHistory({
-                prompt,
+                prompt: livePrompt,
                 model,
                 aspectRatio,
                 imageSize,
@@ -883,7 +954,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             const elH = outputBounds.height;
             const offsetX = elW + 20;
             const sharedElementState = {
-                savedPrompt: prompt,
+                savedPrompt: livePrompt,
                 selectedModel: model,
                 selectedAspectRatio: aspectRatio,
                 selectedImageSize: imageSize,
@@ -1147,7 +1218,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onPromptSelectionChange={handlePromptSelectionChange}
                 onPromptCompositionStart={() => { isPromptComposingRef.current = true; }}
                 onPromptCompositionEnd={handlePromptCompositionEnd}
-                onPromptBlur={() => { flushPromptToElement(); window.setTimeout(() => setMentionQuery(null), 120); }}
+                onPromptBlur={() => {
+                    const latestPrompt = promptInputRef.current?.getValue() ?? promptDraftRef.current;
+                    syncPromptState(latestPrompt, 'immediate');
+                    flushPromptToElement(latestPrompt);
+                    window.setTimeout(() => setMentionQueryIfChanged(null), 120);
+                }}
                 onToggleAddImageMenu={() => {
                     const next = !showAddImageMenu;
                     closeAllMenus();
@@ -1201,7 +1277,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 recoveryTaskId={recoveryTaskId}
                 isGenerating={isGenerating}
                 isRecovering={isRecovering}
-                submitDisabled={!prompt.trim() || isGenerating}
+                submitDisabled={!hasPromptContent || isGenerating}
                 submitLabel={statusState.buttonLabel}
                 isOpenAiGptImageModel={isOpenAiGptImageModel}
                 imageSize={imageSize}
@@ -1255,7 +1331,12 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onToggleRecovery={() => { const next = !showRecoveryPanel; closeAllMenus(); setShowRecoveryPanel(next); }}
                 onTaskIdChange={setRecoveryTaskId}
                 onRecover={() => void handleRecoverTask()}
-                onSubmit={() => prompt.trim() && !isGenerating && handleGenerate()}
+                onSubmit={() => {
+                    const latestPrompt = promptInputRef.current?.getValue() ?? promptDraftRef.current;
+                    if (latestPrompt.trim() && !isGenerating) {
+                        void handleGenerate();
+                    }
+                }}
             />
         </div>
         </>

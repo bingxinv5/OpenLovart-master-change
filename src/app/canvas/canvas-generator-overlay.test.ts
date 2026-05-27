@@ -57,6 +57,19 @@ describe('getGeneratorOverlayStyle', () => {
         expect(wideZoomedStyle.transform).toBe(squareStyle.transform);
     });
 
+    it('uses the same device-pixel-snapped pan as the canvas content layer', () => {
+        const style = getGeneratorOverlayStyle({
+            type: 'image-generator',
+            x: 0,
+            y: 0,
+            width: 400,
+            height: 400,
+        }, 1, { x: 0.26, y: 0.74 }, { devicePixelRatio: 2 });
+
+        expect(Number.parseFloat(String(style.left))).toBeCloseTo(-159.1);
+        expect(style.top).toBe('420.5px');
+    });
+
     it('uses the same square fallback for image and video generator overlays', () => {
         const imageStyle = getGeneratorOverlayStyle({
             type: 'image-generator',

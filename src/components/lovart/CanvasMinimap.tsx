@@ -19,6 +19,7 @@ interface CanvasMinimapProps {
     onScaleChange?: (scale: number) => void;
     rightOffset?: number;
     canvasTheme?: 'light' | 'dark';
+    isPanning?: boolean;
 }
 
 /* ─── Layout ─── */
@@ -107,6 +108,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
     onScaleChange,
     rightOffset,
     canvasTheme = 'light',
+    isPanning = false,
 }: CanvasMinimapProps) {
     const [collapsed, setCollapsed] = useState(false);
     const [hovered, setHovered] = useState(false);
@@ -116,6 +118,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
     const isDraggingRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const rafRef = useRef(0);
+    const lastPanDrawAtRef = useRef(0);
     const hoverRafRef = useRef(0);
     const pendingHoverPosRef = useRef<{ x: number; y: number } | null>(null);
     const palette = MINIMAP_PALETTES[canvasTheme];
@@ -180,6 +183,17 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas || collapsed) return;
+
+        if (isPanning) {
+            const now = performance.now();
+            if (now - lastPanDrawAtRef.current < 96) {
+                return;
+            }
+            lastPanDrawAtRef.current = now;
+        } else {
+            lastPanDrawAtRef.current = 0;
+        }
+
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
         rafRef.current = requestAnimationFrame(() => {
@@ -335,7 +349,7 @@ export const CanvasMinimap = React.memo(function CanvasMinimap({
         });
 
         return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-    }, [elements, pan, scale, viewportSize, selectedSet, collapsed, toMX, toMY, mapScale, elColor, hoverPos, hovered, isDragging, palette]);
+    }, [elements, pan, scale, viewportSize, selectedSet, collapsed, toMX, toMY, mapScale, elColor, hoverPos, hovered, isDragging, palette, isPanning]);
 
     /* ── Navigation ── */
     const navigateTo = useCallback((clientX: number, clientY: number) => {

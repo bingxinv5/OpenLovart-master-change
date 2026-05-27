@@ -144,9 +144,11 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     } = props;
     const videoDefaults = useVideoGenerationDefaults();
     const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.video);
+    const canvasElementList = useMemo(() => (canvasElements || []) as unknown as CanvasElement[], [canvasElements]);
+    const canvasElementMap = useMemo(() => new Map(canvasElementList.map((element) => [element.id, element])), [canvasElementList]);
 
     // Read initial values from element
-    const currentElement = findGeneratorElement(canvasElements, elementId);
+    const currentElement = useMemo(() => findGeneratorElement(canvasElements, elementId), [canvasElements, elementId]);
     const initialFrameImages = useMemo<FrameImage[]>(
         () => parseStoredFrameImages(currentElement?.savedFrameImages),
         [currentElement?.savedFrameImages],
@@ -255,16 +257,17 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     const canAddMoreVideos = isDomesticOmniMode && referenceVideos.length < getMaxVideosForVideoModel(model);
     const canAddMoreAudios = isDomesticOmniMode && referenceAudios.length < getMaxAudiosForVideoModel(model);
     const canAddMoreReferences = canAddMoreImages || canAddMoreVideos || canAddMoreAudios;
+    const incomingReferenceConnectors = useMemo(
+        () => getIncomingReferenceConnectors(elementId, canvasElementList, canvasElementMap),
+        [canvasElementList, canvasElementMap, elementId],
+    );
     const connectorReferenceImages = useMemo(() => (
-        resolveReferenceConnectorImages(elementId, (canvasElements || []) as unknown as CanvasElement[])
-    ), [canvasElements, elementId]);
+        resolveReferenceConnectorImages(elementId, canvasElementList, canvasElementMap)
+    ), [canvasElementList, canvasElementMap, elementId]);
     const connectorReferenceVideos = useMemo(() => (
-        resolveReferenceConnectorVideos(elementId, (canvasElements || []) as unknown as CanvasElement[])
-    ), [canvasElements, elementId]);
-    const connectorReferenceConnectorIds = useMemo(() => {
-        const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
-        return getIncomingReferenceConnectors(elementId, canvasElementList).map((connector) => connector.id);
-    }, [canvasElements, elementId]);
+        resolveReferenceConnectorVideos(elementId, canvasElementList, canvasElementMap)
+    ), [canvasElementList, canvasElementMap, elementId]);
+    const connectorReferenceConnectorIds = useMemo(() => incomingReferenceConnectors.map((connector) => connector.id), [incomingReferenceConnectors]);
     const isReferenceUploadBusy = uploadingReferenceKind !== null;
     const basePromptMentions = useMemo(() => buildVideoPromptMentions({
         useFrameLabels: usesFrameImages,
@@ -624,40 +627,36 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
 
     // Auto-fill reference image from source
     useEffect(() => {
-        if (canvasElements) {
-            const currentElement = findGeneratorElement(canvasElements, elementId);
-            const sourceId = currentElement?.referenceImageId;
-            if (
-                sourceId
-                && !currentElement.savedFrameImages
-                && !dismissedCanvasReferenceSourceIdsRef.current.has(sourceId)
-            ) {
-                const sourceImage = canvasElements.find(el => el.id === sourceId);
-                if (sourceImage?.content) {
-                    const defaultType = usesReferenceImages ? 'reference' : 'first_frame';
-                    setFrameImages((prev) => (prev.length > 0 ? prev : [{
-                        id: uuidv4(),
-                        image: sourceImage.content!,
-                        imageType: defaultType,
-                        name: '画布图片',
-                    }]));
-                }
+        const sourceId = currentElement?.referenceImageId;
+        if (
+            sourceId
+            && !currentElement?.savedFrameImages
+            && !dismissedCanvasReferenceSourceIdsRef.current.has(sourceId)
+        ) {
+            const sourceImage = canvasElementMap.get(sourceId);
+            if (sourceImage?.content) {
+                const defaultType = usesReferenceImages ? 'reference' : 'first_frame';
+                setFrameImages((prev) => (prev.length > 0 ? prev : [{
+                    id: uuidv4(),
+                    image: sourceImage.content!,
+                    imageType: defaultType,
+                    name: '画布图片',
+                }]));
             }
         }
-    }, [canvasElements, currentElement?.referenceImageId, currentElement?.savedFrameImages, elementId, usesReferenceImages]);
+    }, [canvasElementMap, currentElement?.referenceImageId, currentElement?.savedFrameImages, usesReferenceImages]);
 
     useClearGeneratorError(elementId, errorFromElement, onElementChange);
 
     const handleCanvasSelectionEvent = useCallback((detail: { imageContent?: string; imageType?: 'first_frame' | 'last_frame' | 'reference'; sourceElementId?: string; sourceElementType?: 'image' | 'video' }) => {
         if (!detail.imageContent) return;
 
-        const canvasElementList = (canvasElements || []) as unknown as CanvasElement[];
         const sourceElement = detail.sourceElementId
-            ? canvasElementList.find((element) => element.id === detail.sourceElementId)
+            ? canvasElementMap.get(detail.sourceElementId)
             : undefined;
         const sourceElementType = detail.sourceElementType || (sourceElement?.type === 'video' ? 'video' : 'image');
         const hasSameSourceConnector = detail.sourceElementId
-            ? getIncomingReferenceConnectors(elementId, canvasElementList).some((connector) => connector.connectorFrom === detail.sourceElementId)
+            ? incomingReferenceConnectors.some((connector) => connector.connectorFrom === detail.sourceElementId)
             : false;
 
         if (sourceElementType === 'video') {
@@ -708,7 +707,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             imageType,
             name: '画布图片',
         }]);
-    }, [canvasElements, domesticMode, elementId, frameImages, isDomesticModel, maxImageSlots, model, onCreateReferenceConnectorFromCanvasSelection, referenceVideos.length, usesReferenceImages]);
+    }, [canvasElementMap, domesticMode, elementId, frameImages, incomingReferenceConnectors, isDomesticModel, maxImageSlots, model, onCreateReferenceConnectorFromCanvasSelection, referenceVideos.length, usesReferenceImages]);
 
     useCanvasImageSelectionEvent(elementId, handleCanvasSelectionEvent);
 
@@ -1076,7 +1075,7 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     const removeFrameImage = (id: string) => {
         const frameImage = frameImages.find((fi) => fi.id === id);
         if (frameImage) {
-            const connector = findIncomingReferenceConnectorForImage(elementId, (canvasElements || []) as unknown as CanvasElement[], frameImage.image);
+            const connector = findIncomingReferenceConnectorForImage(elementId, canvasElementList, frameImage.image, canvasElementMap);
             if (connector) {
                 onDeleteReferenceConnector?.(connector.id);
             }
@@ -1108,9 +1107,10 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
             if (mediaItem) {
                 const connector = findIncomingReferenceConnectorForMedia(
                     elementId,
-                    (canvasElements || []) as unknown as CanvasElement[],
+                    canvasElementList,
                     mediaItem.url,
                     'video',
+                    canvasElementMap,
                 );
                 if (connector) {
                     onDeleteReferenceConnector?.(connector.id);

@@ -183,12 +183,30 @@ export function buildPromptComposerSegments<TMention extends PromptMentionLike>(
     }
 
     const sortedMentions = [...mentions].sort((left, right) => right.token.length - left.token.length);
+    const mentionCandidatesByFirstChar = new Map<string, TMention[]>();
+    for (const mention of sortedMentions) {
+        const firstChar = mention.token.charAt(0);
+        if (!firstChar) {
+            continue;
+        }
+
+        const candidates = mentionCandidatesByFirstChar.get(firstChar);
+        if (candidates) {
+            candidates.push(mention);
+        } else {
+            mentionCandidatesByFirstChar.set(firstChar, [mention]);
+        }
+    }
+    const findMentionAt = (offset: number) => {
+        const candidates = mentionCandidatesByFirstChar.get(prompt.charAt(offset));
+        return candidates?.find((mention) => prompt.startsWith(mention.token, offset));
+    };
     const segments: Array<PromptComposerSegment<TMention>> = [];
     let cursor = 0;
     let segmentIndex = 0;
 
     while (cursor < prompt.length) {
-        const matchedMention = sortedMentions.find((mention) => prompt.startsWith(mention.token, cursor));
+        const matchedMention = findMentionAt(cursor);
         if (matchedMention) {
             const tokenStart = cursor;
             cursor += matchedMention.token.length;
@@ -205,7 +223,7 @@ export function buildPromptComposerSegments<TMention extends PromptMentionLike>(
 
         const start = cursor;
         cursor += 1;
-        while (cursor < prompt.length && !sortedMentions.some((mention) => prompt.startsWith(mention.token, cursor))) {
+        while (cursor < prompt.length && !findMentionAt(cursor)) {
             cursor += 1;
         }
 

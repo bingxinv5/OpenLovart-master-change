@@ -337,29 +337,17 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
         React.useEffect(() => {
             hadDragPreviewOffsetRef.current = !!dragPreviewOffset;
         });
-        const elementPositionClassName = buildFloatingPanelPositionClassName('canvas-element-position', el.id);
         const generatorCreationAnimationClassName = buildFloatingPanelPositionClassName('canvas-generator-create', el.id);
         const generatorCreationAnimationKeyframesName = `${generatorCreationAnimationClassName}-keyframes`;
-        const elementPositionCss = `
-.${elementPositionClassName} {
-    left: ${toCanvasElementPx(el.x)};
-    top: ${toCanvasElementPx(el.y)};
-    width: ${toCanvasElementPx(renderSize.width)};
-    height: ${toCanvasElementPx(renderSize.height)};
-    z-index: ${Number.isFinite(zIndex) ? zIndex : 'auto'};
-    transform: ${dragPreviewOffset ? `translate(${toCanvasElementPx(dragPreviewOffset.dx)}, ${toCanvasElementPx(dragPreviewOffset.dy)})` : 'none'};
-    pointer-events: ${activeTool === 'draw' || isNotPickable ? 'none' : 'auto'};
-    transition: ${shouldAnimateGeneratorBounds ? 'left 280ms cubic-bezier(0.22, 1, 0.36, 1), top 280ms cubic-bezier(0.22, 1, 0.36, 1), width 280ms cubic-bezier(0.22, 1, 0.36, 1), height 280ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease' : 'none'};
-    will-change: ${dragPreviewOffset ? 'transform' : shouldAnimateGeneratorBounds ? 'left, top, width, height' : 'auto'};
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .${elementPositionClassName} {
-        transition: none;
-        will-change: auto;
-    }
-}
-`;
+        const elementPositionStyle: React.CSSProperties = {
+            left: toCanvasElementPx(el.x),
+            top: toCanvasElementPx(el.y),
+            width: toCanvasElementPx(renderSize.width),
+            height: toCanvasElementPx(renderSize.height),
+            zIndex: Number.isFinite(zIndex) ? zIndex : undefined,
+            transform: dragPreviewOffset ? `translate(${toCanvasElementPx(dragPreviewOffset.dx)}, ${toCanvasElementPx(dragPreviewOffset.dy)})` : 'none',
+            pointerEvents: activeTool === 'draw' || isNotPickable ? 'none' : 'auto',
+        };
         const generatorCreationAnimationCss = shouldPlayGeneratorCreationAnimation ? `
 @keyframes ${generatorCreationAnimationKeyframesName} {
     0% {
@@ -400,7 +388,8 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
             <div
                 data-element-id={el.id}
                 data-element-type={el.type}
-                className={`${elementPositionClassName} absolute group ${referenceTargetFeedbackClassName} ${el.type === 'frame' ? 'z-0' : ''} ${isPickable ? 'cursor-pointer ring-4 ring-green-400 ring-offset-2 rounded-lg z-20' : ''} ${isNotPickable ? 'opacity-30 pointer-events-none' : ''} ${isLocked ? 'cursor-not-allowed' : ''}`}
+                className={`canvas-element-position-node absolute group ${dragPreviewOffset ? 'is-drag-preview' : ''} ${shouldAnimateGeneratorBounds ? 'is-generator-bounds-animated' : ''} ${referenceTargetFeedbackClassName} ${el.type === 'frame' ? 'z-0' : ''} ${isPickable ? 'cursor-pointer ring-4 ring-green-400 ring-offset-2 rounded-lg z-20' : ''} ${isNotPickable ? 'opacity-30 pointer-events-none' : ''} ${isLocked ? 'cursor-not-allowed' : ''}`}
+                style={elementPositionStyle}
                 onDragStart={(e) => e.preventDefault()}
                 onMouseEnter={() => {
                     if (el.type === 'image') {
@@ -450,7 +439,6 @@ export const CanvasElementRenderer = React.memo<CanvasElementRendererProps>(
                     if (el.type === 'image') h.fitToElement({ ...el, width: renderSize.width, height: renderSize.height });
                 }}
             >
-                <style>{elementPositionCss}</style>
                 {isResultHighlighted && (
                     <div className="pointer-events-none absolute -inset-3 z-0 animate-pulse rounded-[28px] border-2 border-emerald-400/80 shadow-[0_0_0_6px_rgba(52,211,153,0.18)]" />
                 )}

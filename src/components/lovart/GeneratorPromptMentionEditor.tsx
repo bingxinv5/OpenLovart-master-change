@@ -587,6 +587,22 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
     const pendingSelectionRef = React.useRef<TextareaSelection | null>(null);
     const renderedMentionsSignatureRef = React.useRef('');
     const draggingMentionRef = React.useRef<{ token: string; start: number; end: number } | null>(null);
+    const [hasEditorContent, setHasEditorContent] = React.useState(() => value.length > 0);
+    const hasEditorContentRef = React.useRef(value.length > 0);
+
+    const updateHasEditorContent = React.useCallback((nextValue: string) => {
+        const nextHasContent = nextValue.length > 0;
+        if (hasEditorContentRef.current === nextHasContent) {
+            return;
+        }
+
+        hasEditorContentRef.current = nextHasContent;
+        setHasEditorContent(nextHasContent);
+    }, []);
+
+    React.useEffect(() => {
+        updateHasEditorContent(value);
+    }, [updateHasEditorContent, value]);
 
     const readValue = React.useCallback(() => {
         return editorRef.current ? extractEditorText(editorRef.current) : value;
@@ -620,11 +636,12 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
             return;
         }
 
+        updateHasEditorContent(nextValue);
         renderEditorContent(editorRef.current, nextValue, mentions);
         renderedMentionsSignatureRef.current = getMentionsSignature(mentions);
         editorRef.current.focus();
         applyEditorSelection(editorRef.current, selection);
-    }, [mentions]);
+    }, [mentions, updateHasEditorContent]);
 
     React.useImperativeHandle(ref, () => ({
         focus: () => editorRef.current?.focus(),
@@ -678,6 +695,7 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
         const nextCaret = selection.start + insertText.length;
         const nextSelection = { start: nextCaret, end: nextCaret };
         pendingSelectionRef.current = nextSelection;
+        updateHasEditorContent(nextValue);
         if (editorRef.current) {
             renderEditorContent(editorRef.current, nextValue, mentions);
             renderedMentionsSignatureRef.current = getMentionsSignature(mentions);
@@ -685,7 +703,7 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
             applyEditorSelection(editorRef.current, nextSelection);
         }
         onChange(nextValue, nextSelection);
-    }, [mentions, onChange, readSelection, readValue]);
+    }, [mentions, onChange, readSelection, readValue, updateHasEditorContent]);
 
     const applyStructuredDeletion = React.useCallback((key: 'Backspace' | 'Delete') => {
         const currentValue = readValue();
@@ -703,6 +721,7 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
 
         const { nextValue, nextSelection } = deletion;
         pendingSelectionRef.current = nextSelection;
+        updateHasEditorContent(nextValue);
         if (editorRef.current) {
             renderEditorContent(editorRef.current, nextValue, mentions);
             renderedMentionsSignatureRef.current = getMentionsSignature(mentions);
@@ -711,7 +730,7 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
         }
         onChange(nextValue, nextSelection);
         return true;
-    }, [mentions, onChange, readSelection, readValue]);
+    }, [mentions, onChange, readSelection, readValue, updateHasEditorContent]);
 
     const handleInput = React.useCallback(() => {
         if (readOnly || !editorRef.current) {
@@ -721,8 +740,9 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
         const nextValue = extractEditorText(editorRef.current);
         const nextSelection = readEditorSelection(editorRef.current, nextValue);
         pendingSelectionRef.current = nextSelection;
+        updateHasEditorContent(nextValue);
         onChange(nextValue, nextSelection);
-    }, [onChange, readOnly]);
+    }, [onChange, readOnly, updateHasEditorContent]);
 
     const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
         const currentValue = readValue();
@@ -839,12 +859,13 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
         const nextSelection = { start: nextCaret, end: nextCaret };
 
         pendingSelectionRef.current = nextSelection;
+        updateHasEditorContent(nextValue);
         renderEditorContent(editor, nextValue, mentions);
         renderedMentionsSignatureRef.current = getMentionsSignature(mentions);
         editor.focus();
         applyEditorSelection(editor, nextSelection);
         onChange(nextValue, nextSelection);
-    }, [mentions, onChange, readOnly]);
+    }, [mentions, onChange, readOnly, updateHasEditorContent]);
 
     const handleDragEnd = React.useCallback(() => {
         draggingMentionRef.current = null;
@@ -852,7 +873,7 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
 
     return (
         <div className="relative">
-            {!value && (
+            {!hasEditorContent && (
                 <div className={`pointer-events-none absolute left-0 top-0 text-sm leading-6 ${placeholderClassName}`}>
                     {placeholder}
                 </div>

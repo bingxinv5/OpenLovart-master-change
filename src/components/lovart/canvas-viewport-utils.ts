@@ -54,6 +54,29 @@ export function clientPointToCanvas({ clientX, clientY, rect, pan, scale }: Clie
     };
 }
 
+export function getCanvasDevicePixelRatio() {
+    return typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1);
+}
+
+export function snapCanvasViewportValueToDevicePixel(value: number, devicePixelRatio = getCanvasDevicePixelRatio()) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.round(value * devicePixelRatio) / devicePixelRatio;
+}
+
+export function getCanvasRenderPan(pan: CanvasViewportPoint, devicePixelRatio = getCanvasDevicePixelRatio()): CanvasViewportPoint {
+    return {
+        x: snapCanvasViewportValueToDevicePixel(pan.x, devicePixelRatio),
+        y: snapCanvasViewportValueToDevicePixel(pan.y, devicePixelRatio),
+    };
+}
+
+export function canvasPointToScreen(point: CanvasViewportPoint, scale: number, pan: CanvasViewportPoint): CanvasViewportPoint {
+    return {
+        x: point.x * scale + pan.x,
+        y: point.y * scale + pan.y,
+    };
+}
+
 export interface ComputeFitViewportInput {
     bounds: CanvasViewportBounds;
     viewportSize: CanvasViewportSize;

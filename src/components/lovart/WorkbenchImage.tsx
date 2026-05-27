@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cachedDataUrlToBlobUrl } from '@/lib/blob-utils';
 import { inspectImageStoredLodLevels, isImageRef, getImageBlobUrlWithLODResolution, reprioritizeImageLodCache } from '@/lib/editor-kernel';
 import {
@@ -12,8 +12,6 @@ import {
     getPriorityFinalRequestPixels,
     shouldRequestFinalLod,
 } from '@/lib/lod-request-utils';
-import { buildFloatingPanelPositionClassName } from './floating-panel-position';
-import { buildCssPropertiesRule } from './scoped-style-utils';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -118,7 +116,6 @@ export function WorkbenchImage({
     style: externalStyle,
     ...imgProps
 }: WorkbenchImageProps) {
-    const instanceId = useId();
     const containerRef = useRef<HTMLDivElement>(null);
     const primaryImageRef = useRef<HTMLImageElement>(null);
     const pendingImageRef = useRef<HTMLImageElement>(null);
@@ -194,11 +191,7 @@ export function WorkbenchImage({
         ? storedLevelSummaryState.summary
         : null;
 
-    const imageRenderClassName = useMemo(
-        () => buildFloatingPanelPositionClassName('workbench-image-render-style', debugId || instanceId),
-        [debugId, instanceId],
-    );
-    const imageRenderCss = useMemo(() => {
+    const imageRenderStyle = useMemo<React.CSSProperties>(() => {
         const renderHints: React.CSSProperties = canvasScale > 1
             ? {
                 willChange: 'transform, opacity',
@@ -209,11 +202,11 @@ export function WorkbenchImage({
                 willChange: 'opacity',
             };
 
-        return buildCssPropertiesRule(imageRenderClassName, {
+        return {
             ...renderHints,
             ...externalStyle,
-        });
-    }, [canvasScale, externalStyle, imageRenderClassName]);
+        };
+    }, [canvasScale, externalStyle]);
 
     const formatLayerPixels = useCallback((value: number | null | undefined) => {
         if (value === ORIGINAL_IMAGE_REQUEST_PIXELS) {
@@ -637,7 +630,6 @@ export function WorkbenchImage({
             data-image-active-natural-size={activeNaturalSize ?? undefined}
             data-image-pending-natural-size={pendingNaturalSize ?? undefined}
         >
-            <style>{imageRenderCss}</style>
             {visiblePrimarySrc && !hasError && (
                 // eslint-disable-next-line @next/next/no-img-element -- workbench preview needs to support blob/data URLs and direct object URL lifecycle control.
                 <img
@@ -650,9 +642,9 @@ export function WorkbenchImage({
                         canvasScale > 1 ? 'workbench-image-hires' : undefined,
                         fit === 'cover' ? 'object-cover' : 'object-contain object-center',
                         surfaceMode === 'dark' ? 'drop-shadow-[0_2px_10px_rgba(15,23,42,0.35)]' : undefined,
-                        imageRenderClassName,
                         imageClassName,
                     )}
+                    style={imageRenderStyle}
                     onLoad={(e) => {
                         const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
                         setActiveNaturalSizeState((current) => current.src === visiblePrimarySrc && current.summary === nextNaturalSize
@@ -686,9 +678,9 @@ export function WorkbenchImage({
                         canvasScale > 1 ? 'workbench-image-hires' : undefined,
                         fit === 'cover' ? 'object-cover' : 'object-contain',
                         surfaceMode === 'dark' ? 'drop-shadow-[0_2px_10px_rgba(15,23,42,0.35)]' : undefined,
-                        imageRenderClassName,
                         imageClassName,
                     )}
+                    style={imageRenderStyle}
                     onLoad={(e) => {
                         const nextNaturalSize = formatImageSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
                         setPendingNaturalSizeState((current) => current.src === visiblePendingSrc && current.summary === nextNaturalSize

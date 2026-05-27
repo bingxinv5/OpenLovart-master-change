@@ -761,8 +761,40 @@ body::before {
   pointer-events: none;
 }
 
+.canvas-element-position-node {
+  transition: none;
+  will-change: auto;
+}
+
+.canvas-element-position-node.is-drag-preview {
+  will-change: transform;
+}
+
+.canvas-element-position-node.is-generator-bounds-animated {
+  transition: left 280ms cubic-bezier(0.22, 1, 0.36, 1), top 280ms cubic-bezier(0.22, 1, 0.36, 1), width 280ms cubic-bezier(0.22, 1, 0.36, 1), height 280ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease;
+  will-change: left, top, width, height;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-element-position-node,
+  .canvas-element-position-node.is-generator-bounds-animated {
+    transition: none;
+    will-change: auto;
+  }
+}
+
 .canvas-reference-connector-layer path {
   shape-rendering: geometricPrecision;
+}
+
+.canvas-content-layer-transform.is-interacting .canvas-reference-connector-layer path {
+  shape-rendering: optimizeSpeed;
+}
+
+.canvas-content-layer-transform.is-interacting .canvas-reference-flow-path,
+.canvas-content-layer-transform.is-interacting .canvas-reference-draft-path {
+  animation: none !important;
+  filter: none !important;
 }
 
 .canvas-tool-node-image {
@@ -779,9 +811,9 @@ body::before {
 
 .canvas-video-element,
 .canvas-video-element * {
-  user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
+  user-select: none;
 }
 
 .canvas-video-element::selection,

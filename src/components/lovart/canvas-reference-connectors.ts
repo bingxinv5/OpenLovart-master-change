@@ -281,27 +281,39 @@ export function classifyReferenceConnectionTarget(params: {
     return { status: 'invalid' };
 }
 
-export function resolveReferenceConnectorImages(generatorId: string, elements: CanvasElement[]) {
-    const elementMap = new Map(elements.map((element) => [element.id, element]));
+export function resolveReferenceConnectorImages(
+    generatorId: string,
+    elements: CanvasElement[],
+    elementMap: Map<string, CanvasElement> = new Map(elements.map((element) => [element.id, element])),
+) {
     const images: string[] = [];
+    const seenImages = new Set<string>();
+    const target = elementMap.get(generatorId);
     for (const connector of getIncomingReferenceConnectors(generatorId, elements, elementMap)) {
         const source = connector.connectorFrom ? elementMap.get(connector.connectorFrom) : undefined;
-        if (!canReferenceSourceConnectToTarget(source, elementMap.get(generatorId)) || source.type !== 'image' || !source.content || images.includes(source.content)) {
+        if (!canReferenceSourceConnectToTarget(source, target) || source.type !== 'image' || !source.content || seenImages.has(source.content)) {
             continue;
         }
+        seenImages.add(source.content);
         images.push(source.content);
     }
     return images;
 }
 
-export function resolveReferenceConnectorVideos(generatorId: string, elements: CanvasElement[]) {
-    const elementMap = new Map(elements.map((element) => [element.id, element]));
+export function resolveReferenceConnectorVideos(
+    generatorId: string,
+    elements: CanvasElement[],
+    elementMap: Map<string, CanvasElement> = new Map(elements.map((element) => [element.id, element])),
+) {
     const videos: string[] = [];
+    const seenVideos = new Set<string>();
+    const target = elementMap.get(generatorId);
     for (const connector of getIncomingReferenceConnectors(generatorId, elements, elementMap)) {
         const source = connector.connectorFrom ? elementMap.get(connector.connectorFrom) : undefined;
-        if (!canReferenceSourceConnectToTarget(source, elementMap.get(generatorId)) || source.type !== 'video' || !source.content || videos.includes(source.content)) {
+        if (!canReferenceSourceConnectToTarget(source, target) || source.type !== 'video' || !source.content || seenVideos.has(source.content)) {
             continue;
         }
+        seenVideos.add(source.content);
         videos.push(source.content);
     }
     return videos;
@@ -337,12 +349,12 @@ export function findIncomingReferenceConnectorForImage(
     targetId: string,
     elements: CanvasElement[],
     imageContent: string,
+    elementMap: Map<string, CanvasElement> = new Map(elements.map((element) => [element.id, element])),
 ) {
     if (!imageContent.trim()) {
         return undefined;
     }
 
-    const elementMap = new Map(elements.map((element) => [element.id, element]));
     return getIncomingReferenceConnectors(targetId, elements, elementMap).find((connector) => {
         const source = connector.connectorFrom ? elementMap.get(connector.connectorFrom) : undefined;
         return isReferenceSourceElement(source) && source.content === imageContent;
@@ -354,12 +366,12 @@ export function findIncomingReferenceConnectorForMedia(
     elements: CanvasElement[],
     mediaContent: string,
     sourceType: 'image' | 'video',
+    elementMap: Map<string, CanvasElement> = new Map(elements.map((element) => [element.id, element])),
 ) {
     if (!mediaContent.trim()) {
         return undefined;
     }
 
-    const elementMap = new Map(elements.map((element) => [element.id, element]));
     return getIncomingReferenceConnectors(targetId, elements, elementMap).find((connector) => {
         const source = connector.connectorFrom ? elementMap.get(connector.connectorFrom) : undefined;
         return isReferenceSourceElement(source) && source.type === sourceType && source.content === mediaContent;

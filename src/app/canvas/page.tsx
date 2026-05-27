@@ -156,12 +156,6 @@ function LovartCanvasContent() {
     const panRef = useRef(pan);
     useEffect(() => { scaleRef.current = scale; }, [scale]);
     useEffect(() => { panRef.current = pan; }, [pan]);
-    useEffect(() => {
-        const pid = currentProjectIdRef.current;
-        if (pid && isInitializedRef.current) {
-            saveViewportState(pid, scale, pan);
-        }
-    }, [scale, pan]);
     const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(() => getWorkbenchSettings());
     const [storageEstimate, setStorageEstimate] = useState<StorageEstimateInfo | null>(null);
     const [chunkPreheat, setChunkPreheat] = useState<ChunkPreheatState>({
@@ -189,7 +183,46 @@ function LovartCanvasContent() {
     const isInitializedRef = useRef(false);
     const [isCanvasReadyForHistory, setIsCanvasReadyForHistory] = useState(false);
     const currentProjectIdRef = useRef<string | null>(projectId);
+    const viewportSaveTimerRef = useRef<number | null>(null);
     const shortcutFeedbackTimerRef = useRef<number | null>(null);
+
+    const flushViewportState = useCallback(() => {
+        const pid = currentProjectIdRef.current;
+        if (pid && isInitializedRef.current) {
+            saveViewportState(pid, scaleRef.current, panRef.current);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!currentProjectIdRef.current || !isInitializedRef.current) {
+            return;
+        }
+
+        viewportSaveTimerRef.current = window.setTimeout(() => {
+            viewportSaveTimerRef.current = null;
+            flushViewportState();
+        }, 360);
+
+        return () => {
+            if (viewportSaveTimerRef.current !== null) {
+                window.clearTimeout(viewportSaveTimerRef.current);
+                viewportSaveTimerRef.current = null;
+            }
+        };
+    }, [flushViewportState, scale, pan]);
+
+    useEffect(() => {
+        const handleBeforeUnload = () => flushViewportState();
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => {
+            if (viewportSaveTimerRef.current !== null) {
+                window.clearTimeout(viewportSaveTimerRef.current);
+                viewportSaveTimerRef.current = null;
+            }
+            flushViewportState();
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [flushViewportState]);
     const {
         elementsMapRef,
         dirtyTrackerRef,

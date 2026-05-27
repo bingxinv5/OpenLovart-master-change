@@ -1592,11 +1592,11 @@ export const CanvasArea = React.memo(function CanvasArea({
             <CanvasAreaContentLayer
                 {...{
                     containerRef, elementsContainerRef, pan, scale, connectorElements: visibleConnectorElements, elementMap,
-                    renderElements, elements, selectedIds, activeTool, canvasSelectMode, dragPreviewState,
+                    renderElements, elements, viewportSize, selectedIds, activeTool, canvasSelectMode, dragPreviewState,
                     dropTargetFrameId, editingTextId, editingFrameName, editingMarkId, quickEditMarkId,
                     quickEditPrompt, showFramePresetMenu, showFrameExportMenu, canGenerateFromImage,
                     frameChildCounts, generatorSubmittingMap, highlightedResultId, newlyCreatedGeneratorMap, highlightedElementIdSet,
-                    isDragging, isResizing, resizingElementId, isDrawing, isSelecting, imageDetailRequestVersions,
+                    isDragging, isPanning, isResizing, resizingElementId, isDrawing, isSelecting, imageDetailRequestVersions,
                     renderZIndexById, resolvedImageSrcMap, multiReferenceCandidateCount, multiSelectionBounds,
                     multiSelectionPreviewOffset, currentPath, alignGuides, frameDrawBox, elementHandlersRef,
                     referenceConnectionSourceId, referenceConnectionPort, referenceConnectionPoint,
@@ -1697,6 +1697,7 @@ export const CanvasArea = React.memo(function CanvasArea({
                 onScaleChange={onScaleChange}
                 rightOffset={minimapRightOffset}
                 canvasTheme={canvasTheme}
+                isPanning={isPanning}
             />
 
             {/* Hidden file inputs for context menu uploads */}

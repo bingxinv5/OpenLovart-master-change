@@ -3,16 +3,16 @@ import type { AlignGuide } from './canvas-alignment';
 import type { CanvasConnectorPort, CanvasElement } from './canvas-types';
 import { CanvasElementRenderer, type ElementHandlers } from './CanvasElementRenderer';
 import { CanvasAreaWorldOverlays } from './CanvasAreaOverlays';
+import { CanvasConnectorRasterLayer, type CanvasConnectorRasterBatch } from './CanvasConnectorRasterLayer';
 import {
     buildConnectorPath,
-    getOutgoingReferenceConnectors,
     getConnectorPortPoint,
     getConnectorRenderData,
-    getIncomingReferenceConnectors,
     isReferenceSourceElement,
     isReferenceTargetElement,
     type ReferenceConnectionStatus,
 } from './canvas-reference-connectors';
+import { getCanvasRenderPan } from './canvas-viewport-utils';
 
 const CANVAS_REFERENCE_BLUE = '#149BFF';
 const CANVAS_REFERENCE_FLOW_CORE = '#63DCFF';
@@ -20,7 +20,50 @@ const CANVAS_REFERENCE_FLOW_PULSE = '#BDF3FF';
 const CONNECTOR_HOVER_FLOW_DELAY_MS = 50;
 const CONNECTOR_DELETE_AFFORDANCE_DELAY_MS = 1000;
 const CONNECTOR_PRECISE_HIT_RADIUS_PX = 7.5;
+const CONNECTOR_CLICK_MOVE_TOLERANCE_PX = 4;
+const DENSE_FLOW_HIGHLIGHT_THRESHOLD = 6;
+const ANIMATED_FLOW_HIGHLIGHT_LIMIT = 8;
+const LOW_SCALE_ANIMATED_FLOW_HIGHLIGHT_LIMIT = 4;
+const DENSE_CONNECTOR_VIEWPORT_THRESHOLD = 32;
+const DENSE_CONNECTOR_BATCH_THRESHOLD = DENSE_CONNECTOR_VIEWPORT_THRESHOLD;
+const DENSE_CONNECTOR_INTERACTION_SCALE_THRESHOLD = 0.65;
 const MIN_VISUAL_CONNECTOR_STROKE_PX = 1.18;
+const CONNECTOR_PATH_NUMBER_PATTERN = '([-+]?\\d+(?:\\.\\d+)?(?:e[-+]?\\d+)?)';
+const CONNECTOR_LINE_PATH_PATTERN = new RegExp(
+    `^M\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s+L\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s+${CONNECTOR_PATH_NUMBER_PATTERN}$`,
+    'i',
+);
+const CONNECTOR_CUBIC_PATH_PATTERN = new RegExp(
+    `^M\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s+C\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s*,\\s*${CONNECTOR_PATH_NUMBER_PATTERN}\\s+${CONNECTOR_PATH_NUMBER_PATTERN}\\s*,\\s*${CONNECTOR_PATH_NUMBER_PATTERN}\\s+${CONNECTOR_PATH_NUMBER_PATTERN}$`,
+    'i',
+);
+
+type ConnectorRenderData = NonNullable<ReturnType<typeof getConnectorRenderData>>;
+
+type ConnectorHitSegment = {
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+};
+
+type ConnectorHitModel = {
+    connectorId: string;
+    bounds: { minX: number; minY: number; maxX: number; maxY: number };
+    segments: ConnectorHitSegment[];
+};
+
+type ConnectorPaintItem = {
+    connector: CanvasElement;
+    renderData: ConnectorRenderData;
+    isConnectorSelected: boolean;
+    isSemanticConnector: boolean;
+    isFlowHighlighted: boolean;
+    shouldRenderFlowHighlight: boolean;
+    shouldRenderStaticFlowHighlight: boolean;
+    connectorColor: string;
+    connectorWidth: number;
+    readableConnectorWidth: number;
+    readableSelectedConnectorWidth: number;
+};
 
 export type CanvasReferenceConnectionTargetFeedback = {
     elementId: string;
@@ -39,40 +82,12 @@ function toLayerPx(value: number | undefined) {
     return `${Number.isFinite(value) ? value : 0}px`;
 }
 
-function getDevicePixelRatio() {
-    return typeof window === 'undefined' ? 1 : Math.max(1, window.devicePixelRatio || 1);
-}
-
-function snapToDevicePixel(value: number, devicePixelRatio: number) {
-    if (!Number.isFinite(value)) return 0;
-    return Math.round(value * devicePixelRatio) / devicePixelRatio;
-}
-
 function getMinimumScreenStrokeWidth(strokeWidth: number, scale: number, minimumScreenWidth: number) {
     if (!Number.isFinite(strokeWidth) || strokeWidth <= 0 || !Number.isFinite(scale) || scale <= 0) {
         return strokeWidth;
     }
 
     return Math.max(strokeWidth, minimumScreenWidth / scale);
-}
-
-function isElementConnectedToSelectionByConnector(elementId: string, selectedIds: string[], connectors: CanvasElement[]) {
-    if (selectedIds.length === 0) return false;
-    const selectedIdSet = new Set(selectedIds);
-
-    return connectors.some((connector) => {
-        if (connector.type !== 'connector') return false;
-        if (selectedIdSet.has(connector.id)) {
-            return connector.connectorFrom === elementId || connector.connectorTo === elementId;
-        }
-
-        return !!connector.connectorFrom
-            && !!connector.connectorTo
-            && (
-                (selectedIdSet.has(connector.connectorFrom) && connector.connectorTo === elementId)
-                || (selectedIdSet.has(connector.connectorTo) && connector.connectorFrom === elementId)
-            );
-    });
 }
 
 function distanceToSegment(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
@@ -85,6 +100,118 @@ function distanceToSegment(point: { x: number; y: number }, start: { x: number; 
 
     const ratio = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
     return Math.hypot(point.x - (start.x + dx * ratio), point.y - (start.y + dy * ratio));
+}
+
+function getCubicPoint(
+    start: { x: number; y: number },
+    controlA: { x: number; y: number },
+    controlB: { x: number; y: number },
+    end: { x: number; y: number },
+    t: number,
+) {
+    const inverse = 1 - t;
+    const inverseSquared = inverse * inverse;
+    const tSquared = t * t;
+    return {
+        x: inverseSquared * inverse * start.x
+            + 3 * inverseSquared * t * controlA.x
+            + 3 * inverse * tSquared * controlB.x
+            + tSquared * t * end.x,
+        y: inverseSquared * inverse * start.y
+            + 3 * inverseSquared * t * controlA.y
+            + 3 * inverse * tSquared * controlB.y
+            + tSquared * t * end.y,
+    };
+}
+
+function buildConnectorHitModel(connectorId: string, renderData: ConnectorRenderData): ConnectorHitModel | null {
+    const segments: ConnectorHitSegment[] = [];
+    const path = renderData.path.trim();
+    const cubicMatch = path.match(CONNECTOR_CUBIC_PATH_PATTERN);
+    const lineMatch = cubicMatch ? null : path.match(CONNECTOR_LINE_PATH_PATTERN);
+
+    if (cubicMatch) {
+        const numbers = cubicMatch.slice(1).map(Number);
+        const start = { x: numbers[0], y: numbers[1] };
+        const controlA = { x: numbers[2], y: numbers[3] };
+        const controlB = { x: numbers[4], y: numbers[5] };
+        const end = { x: numbers[6], y: numbers[7] };
+        let previous = start;
+        for (let index = 1; index <= 28; index += 1) {
+            const current = getCubicPoint(start, controlA, controlB, end, index / 28);
+            segments.push({ start: previous, end: current });
+            previous = current;
+        }
+    } else if (lineMatch) {
+        const numbers = lineMatch.slice(1).map(Number);
+        segments.push({
+            start: { x: numbers[0], y: numbers[1] },
+            end: { x: numbers[2], y: numbers[3] },
+        });
+    }
+
+    if (segments.length === 0) {
+        return null;
+    }
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const segment of segments) {
+        minX = Math.min(minX, segment.start.x, segment.end.x);
+        minY = Math.min(minY, segment.start.y, segment.end.y);
+        maxX = Math.max(maxX, segment.start.x, segment.end.x);
+        maxY = Math.max(maxY, segment.start.y, segment.end.y);
+    }
+
+    return { connectorId, bounds: { minX, minY, maxX, maxY }, segments };
+}
+
+function getNearestModelConnectorHit(
+    hitModels: ConnectorHitModel[],
+    pointer: { x: number; y: number },
+    radius: number,
+) {
+    let nearestConnectorId: string | null = null;
+    let nearestDistance = radius;
+
+    for (const model of hitModels) {
+        if (
+            pointer.x < model.bounds.minX - radius
+            || pointer.x > model.bounds.maxX + radius
+            || pointer.y < model.bounds.minY - radius
+            || pointer.y > model.bounds.maxY + radius
+        ) {
+            continue;
+        }
+
+        for (const segment of model.segments) {
+            const distance = distanceToSegment(pointer, segment.start, segment.end);
+            if (distance <= nearestDistance) {
+                nearestDistance = distance;
+                nearestConnectorId = model.connectorId;
+            }
+        }
+    }
+
+    return nearestConnectorId;
+}
+
+function getCanvasPointFromClient(root: HTMLElement, clientX: number, clientY: number, scale: number) {
+    if (!Number.isFinite(scale) || scale <= 0) {
+        return null;
+    }
+
+    const bounds = root.getBoundingClientRect();
+    return {
+        x: (clientX - bounds.left) / scale,
+        y: (clientY - bounds.top) / scale,
+    };
+}
+
+function shouldIgnoreConnectorModelPointerTarget(target: EventTarget | null) {
+    return target instanceof Element && !!target.closest('[data-element-id], button, input, textarea, select, [contenteditable="true"]');
 }
 
 function getDistanceToVisiblePath(
@@ -176,6 +303,7 @@ interface CanvasAreaContentLayerProps {
     elementMap: Map<string, CanvasElement>;
     renderElements: CanvasElement[];
     elements: CanvasElement[];
+    viewportSize: { width: number; height: number };
     selectedIds: string[];
     activeTool: string;
     canvasSelectMode?: 'image' | 'video' | null;
@@ -195,6 +323,7 @@ interface CanvasAreaContentLayerProps {
     newlyCreatedGeneratorMap?: Record<string, boolean>;
     highlightedElementIdSet: Set<string>;
     isDragging: boolean;
+    isPanning: boolean;
     isResizing: boolean;
     resizingElementId: string | null;
     isDrawing: boolean;
@@ -228,6 +357,7 @@ export function CanvasAreaContentLayer({
     elementMap,
     renderElements,
     elements,
+    viewportSize,
     selectedIds,
     activeTool,
     canvasSelectMode,
@@ -247,6 +377,7 @@ export function CanvasAreaContentLayer({
     newlyCreatedGeneratorMap,
     highlightedElementIdSet,
     isDragging,
+    isPanning,
     isResizing,
     resizingElementId,
     isDrawing,
@@ -270,21 +401,7 @@ export function CanvasAreaContentLayer({
     onSelectConnector,
     onDeleteConnector,
 }: CanvasAreaContentLayerProps) {
-    const selectedReferenceConnectorIds = React.useMemo(() => new Set(
-        selectedIds.length === 1 ? selectedIds.flatMap((selectedId) => {
-            const element = elementMap.get(selectedId);
-            const connectorIds: string[] = [];
-            if (isReferenceTargetElement(element)) {
-                connectorIds.push(...getIncomingReferenceConnectors(selectedId, elements, elementMap).map((connector) => connector.id));
-            }
-
-            if (isReferenceSourceElement(element)) {
-                connectorIds.push(...getOutgoingReferenceConnectors(selectedId, elements, elementMap).map((connector) => connector.id));
-            }
-
-            return connectorIds;
-        }) : [],
-    ), [elementMap, elements, selectedIds]);
+    const selectedIdSet = React.useMemo(() => new Set(selectedIds), [selectedIds]);
     const connectorRenderElementMap = React.useMemo(() => {
         if (!dragPreviewState || dragPreviewState.ids.length === 0 || (dragPreviewState.dx === 0 && dragPreviewState.dy === 0)) {
             return elementMap;
@@ -307,20 +424,97 @@ export function CanvasAreaContentLayer({
 
         return nextElementMap;
     }, [dragPreviewState, elementMap]);
+    const connectorRenderDataById = React.useMemo(() => {
+        const renderDataById = new Map<string, ConnectorRenderData>();
+        for (const connector of connectorElements) {
+            const renderData = getConnectorRenderData(connector, connectorRenderElementMap);
+            if (renderData) {
+                renderDataById.set(connector.id, renderData);
+            }
+        }
+
+        return renderDataById;
+    }, [connectorElements, connectorRenderElementMap]);
+    const selectedConnectorRenderState = React.useMemo(() => {
+        const selectedReferenceConnectorIds = new Set<string>();
+        const linkedElementIds = new Set<string>();
+        if (selectedIds.length === 0) {
+            return { selectedReferenceConnectorIds, linkedElementIds };
+        }
+
+        const singleSelectedId = selectedIds.length === 1 ? selectedIds[0] : null;
+        const singleSelectedElement = singleSelectedId ? elementMap.get(singleSelectedId) : undefined;
+        const shouldCollectReferenceHighlights = !!singleSelectedId
+            && (!!singleSelectedElement && (isReferenceTargetElement(singleSelectedElement) || isReferenceSourceElement(singleSelectedElement)));
+
+        for (const connector of connectorElements) {
+            if (connector.type !== 'connector') {
+                continue;
+            }
+
+            const fromId = connector.connectorFrom;
+            const toId = connector.connectorTo;
+            const isConnectorSelected = selectedIdSet.has(connector.id);
+
+            if (isConnectorSelected) {
+                if (fromId) linkedElementIds.add(fromId);
+                if (toId) linkedElementIds.add(toId);
+            }
+
+            if (fromId && toId) {
+                if (selectedIdSet.has(fromId)) {
+                    linkedElementIds.add(toId);
+                }
+                if (selectedIdSet.has(toId)) {
+                    linkedElementIds.add(fromId);
+                }
+            }
+
+            if (!shouldCollectReferenceHighlights || !singleSelectedId) {
+                continue;
+            }
+
+            const renderData = connectorRenderDataById.get(connector.id);
+            if (!renderData?.isReferenceConnector) {
+                continue;
+            }
+
+            if (isReferenceTargetElement(singleSelectedElement) && toId === singleSelectedId) {
+                selectedReferenceConnectorIds.add(connector.id);
+            } else if (isReferenceSourceElement(singleSelectedElement) && fromId === singleSelectedId) {
+                selectedReferenceConnectorIds.add(connector.id);
+            }
+        }
+
+        return { selectedReferenceConnectorIds, linkedElementIds };
+    }, [connectorElements, connectorRenderDataById, elementMap, selectedIds, selectedIdSet]);
+    const { selectedReferenceConnectorIds, linkedElementIds } = selectedConnectorRenderState;
     const semanticConnectorIds = React.useMemo(() => new Set(
         connectorElements.flatMap((connector) => {
-            const renderData = getConnectorRenderData(connector, connectorRenderElementMap);
+            const renderData = connectorRenderDataById.get(connector.id);
             return renderData && (renderData.isReferenceConnector || isGeneratorFlowConnectorElement(connector))
                 ? [connector.id]
                 : [];
         }),
-    ), [connectorElements, connectorRenderElementMap]);
+    ), [connectorElements, connectorRenderDataById]);
+    const canvasRenderScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    const isHighFrequencyInteraction = isPanning || isDragging || isResizing;
+    const isDenseConnectorViewport = connectorElements.length >= DENSE_CONNECTOR_VIEWPORT_THRESHOLD
+        || selectedReferenceConnectorIds.size >= DENSE_FLOW_HIGHLIGHT_THRESHOLD;
+    const shouldReduceConnectorHitTesting = isHighFrequencyInteraction
+        || (canvasRenderScale <= DENSE_CONNECTOR_INTERACTION_SCALE_THRESHOLD && isDenseConnectorViewport);
+    const connectorHitModels = React.useMemo(() => connectorElements.flatMap((connector) => {
+        const renderData = connectorRenderDataById.get(connector.id);
+        const hitModel = renderData ? buildConnectorHitModel(connector.id, renderData) : null;
+        return hitModel ? [hitModel] : [];
+    }), [connectorElements, connectorRenderDataById]);
     const [hoverFlowConnectorId, setHoverFlowConnectorId] = React.useState<string | null>(null);
     const [hoverDeleteAffordance, setHoverDeleteAffordance] = React.useState<{ connectorId: string; x: number; y: number } | null>(null);
     const hoverFlowTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const hoverDeleteTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const hoverFlowCandidateRef = React.useRef<string | null>(null);
     const latestHoverCanvasPointRef = React.useRef<{ x: number; y: number } | null>(null);
+    const connectorPointerDownRef = React.useRef<{ connectorId: string; x: number; y: number } | null>(null);
 
     const clearHoverFlowTimer = React.useCallback(() => {
         if (hoverFlowTimerRef.current) {
@@ -380,8 +574,40 @@ export function CanvasAreaContentLayer({
     }, [clearHoverFlowTimer, hoverDeleteAffordance?.connectorId]);
 
     React.useEffect(() => () => clearHoverFlowTimer(), [clearHoverFlowTimer]);
+    React.useEffect(() => {
+        connectorPointerDownRef.current = null;
+    }, [shouldReduceConnectorHitTesting]);
 
     const handleLayerMouseMove = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (!shouldReduceConnectorHitTesting && event.target instanceof Element && event.target.closest('.canvas-reference-connector-hit-path')) {
+            return;
+        }
+
+        if (shouldReduceConnectorHitTesting) {
+            if (isHighFrequencyInteraction || referenceConnectionSourceId || shouldIgnoreConnectorModelPointerTarget(event.target)) {
+                clearHoverFlow();
+                return;
+            }
+
+            const root = containerRef.current;
+            if (!root) {
+                clearHoverFlow();
+                return;
+            }
+
+            const canvasPoint = getCanvasPointFromClient(root, event.clientX, event.clientY, canvasRenderScale);
+            const hitRadius = CONNECTOR_PRECISE_HIT_RADIUS_PX / canvasRenderScale;
+            const nearestConnectorId = canvasPoint
+                ? getNearestModelConnectorHit(connectorHitModels, canvasPoint, hitRadius)
+                : null;
+            if (!nearestConnectorId || !canvasPoint) {
+                clearHoverFlow();
+                return;
+            }
+
+            scheduleConnectorHover(nearestConnectorId, canvasPoint, semanticConnectorIds.has(nearestConnectorId));
+            return;
+        }
         if (referenceConnectionSourceId) {
             return;
         }
@@ -402,7 +628,69 @@ export function CanvasAreaContentLayer({
             getCanvasPointFromPath(nearestHit.path, event.clientX, event.clientY),
             semanticConnectorIds.has(nearestHit.connectorId),
         );
-    }, [clearHoverFlow, containerRef, referenceConnectionSourceId, scheduleConnectorHover, semanticConnectorIds]);
+    }, [canvasRenderScale, clearHoverFlow, connectorHitModels, containerRef, isHighFrequencyInteraction, referenceConnectionSourceId, scheduleConnectorHover, semanticConnectorIds, shouldReduceConnectorHitTesting]);
+    const handleLayerMouseDown = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (!shouldReduceConnectorHitTesting) {
+            return;
+        }
+
+        if (isHighFrequencyInteraction || shouldIgnoreConnectorModelPointerTarget(event.target)) {
+            connectorPointerDownRef.current = null;
+            return;
+        }
+
+        const root = containerRef.current;
+        if (!root) {
+            connectorPointerDownRef.current = null;
+            return;
+        }
+
+        const canvasPoint = getCanvasPointFromClient(root, event.clientX, event.clientY, canvasRenderScale);
+        const nearestConnectorId = canvasPoint
+            ? getNearestModelConnectorHit(connectorHitModels, canvasPoint, CONNECTOR_PRECISE_HIT_RADIUS_PX / canvasRenderScale)
+            : null;
+        if (!nearestConnectorId) {
+            connectorPointerDownRef.current = null;
+            return;
+        }
+
+        connectorPointerDownRef.current = {
+            connectorId: nearestConnectorId,
+            x: event.clientX,
+            y: event.clientY,
+        };
+        event.preventDefault();
+        event.stopPropagation();
+    }, [canvasRenderScale, connectorHitModels, containerRef, isHighFrequencyInteraction, shouldReduceConnectorHitTesting]);
+    const handleLayerClick = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (!shouldReduceConnectorHitTesting) {
+            return;
+        }
+
+        if (isHighFrequencyInteraction || shouldIgnoreConnectorModelPointerTarget(event.target)) {
+            connectorPointerDownRef.current = null;
+            return;
+        }
+
+        const pointerDown = connectorPointerDownRef.current;
+        connectorPointerDownRef.current = null;
+        if (!pointerDown || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > CONNECTOR_CLICK_MOVE_TOLERANCE_PX) {
+            return;
+        }
+
+        const root = containerRef.current;
+        const canvasPoint = root ? getCanvasPointFromClient(root, event.clientX, event.clientY, canvasRenderScale) : null;
+        const nearestConnectorId = canvasPoint
+            ? getNearestModelConnectorHit(connectorHitModels, canvasPoint, CONNECTOR_PRECISE_HIT_RADIUS_PX / canvasRenderScale)
+            : null;
+        if (!nearestConnectorId || nearestConnectorId !== pointerDown.connectorId) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        onSelectConnector?.(nearestConnectorId);
+    }, [canvasRenderScale, connectorHitModels, containerRef, isHighFrequencyInteraction, onSelectConnector, shouldReduceConnectorHitTesting]);
     const referenceConnectionSource = referenceConnectionSourceId ? connectorRenderElementMap.get(referenceConnectionSourceId) : undefined;
     const draftReferencePath = referenceConnectionSource && referenceConnectionPoint
         ? buildConnectorPath(
@@ -415,20 +703,114 @@ export function CanvasAreaContentLayer({
         )
         : null;
     const draftReferenceStatus = referenceConnectionTargetFeedback?.status ?? null;
-    const canvasRenderScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
-    const devicePixelRatio = getDevicePixelRatio();
-    const renderPan = {
-        x: snapToDevicePixel(pan.x, devicePixelRatio),
-        y: snapToDevicePixel(pan.y, devicePixelRatio),
-    };
+    const renderPan = getCanvasRenderPan(pan);
     const viewportStrokeScale = canvasRenderScale < 1 ? 1 / canvasRenderScale : 1;
     const generatorNodeEdgeWidth = 1 / canvasRenderScale;
+    const activeFlowHighlightCount = selectedReferenceConnectorIds.size
+        + (hoverFlowConnectorId && !selectedReferenceConnectorIds.has(hoverFlowConnectorId) ? 1 : 0);
+    const animatedFlowHighlightLimit = canvasRenderScale <= DENSE_CONNECTOR_INTERACTION_SCALE_THRESHOLD
+        ? LOW_SCALE_ANIMATED_FLOW_HIGHLIGHT_LIMIT
+        : ANIMATED_FLOW_HIGHLIGHT_LIMIT;
+    const shouldUseDenseStaticFlowHighlight = activeFlowHighlightCount > animatedFlowHighlightLimit;
     const getReadableStrokeWidth = (strokeWidth: number) => getMinimumScreenStrokeWidth(
         strokeWidth,
         canvasRenderScale,
         MIN_VISUAL_CONNECTOR_STROKE_PX,
     );
     const getViewportStableStrokeWidth = (strokeWidth: number) => strokeWidth * viewportStrokeScale;
+    const connectorPaintPlan = React.useMemo(() => {
+        const rasterBatches = new Map<string, CanvasConnectorRasterBatch>();
+        const individualItems: ConnectorPaintItem[] = [];
+        const shouldRasterizeBasePaths = shouldReduceConnectorHitTesting
+            && (isHighFrequencyInteraction || connectorElements.length >= DENSE_CONNECTOR_BATCH_THRESHOLD);
+
+        for (const connector of connectorElements) {
+            const renderData = connectorRenderDataById.get(connector.id);
+            if (!renderData) continue;
+
+            const isConnectorSelected = selectedIdSet.has(connector.id);
+            const isGeneratorFlowConnector = isGeneratorFlowConnectorElement(connector);
+            const isSemanticConnector = renderData.isReferenceConnector || isGeneratorFlowConnector;
+            const isGeneratorFlowEndpointSelected = isGeneratorFlowConnector
+                && !!connector.connectorFrom
+                && !!connector.connectorTo
+                && selectedIds.length === 1
+                && (selectedIdSet.has(connector.connectorFrom) || selectedIdSet.has(connector.connectorTo));
+            const isFlowHighlighted = selectedReferenceConnectorIds.has(connector.id)
+                || (renderData.isReferenceConnector && isConnectorSelected)
+                || (isGeneratorFlowConnector && (isConnectorSelected || isGeneratorFlowEndpointSelected))
+                || (isSemanticConnector && hoverFlowConnectorId === connector.id);
+            const shouldRenderFlowHighlight = isFlowHighlighted && !isHighFrequencyInteraction && !shouldUseDenseStaticFlowHighlight;
+            const shouldRenderStaticFlowHighlight = isFlowHighlighted && !isHighFrequencyInteraction && shouldUseDenseStaticFlowHighlight;
+            const connectorColor = isSemanticConnector ? CANVAS_REFERENCE_BLUE : connector.color || '#6B7280';
+            const connectorWidth = connector.strokeWidth || (isSemanticConnector ? 2.25 : 2);
+            const readableConnectorWidth = getMinimumScreenStrokeWidth(
+                connectorWidth,
+                canvasRenderScale,
+                MIN_VISUAL_CONNECTOR_STROKE_PX,
+            );
+            const readableSelectedConnectorWidth = getMinimumScreenStrokeWidth(
+                connectorWidth + 1.5,
+                canvasRenderScale,
+                MIN_VISUAL_CONNECTOR_STROKE_PX,
+            );
+            const canRasterizeBasePath = shouldRasterizeBasePaths
+                && isSemanticConnector
+                && !isConnectorSelected
+                && !isFlowHighlighted
+                && connector.connectorStyle !== 'dashed';
+
+            if (canRasterizeBasePath) {
+                const opacity = 0.9;
+                const batchKey = `${connectorColor}|${readableConnectorWidth}|${opacity}`;
+                const batch = rasterBatches.get(batchKey);
+                if (batch) {
+                    batch.path = `${batch.path} ${renderData.path}`;
+                    batch.count += 1;
+                } else {
+                    rasterBatches.set(batchKey, {
+                        key: batchKey,
+                        path: renderData.path,
+                        stroke: connectorColor,
+                        strokeWidth: readableConnectorWidth,
+                        opacity,
+                        count: 1,
+                    });
+                }
+                continue;
+            }
+
+            individualItems.push({
+                connector,
+                renderData,
+                isConnectorSelected,
+                isSemanticConnector,
+                isFlowHighlighted,
+                shouldRenderFlowHighlight,
+                shouldRenderStaticFlowHighlight,
+                connectorColor,
+                connectorWidth,
+                readableConnectorWidth,
+                readableSelectedConnectorWidth,
+            });
+        }
+
+        return {
+            rasterBatches: Array.from(rasterBatches.values()),
+            individualItems,
+        };
+    }, [
+        canvasRenderScale,
+        connectorElements,
+        connectorRenderDataById,
+        hoverFlowConnectorId,
+        isHighFrequencyInteraction,
+        selectedIdSet,
+        selectedIds.length,
+        selectedReferenceConnectorIds,
+        shouldReduceConnectorHitTesting,
+        shouldUseDenseStaticFlowHighlight,
+    ]);
     const contentLayerCss = `
 .canvas-content-layer-transform {
     --canvas-scale: ${canvasRenderScale};
@@ -436,6 +818,7 @@ export function CanvasAreaContentLayer({
     --canvas-tool-node-edge-width: ${toLayerPx(generatorNodeEdgeWidth)};
     --canvas-linked-highlight-width: ${toLayerPx(generatorNodeEdgeWidth)};
     transform: translate(${toLayerPx(renderPan.x)}, ${toLayerPx(renderPan.y)}) scale(${canvasRenderScale});
+    transform-origin: top left;
     will-change: transform;
 }
 
@@ -456,12 +839,21 @@ ${hoverDeleteAffordance ? `
     return (
         <div
             ref={containerRef}
-            className="canvas-content-layer-transform w-full h-full origin-top-left"
+            className={`canvas-content-layer-transform w-full h-full origin-top-left${isPanning ? ' is-panning' : ''}${isHighFrequencyInteraction ? ' is-interacting' : ''}`}
+            onMouseDown={handleLayerMouseDown}
             onMouseMove={handleLayerMouseMove}
+            onClick={handleLayerClick}
             onMouseLeave={() => clearHoverFlow()}
         >
             <style>{contentLayerCss}</style>
             <div className="canvas-grid-layer pointer-events-none absolute inset-0 h-[10000px] w-[10000px]" />
+
+            <CanvasConnectorRasterLayer
+                batches={connectorPaintPlan.rasterBatches}
+                renderPan={renderPan}
+                scale={canvasRenderScale}
+                viewportSize={viewportSize}
+            />
 
             <svg className="canvas-reference-connector-layer absolute inset-0 w-full h-full overflow-visible">
                 <defs>
@@ -469,25 +861,20 @@ ${hoverDeleteAffordance ? `
                         <polygon points="0 0, 10 3, 0 6" fill="#6B7280" />
                     </marker>
                 </defs>
-                {connectorElements.map((connector) => {
-                    const renderData = getConnectorRenderData(connector, connectorRenderElementMap);
-                    if (!renderData) return null;
-                    const isConnectorSelected = selectedIds.includes(connector.id);
-                    const isGeneratorFlowConnector = isGeneratorFlowConnectorElement(connector);
-                    const isSemanticConnector = renderData.isReferenceConnector || isGeneratorFlowConnector;
-                    const isGeneratorFlowEndpointSelected = isGeneratorFlowConnector
-                        && !!connector.connectorFrom
-                        && !!connector.connectorTo
-                        && selectedIds.length === 1
-                        && (selectedIds.includes(connector.connectorFrom) || selectedIds.includes(connector.connectorTo));
-                    const isFlowHighlighted = selectedReferenceConnectorIds.has(connector.id)
-                        || (renderData.isReferenceConnector && isConnectorSelected)
-                        || (isGeneratorFlowConnector && (isConnectorSelected || isGeneratorFlowEndpointSelected))
-                        || (isSemanticConnector && hoverFlowConnectorId === connector.id);
-                    const connectorColor = isSemanticConnector ? CANVAS_REFERENCE_BLUE : connector.color || '#6B7280';
-                    const connectorWidth = connector.strokeWidth || (isSemanticConnector ? 2.25 : 2);
-                    const readableConnectorWidth = getReadableStrokeWidth(connectorWidth);
-                    const readableSelectedConnectorWidth = getReadableStrokeWidth(connectorWidth + 1.5);
+                {connectorPaintPlan.individualItems.map((item) => {
+                    const {
+                        connector,
+                        renderData,
+                        isConnectorSelected,
+                        isSemanticConnector,
+                        isFlowHighlighted,
+                        shouldRenderFlowHighlight,
+                        shouldRenderStaticFlowHighlight,
+                        connectorColor,
+                        connectorWidth,
+                        readableConnectorWidth,
+                        readableSelectedConnectorWidth,
+                    } = item;
 
                     return (
                         <g
@@ -511,7 +898,20 @@ ${hoverDeleteAffordance ? `
                                 markerEnd={isSemanticConnector ? undefined : 'url(#arrowhead)'}
                                 pointerEvents="none"
                             />
-                            {isFlowHighlighted && (
+                            {shouldRenderStaticFlowHighlight && (
+                                <path
+                                    className="canvas-reference-flow-static-path"
+                                    d={renderData.path}
+                                    stroke={CANVAS_REFERENCE_FLOW_CORE}
+                                    strokeWidth={getReadableStrokeWidth(Math.max(4.5, connectorWidth + 2))}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    fill="none"
+                                    opacity={0.42}
+                                    pointerEvents="none"
+                                />
+                            )}
+                            {shouldRenderFlowHighlight && (
                                 <>
                                     <path
                                         className="canvas-reference-flow-path canvas-reference-flow-aura-path"
@@ -568,7 +968,7 @@ ${hoverDeleteAffordance ? `
 
             <div className="pointer-events-none absolute inset-0 z-40" ref={elementsContainerRef}>
                 {renderElements.map((el) => {
-                    const isSelected = selectedIds.includes(el.id);
+                    const isSelected = selectedIdSet.has(el.id);
                     const dragPreviewOffset = dragPreviewState?.ids.includes(el.id)
                         ? { dx: dragPreviewState.dx, dy: dragPreviewState.dy }
                         : null;
@@ -581,7 +981,7 @@ ${hoverDeleteAffordance ? `
                     const isNotPickable = !!(canvasSelectMode && !isPickable);
                     const isLinked = !isSelected
                         && !isDrawing
-                        && isElementConnectedToSelectionByConnector(el.id, selectedIds, connectorElements);
+                        && linkedElementIds.has(el.id);
                     const isLayerOrderHighlighted = highlightedElementIdSet.has(el.id);
                     return (
                         <CanvasElementRenderer
@@ -606,7 +1006,7 @@ ${hoverDeleteAffordance ? `
                             showFramePresetMenu={showFramePresetMenu === el.id}
                             showFrameExportMenu={showFrameExportMenu === el.id}
                             canGenerateFromImage={canGenerateFromImage}
-                            markTargetHasContent={!!(el.markTargetId && elements.find((target) => target.id === el.markTargetId && target.content))}
+                            markTargetHasContent={!!(el.markTargetId && elementMap.get(el.markTargetId)?.content)}
                             isGeneratorSubmitting={!!generatorSubmittingMap?.[el.id]}
                             isResultHighlighted={highlightedResultId === el.id}
                             isNewlyCreatedGenerator={!!newlyCreatedGeneratorMap?.[el.id]}
@@ -642,8 +1042,8 @@ ${hoverDeleteAffordance ? `
             </div>
 
             <svg className="pointer-events-none absolute inset-0 z-30 h-full w-full overflow-visible">
-                {connectorElements.map((connector) => {
-                    const renderData = getConnectorRenderData(connector, connectorRenderElementMap);
+                {!shouldReduceConnectorHitTesting && connectorElements.map((connector) => {
+                    const renderData = connectorRenderDataById.get(connector.id);
                     if (!renderData) return null;
                     const isSemanticConnector = renderData.isReferenceConnector || isGeneratorFlowConnectorElement(connector);
                     const connectorWidth = connector.strokeWidth || (isSemanticConnector ? 2.25 : 2);
@@ -660,19 +1060,37 @@ ${hoverDeleteAffordance ? `
                             fill="none"
                             pointerEvents="stroke"
                             onMouseDown={(event) => {
-                                if (!getNearestVisiblePathConnectorId(event)) {
+                                const nearestConnectorId = getNearestVisiblePathConnectorId(event);
+                                if (!nearestConnectorId) {
+                                    connectorPointerDownRef.current = null;
                                     clearHoverFlow();
                                     return;
                                 }
                                 event.preventDefault();
                                 event.stopPropagation();
+                                connectorPointerDownRef.current = {
+                                    connectorId: nearestConnectorId,
+                                    x: event.clientX,
+                                    y: event.clientY,
+                                };
                             }}
                             onClick={(event) => {
                                 const nearestConnectorId = getNearestVisiblePathConnectorId(event);
                                 if (!nearestConnectorId) {
+                                    connectorPointerDownRef.current = null;
                                     clearHoverFlow();
                                     return;
                                 }
+
+                                const pointerDown = connectorPointerDownRef.current;
+                                connectorPointerDownRef.current = null;
+                                if (
+                                    pointerDown?.connectorId !== nearestConnectorId
+                                    || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > CONNECTOR_CLICK_MOVE_TOLERANCE_PX
+                                ) {
+                                    return;
+                                }
+
                                 event.preventDefault();
                                 event.stopPropagation();
                                 onSelectConnector?.(nearestConnectorId);
