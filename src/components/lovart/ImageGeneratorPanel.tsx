@@ -84,7 +84,6 @@ import { buildGeneratorAspectRatioPatch, resolveGeneratorAspectRatioBounds } fro
 import type { PromptMentionEditorContext, PromptMentionEditorHandle } from './GeneratorPromptMentionEditor';
 
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
-const PROMPT_STATE_SYNC_DELAY_MS = 140;
 const PROMPT_REFERENCE_TOKEN_SCAN_REGEX = /@图\d+/g;
 
 function areMentionQueriesEqual(left: TextareaMentionQuery | null, right: TextareaMentionQuery | null) {
@@ -199,7 +198,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     });
     const promptDraftRef = useRef(prompt);
     const persistedPromptRef = useRef(currentElement?.savedPrompt || '');
-    const promptStateSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasPromptContentRef = useRef(prompt.trim().length > 0);
     const previousImageDefaultsRef = useRef(imageDefaults);
     const legacyReferenceMigratedRef = useRef(false);
@@ -216,33 +214,15 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setHasPromptContent(nextHasContent);
     }, []);
 
-    const clearPromptStateSyncTimer = useCallback(() => {
-        if (promptStateSyncTimerRef.current) {
-            clearTimeout(promptStateSyncTimerRef.current);
-            promptStateSyncTimerRef.current = null;
-        }
-    }, []);
-
     const commitPromptState = useCallback((nextPrompt: string) => {
         setPrompt((current) => (current === nextPrompt ? current : nextPrompt));
     }, []);
 
-    const syncPromptState = useCallback((nextPrompt: string, mode: 'deferred' | 'immediate' = 'deferred') => {
+    const syncPromptState = useCallback((nextPrompt: string) => {
         promptDraftRef.current = nextPrompt;
         updateHasPromptContent(nextPrompt);
-
-        if (mode === 'immediate') {
-            clearPromptStateSyncTimer();
-            commitPromptState(nextPrompt);
-            return;
-        }
-
-        clearPromptStateSyncTimer();
-        promptStateSyncTimerRef.current = setTimeout(() => {
-            promptStateSyncTimerRef.current = null;
-            commitPromptState(promptDraftRef.current);
-        }, PROMPT_STATE_SYNC_DELAY_MS);
-    }, [clearPromptStateSyncTimer, commitPromptState, updateHasPromptContent]);
+        commitPromptState(nextPrompt);
+    }, [commitPromptState, updateHasPromptContent]);
 
     const setMentionQueryIfChanged = useCallback((nextQuery: TextareaMentionQuery | null) => {
         setMentionQuery((current) => (areMentionQueriesEqual(current, nextQuery) ? current : nextQuery));
@@ -264,8 +244,6 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         setMentionActiveIndex(0);
     }, [mentionQuery?.start, mentionQuery?.query, mentionSuggestions.length]);
 
-    useEffect(() => () => clearPromptStateSyncTimer(), [clearPromptStateSyncTimer]);
-
     useEffect(() => {
         const normalizedPrompt = stripPromptMentionInlinePadding(prompt, promptReferenceTokens);
         if (normalizedPrompt === prompt) {
@@ -277,7 +255,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
             end: Math.min(promptSelectionRef.current.end, normalizedPrompt.length),
         };
         promptSelectionRef.current = nextSelection;
-        syncPromptState(normalizedPrompt, 'immediate');
+        syncPromptState(normalizedPrompt);
     }, [prompt, promptReferenceTokens, syncPromptState]);
 
     const closeAllMenus = useCallback(() => {
@@ -433,7 +411,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
         }
 
         setReferenceImages((prev) => prev.slice(0, maxReferenceImages));
-        syncPromptState(clampPromptReferenceTokens(promptInputRef.current?.getValue() ?? promptDraftRef.current, maxReferenceImages), 'immediate');
+        syncPromptState(clampPromptReferenceTokens(promptInputRef.current?.getValue() ?? promptDraftRef.current, maxReferenceImages));
         setMentionQueryIfChanged(null);
     }, [maxReferenceImages, referenceImages.length, setMentionQueryIfChanged, syncPromptState]);
 
@@ -550,13 +528,13 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
         promptSelectionRef.current = nextSelection;
         editor?.commitValue(nextValue, nextSelection);
-        syncPromptState(nextValue, 'immediate');
+        syncPromptState(nextValue);
         setMentionQueryIfChanged(null);
     }, [promptReferenceTokens, setMentionQueryIfChanged, syncPromptState]);
 
     const handlePromptChange = useCallback((nextPrompt: string, selection: TextareaSelection) => {
         promptSelectionRef.current = selection;
-        syncPromptState(nextPrompt, 'deferred');
+        syncPromptState(nextPrompt);
         if (!isPromptComposingRef.current) {
             syncPromptMentionQuery(nextPrompt, selection.start);
         }
@@ -569,7 +547,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const handlePromptCompositionEnd = useCallback((_event: React.CompositionEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
         isPromptComposingRef.current = false;
         promptSelectionRef.current = context.selection;
-        syncPromptState(context.value, 'immediate');
+        syncPromptState(context.value);
         syncPromptMentionQuery(context.value, context.selection.start);
     }, [syncPromptMentionQuery, syncPromptState]);
 
@@ -589,7 +567,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const handleClearReferenceImages = useCallback(() => {
         connectorReferenceConnectorIds.forEach((connectorId) => onDeleteReferenceConnector?.(connectorId));
-        syncPromptState(removeMentionTokens(promptInputRef.current?.getValue() ?? promptDraftRef.current, promptReferenceMentions.map((mention) => mention.token)), 'immediate');
+        syncPromptState(removeMentionTokens(promptInputRef.current?.getValue() ?? promptDraftRef.current, promptReferenceMentions.map((mention) => mention.token)));
         setReferenceImages([]);
         setMentionQueryIfChanged(null);
         clearCanvasReferenceBinding();
@@ -603,7 +581,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onDeleteReferenceConnector?.(connector.id);
             }
         }
-        syncPromptState(remapPromptReferenceTokensAfterRemoval(promptInputRef.current?.getValue() ?? promptDraftRef.current, index + 1), 'immediate');
+        syncPromptState(remapPromptReferenceTokensAfterRemoval(promptInputRef.current?.getValue() ?? promptDraftRef.current, index + 1));
         setReferenceImages((prev) => {
             const next = prev.filter((_, itemIndex) => itemIndex !== index);
             if (next.length === 0) {
@@ -765,6 +743,11 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     useCanvasImageSelectionEvent(elementId, handleCanvasSelectionEvent);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
+        const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+        if (isPromptComposingRef.current || nativeEvent.isComposing || e.key === 'Process' || e.keyCode === 229) {
+            return;
+        }
+
         const livePrompt = context.value;
         const liveSelection = context.selection;
         promptSelectionRef.current = liveSelection;
@@ -801,7 +784,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     };
 
     const applyHistoryItem = useCallback((item: ImageGenerationHistoryItem) => {
-        syncPromptState(item.prompt, 'immediate');
+        syncPromptState(item.prompt);
         setModel(item.model);
         setAspectRatio(item.aspectRatio);
         setImageSize(item.imageSize);
@@ -903,7 +886,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
 
     const handleGenerate = async () => {
         const livePrompt = promptInputRef.current?.getValue() ?? promptDraftRef.current;
-        syncPromptState(livePrompt, 'immediate');
+        syncPromptState(livePrompt);
         const { materializedPrompt, invalidTokens } = resolvePromptReferenceMentions(livePrompt, promptReferenceMentions);
         if (invalidTokens.length > 0) {
             setErrorMsg(`提示词引用了不存在的参考图：${invalidTokens.join('、')}。请先上传对应参考图，或修改提示词。`);
@@ -1220,7 +1203,7 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 onPromptCompositionEnd={handlePromptCompositionEnd}
                 onPromptBlur={() => {
                     const latestPrompt = promptInputRef.current?.getValue() ?? promptDraftRef.current;
-                    syncPromptState(latestPrompt, 'immediate');
+                    syncPromptState(latestPrompt);
                     flushPromptToElement(latestPrompt);
                     window.setTimeout(() => setMentionQueryIfChanged(null), 120);
                 }}

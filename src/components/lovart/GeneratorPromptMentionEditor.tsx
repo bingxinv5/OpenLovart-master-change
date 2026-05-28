@@ -499,6 +499,11 @@ function isWordLikeChar(char: string | undefined): boolean {
     return !!char && ASCII_WORD_CHAR_REGEX.test(char);
 }
 
+function isImeCompositionKeyEvent(event: React.KeyboardEvent<HTMLDivElement>) {
+    const nativeEvent = event.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+    return nativeEvent.isComposing || event.key === 'Process' || event.keyCode === 229;
+}
+
 function removeMentionForDragMove(value: string, mentionStart: number, mentionEnd: number): { value: string; removedLength: number } {
     const tokenLength = mentionEnd - mentionStart;
 
@@ -587,6 +592,7 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
     const pendingSelectionRef = React.useRef<TextareaSelection | null>(null);
     const renderedMentionsSignatureRef = React.useRef('');
     const draggingMentionRef = React.useRef<{ token: string; start: number; end: number } | null>(null);
+    const isComposingRef = React.useRef(false);
     const [hasEditorContent, setHasEditorContent] = React.useState(() => value.length > 0);
     const hasEditorContentRef = React.useRef(value.length > 0);
 
@@ -654,6 +660,10 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
     React.useLayoutEffect(() => {
         const editor = editorRef.current;
         if (!editor) {
+            return;
+        }
+
+        if (isComposingRef.current && document.activeElement === editor) {
             return;
         }
 
@@ -745,10 +755,13 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
     }, [onChange, readOnly, updateHasEditorContent]);
 
     const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+        const isImeComposing = isComposingRef.current || isImeCompositionKeyEvent(event);
         const currentValue = readValue();
         const selection = readSelection();
-        onKeyDown(event, { value: currentValue, selection });
-        if (event.defaultPrevented || readOnly) {
+        if (!isImeComposing) {
+            onKeyDown(event, { value: currentValue, selection });
+        }
+        if (isImeComposing || event.defaultPrevented || readOnly) {
             return;
         }
 
@@ -780,12 +793,19 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
         replaceSelection(text.replace(/\r\n?/g, '\n'));
     }, [readOnly, replaceSelection]);
 
+    const handleCompositionStart = React.useCallback(() => {
+        isComposingRef.current = true;
+        onCompositionStart();
+    }, [onCompositionStart]);
+
     const handleCompositionEnd = React.useCallback((event: React.CompositionEvent<HTMLDivElement>) => {
+        isComposingRef.current = false;
         const currentValue = readValue();
         const selection = readSelection();
         pendingSelectionRef.current = selection;
+        updateHasEditorContent(currentValue);
         onCompositionEnd(event, { value: currentValue, selection });
-    }, [onCompositionEnd, readSelection, readValue]);
+    }, [onCompositionEnd, readSelection, readValue, updateHasEditorContent]);
 
     const handleDragStart = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
         if (readOnly || !editorRef.current) {
@@ -898,7 +918,7 @@ export const GeneratorPromptMentionEditor = React.forwardRef<PromptMentionEditor
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
                 onDragEnd={handleDragEnd}
-                onCompositionStart={onCompositionStart}
+                onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
                 onBlur={onBlur}
                 className={`min-h-12 max-h-[192px] w-full overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 outline-none ${readOnly ? 'cursor-default' : ''} ${className}`}

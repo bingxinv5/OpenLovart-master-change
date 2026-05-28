@@ -824,6 +824,11 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     }, [clearCanvasReferenceBinding, connectorReferenceConnectorIds, onDeleteReferenceConnector, promptMentionBindings]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, context: PromptMentionEditorContext) => {
+        const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+        if (isPromptComposingRef.current || nativeEvent.isComposing || e.key === 'Process' || e.keyCode === 229) {
+            return;
+        }
+
         const livePrompt = context.value;
         const liveSelection = context.selection;
         promptSelectionRef.current = liveSelection;
