@@ -25,7 +25,7 @@ interface UseCanvasKeyboardShortcutsOptions {
     handleZoomIn: () => void;
     handleZoomOut: () => void;
     handleZoomTo: (value: number) => void;
-    removeElementsByIds: (ids: string[]) => void;
+    removeElementsByIds: (ids: string[]) => boolean | void;
     onOpenCommandPalette?: () => void;
     onOpenShortcutHelp?: () => void;
     onShortcutTriggered?: (label: string, shortcut: string) => void;
@@ -161,11 +161,14 @@ export function useCanvasKeyboardShortcuts(options: UseCanvasKeyboardShortcutsOp
                     case 'x':
                         e.preventDefault();
                         if (latest.selectedIds.length > 0) {
+                            const removed = latest.removeElementsByIds(latest.selectedIds);
+                            if (removed === false) {
+                                return;
+                            }
                             latest.clipboardRef.current = latest.elements
                                 .filter((element) => latest.selectedIds.includes(element.id))
                                 .map(latest.cloneCanvasElement);
                             latest.markCanvasClipboardPreferred?.();
-                            latest.removeElementsByIds(latest.selectedIds);
                             announce('剪切所选元素', 'Ctrl+X');
                         }
                         return;
@@ -313,8 +316,10 @@ export function useCanvasKeyboardShortcuts(options: UseCanvasKeyboardShortcutsOp
             }
 
             if ((key === 'Delete' || key === 'Backspace') && latest.selectedIds.length > 0) {
-                latest.removeElementsByIds(latest.selectedIds);
-                announce('删除所选元素', 'Delete');
+                const removed = latest.removeElementsByIds(latest.selectedIds);
+                if (removed !== false) {
+                    announce('删除所选元素', 'Delete');
+                }
             }
         };
 

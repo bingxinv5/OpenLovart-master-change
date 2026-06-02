@@ -133,7 +133,7 @@ interface UseCanvasClipboardActionsParams {
     elements: CanvasElement[];
     addElements: (elements: CanvasElement[]) => void;
     collectSelectionWithFrameChildren: (ids: string[]) => string[];
-    removeElementsByIds: (ids: string[]) => void;
+    removeElementsByIds: (ids: string[]) => boolean | void;
     runHistoryTransaction: (metadata: { label: string; source: string }, action: () => { selectionAfter?: string[] } | void) => void;
     setSelectedIds: (ids: string[]) => void;
     showToast: (message: string, type?: CanvasToastType) => void;
@@ -203,12 +203,16 @@ export function useCanvasClipboardActions({
 
     const handleCutSelection = useCallback((ids: string[]) => {
         const expandedIds = collectSelectionWithFrameChildren(ids);
-        clipboardRef.current = elements
-            .filter((element) => expandedIds.includes(element.id))
-            .map(cloneCanvasElement);
-        markCanvasClipboardPreferred();
         runHistoryTransaction({ label: '剪切元素', source: 'clipboard-cut' }, () => {
-            removeElementsByIds(expandedIds);
+            const removed = removeElementsByIds(expandedIds);
+            if (removed === false) {
+                return { selectionAfter: ids };
+            }
+
+            clipboardRef.current = elements
+                .filter((element) => expandedIds.includes(element.id))
+                .map(cloneCanvasElement);
+            markCanvasClipboardPreferred();
             showToast(`已剪切 ${expandedIds.length} 个元素`, 'success');
             return { selectionAfter: [] };
         });

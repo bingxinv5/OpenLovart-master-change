@@ -29,6 +29,7 @@ import {
 } from './image-generation-history';
 import {
     findGeneratorElement,
+    readBlobAsDataUrl,
     readFileAsDataUrl,
     useCanvasImageSelectionEvent,
     type GeneratorCanvasElement,
@@ -84,7 +85,96 @@ import { buildGeneratorAspectRatioPatch, resolveGeneratorAspectRatioBounds } fro
 import type { PromptMentionEditorContext, PromptMentionEditorHandle } from './GeneratorPromptMentionEditor';
 
 const IMAGE_REFERENCE_TARGET_BYTES = 2 * 1024 * 1024;
+const LOCAL_REFERENCE_PROXY_PATHS = new Set(['/api/proxy-download', '/api/cdn-cache']);
 const PROMPT_REFERENCE_TOKEN_SCAN_REGEX = /@图\d+/g;
+
+function isPrivateIpv4Host(hostname: string): boolean {
+    const segments = hostname.split('.').map((segment) => Number(segment));
+    if (segments.length !== 4 || segments.some((segment) => !Number.isInteger(segment) || segment < 0 || segment > 255)) {
+        return false;
+    }
+
+    const [a, b] = segments;
+    return a === 10
+        || a === 127
+        || (a === 169 && b === 254)
+        || (a === 172 && b >= 16 && b <= 31)
+        || (a === 192 && b === 168);
+}
+
+function isLocalApplicationHost(hostname: string): boolean {
+    const normalized = hostname.trim().toLowerCase();
+    if (!normalized) return false;
+
+    return normalized === 'localhost'
+        || normalized === '0.0.0.0'
+        || normalized === '::1'
+        || normalized === '[::1]'
+        || isPrivateIpv4Host(normalized)
+        || !normalized.includes('.');
+}
+
+function getLocalReferenceFetchUrl(value: string): string | null {
+    if (value.startsWith('blob:')) {
+        return value;
+    }
+
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        const appOrigin = window.location?.origin || 'http://localhost';
+        const parsedUrl = new URL(value, appOrigin);
+
+        if (parsedUrl.origin === appOrigin) {
+            return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+        }
+
+        if (LOCAL_REFERENCE_PROXY_PATHS.has(parsedUrl.pathname) && isLocalApplicationHost(parsedUrl.hostname)) {
+            return `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+}
+
+async function fetchLocalReferenceBlob(url: string): Promise<Blob | null> {
+    try {
+        const init: RequestInit = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? { signal: AbortSignal.timeout(20_000) }
+            : {};
+        const response = await fetch(url, init);
+        if (!response.ok) {
+            return null;
+        }
+
+        return await response.blob();
+    } catch {
+        return null;
+    }
+}
+
+async function materializeLocalReferenceImage(value: string): Promise<string | null> {
+    const fetchUrl = getLocalReferenceFetchUrl(value);
+    if (!fetchUrl) {
+        return null;
+    }
+
+    const blob = await fetchLocalReferenceBlob(fetchUrl);
+    if (!blob) {
+        throw new Error('本地生成参考图读取失败，请等待图片加载完成后重新选择，或先将图片加入画布/参考库后再试。');
+    }
+    if (blob.type && !blob.type.startsWith('image/')) {
+        throw new Error(`本地生成参考图不是图片资源（${blob.type}），请重新选择图片后再试。`);
+    }
+
+    return await compressReferenceImageDataUrl(await readBlobAsDataUrl(blob), {
+        targetBytes: IMAGE_REFERENCE_TARGET_BYTES,
+    });
+}
 
 function areMentionQueriesEqual(left: TextareaMentionQuery | null, right: TextareaMentionQuery | null) {
     return left === right || (!!left && !!right && left.start === right.start && left.end === right.end && left.query === right.query);
@@ -829,6 +919,11 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
                 return await compressReferenceImageDataUrl(value, {
                     targetBytes: IMAGE_REFERENCE_TARGET_BYTES,
                 });
+            }
+
+            const materializedLocalImage = await materializeLocalReferenceImage(value);
+            if (materializedLocalImage) {
+                return materializedLocalImage;
             }
 
             return value;

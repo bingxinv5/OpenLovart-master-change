@@ -128,6 +128,8 @@ import { appendProjectMediaHistory, mediaHistoryStoreConfig, replaceProjectMedia
 import { referenceLibraryStoreConfig } from '@/lib/project-reference-library';
 
 const GENERATOR_CREATION_ANIMATION_MS = 190;
+const BULK_DELETE_CONFIRM_MIN_COUNT = 5;
+const BULK_DELETE_CONFIRM_RATIO = 0.5;
 
 function isEditableOverlayTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) {
@@ -1233,6 +1235,46 @@ function LovartCanvasContent() {
         workbenchSettings,
     });
 
+    const confirmLargeElementRemoval = useCallback((ids: string[], actionLabel: string) => {
+        const uniqueIds = Array.from(new Set(ids));
+        if (uniqueIds.length === 0) {
+            return false;
+        }
+
+        const idSet = new Set(uniqueIds);
+        const selectedElements = elements.filter((element) => idSet.has(element.id));
+        const mediaCount = selectedElements.filter((element) => element.type === 'image' || element.type === 'video').length;
+        const shouldConfirm = uniqueIds.length >= BULK_DELETE_CONFIRM_MIN_COUNT
+            || (elements.length >= 2 && uniqueIds.length >= Math.ceil(elements.length * BULK_DELETE_CONFIRM_RATIO));
+
+        if (!shouldConfirm) {
+            return true;
+        }
+
+        const mediaPart = mediaCount > 0 ? `，其中包含 ${mediaCount} 个图片/视频元素` : '';
+        const confirmed = window.confirm([
+            `即将${actionLabel} ${uniqueIds.length} 个画布元素${mediaPart}。`,
+            '这会从当前画布移除元素，自动保存后会覆盖项目画布状态。',
+            '媒体历史不会被删除，但原位置、层级、分组和连线可能需要手动恢复。',
+            '确认继续？',
+        ].join('\n'));
+
+        if (!confirmed) {
+            showToast('已取消删除操作', 'info');
+        }
+
+        return confirmed;
+    }, [elements, showToast]);
+
+    const removeElementsByIdsWithConfirmation = useCallback((ids: string[], actionLabel = '删除') => {
+        if (!confirmLargeElementRemoval(ids, actionLabel)) {
+            return false;
+        }
+
+        removeElementsByIds(ids);
+        return true;
+    }, [confirmLargeElementRemoval, removeElementsByIds]);
+
     const {
         canPaste,
         canvasClipboardPreferredRef,
@@ -1246,7 +1288,7 @@ function LovartCanvasContent() {
         elements,
         addElements,
         collectSelectionWithFrameChildren,
-        removeElementsByIds,
+        removeElementsByIds: (ids) => removeElementsByIdsWithConfirmation(ids, '剪切'),
         runHistoryTransaction,
         setSelectedIds,
         showToast,
@@ -1255,6 +1297,7 @@ function LovartCanvasContent() {
     const handleDeleteLayerSelection = useCallback((ids: string[]) => {
         const uniqueIds = Array.from(new Set(ids));
         if (uniqueIds.length === 0) return;
+        if (!confirmLargeElementRemoval(uniqueIds, '删除')) return;
 
         const idSet = new Set(uniqueIds);
         const frameIds = elements
@@ -1275,7 +1318,7 @@ function LovartCanvasContent() {
             removeElementsByIds(uniqueIds);
             showToast(uniqueIds.length > 1 ? `已删除 ${uniqueIds.length} 个图层` : '已删除图层', 'success');
         });
-    }, [elements, handleElementChange, removeElementsByIds, runHistoryTransaction, showToast]);
+    }, [confirmLargeElementRemoval, elements, handleElementChange, removeElementsByIds, runHistoryTransaction, showToast]);
 
     const buildAutoGroupFrame = useCallback((items: CanvasElement[], frameName: string) => {
         return _buildAutoGroupFrame(items, frameName, uuidv4);
@@ -1458,7 +1501,7 @@ function LovartCanvasContent() {
         handleZoomIn,
         handleZoomOut,
         handleZoomTo,
-        removeElementsByIds,
+        removeElementsByIds: (ids) => removeElementsByIdsWithConfirmation(ids, '删除'),
         onDuplicateSelection: handleDuplicateSelection,
         onOpenCommandPalette: () => setShowCommandPalette(true),
         onOpenShortcutHelp: () => setShowShortcutHelp(true),
@@ -1948,12 +1991,11 @@ function LovartCanvasContent() {
         removeElementsByIds([id]);
     }, [removeElementsByIds]);
     const handleClearAllMarks = useCallback(() => {
-        removeElementsByIds(
-            elements
-                .filter(el => el.type === 'mark')
-                .map(el => el.id),
-        );
-    }, [elements, removeElementsByIds]);
+        const markIds = elements
+            .filter(el => el.type === 'mark')
+            .map(el => el.id);
+        removeElementsByIdsWithConfirmation(markIds, '清空标记');
+    }, [elements, removeElementsByIdsWithConfirmation]);
 
     const selectedGeneratorElement = useMemo(() => getSelectedGeneratorElement(elements, selectedIds, {
         isDraggingElement,
@@ -2101,7 +2143,7 @@ function LovartCanvasContent() {
             onSendToBack: handleSendToBack,
             onToggleElementsHidden: handleToggleElementsHidden,
             onToggleElementsLocked: handleToggleElementsLocked,
-            onDeleteSelection: removeElementsByIds,
+            onDeleteSelection: (ids) => { removeElementsByIdsWithConfirmation(ids, '删除'); },
         },
         generator: {
             onOpenImageGenerator: handleOpenImageGenerator,
