@@ -5,6 +5,9 @@ export function areCanvasRenderMetricsEqual(left: CanvasRenderMetrics | null, ri
     return !!left
         && left.visibleCount === right.visibleCount
         && left.totalCount === right.totalCount
+        && left.detailedCount === right.detailedCount
+        && left.overviewCount === right.overviewCount
+        && left.renderMode === right.renderMode
         && left.culledCount === right.culledCount
         && left.virtualizedCount === right.virtualizedCount
         && left.deferredCount === right.deferredCount

@@ -1,6 +1,7 @@
 import React from 'react';
 
-const RASTER_VIEWPORT_MARGIN_SCREEN_PX = 180;
+const RASTER_VIEWPORT_MARGIN_SCREEN_PX = 384;
+const RASTER_PAN_MARGIN_SCREEN_PX = 1280;
 const MAX_RASTER_DEVICE_PIXEL_RATIO = 2;
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect;
 
@@ -18,6 +19,7 @@ type CanvasConnectorRasterLayerProps = {
     renderPan: { x: number; y: number };
     scale: number;
     viewportSize?: { width: number; height: number };
+    isPanning?: boolean;
 };
 
 function getSafeScale(scale: number) {
@@ -33,13 +35,15 @@ export function CanvasConnectorRasterLayer({
     renderPan,
     scale,
     viewportSize,
+    isPanning = false,
 }: CanvasConnectorRasterLayerProps) {
     const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
     const pathCacheRef = React.useRef(new Map<string, { path: string; path2D: Path2D }>());
     const safeScale = getSafeScale(scale);
     const safeViewportSize = viewportSize ?? { width: 0, height: 0 };
     const viewportWorldBounds = React.useMemo(() => {
-        const margin = RASTER_VIEWPORT_MARGIN_SCREEN_PX / safeScale;
+        const marginScreenPx = isPanning ? RASTER_PAN_MARGIN_SCREEN_PX : RASTER_VIEWPORT_MARGIN_SCREEN_PX;
+        const margin = marginScreenPx / safeScale;
         const left = (-renderPan.x / safeScale) - margin;
         const top = (-renderPan.y / safeScale) - margin;
         const width = (safeViewportSize.width / safeScale) + margin * 2;
@@ -51,7 +55,7 @@ export function CanvasConnectorRasterLayer({
             width: Math.max(1, width),
             height: Math.max(1, height),
         };
-    }, [renderPan.x, renderPan.y, safeScale, safeViewportSize.height, safeViewportSize.width]);
+    }, [isPanning, renderPan.x, renderPan.y, safeScale, safeViewportSize.height, safeViewportSize.width]);
 
     const totalConnectorCount = React.useMemo(
         () => batches.reduce((total, batch) => total + batch.count, 0),
@@ -69,10 +73,9 @@ export function CanvasConnectorRasterLayer({
             return;
         }
 
-        const devicePixelRatio = Math.min(
-            window.devicePixelRatio || 1,
-            MAX_RASTER_DEVICE_PIXEL_RATIO,
-        );
+        const devicePixelRatio = isPanning
+            ? 1
+            : Math.min(window.devicePixelRatio || 1, MAX_RASTER_DEVICE_PIXEL_RATIO);
         const screenWidth = Math.max(1, Math.ceil(viewportWorldBounds.width * safeScale));
         const screenHeight = Math.max(1, Math.ceil(viewportWorldBounds.height * safeScale));
         const bitmapWidth = Math.max(1, Math.ceil(screenWidth * devicePixelRatio));
@@ -122,7 +125,7 @@ export function CanvasConnectorRasterLayer({
 
         context.setTransform(1, 0, 0, 1, 0, 0);
         context.globalAlpha = 1;
-    }, [batches, safeScale, safeViewportSize.height, safeViewportSize.width, viewportWorldBounds.height, viewportWorldBounds.left, viewportWorldBounds.top, viewportWorldBounds.width]);
+    }, [batches, isPanning, safeScale, safeViewportSize.height, safeViewportSize.width, viewportWorldBounds.height, viewportWorldBounds.left, viewportWorldBounds.top, viewportWorldBounds.width]);
 
     if (batches.length === 0) {
         return null;
@@ -131,7 +134,7 @@ export function CanvasConnectorRasterLayer({
     return (
         <canvas
             ref={canvasRef}
-            className="canvas-reference-connector-raster-layer pointer-events-none absolute"
+            className="canvas-detailed-layer canvas-reference-connector-raster-layer pointer-events-none absolute"
             data-raster-connector-batches={batches.length}
             data-raster-connector-count={totalConnectorCount}
             style={{

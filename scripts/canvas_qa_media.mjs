@@ -5,4 +5,5 @@ runCanvasQaScenario('media', [
   'media-chat',
   'layer-reorder',
   'media-library',
+  'context-overlay',
 ]);

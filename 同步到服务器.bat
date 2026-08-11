@@ -13,6 +13,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo [OK] Synced to the server directory.
-echo [OK] Run the release launcher in the target directory to start Next and the Upscayl API.
+echo [OK] Source-free runtime published to Z:\TD\AI\OpenLovart-master.
+echo [OK] Production launcher: Z:\TD\AI\AI画布启动服务.bat
 pause

@@ -77,6 +77,23 @@ export function createCanvasQaHelpers(page, layersPanel) {
     });
   };
 
+  const dispatchMarkElementGenerated = async (elementId, taskType = 'image', attrs = {}) => {
+    const canvasArea = page.locator('[data-testid="canvas-area"]').first();
+    await canvasArea.evaluate((node, payload) => {
+      node.dispatchEvent(new CustomEvent(payload.eventName, {
+        detail: payload.detail,
+      }));
+    }, {
+      eventName: canvasTestEvents.markElementGeneratedEvent,
+      detail: {
+        elementId,
+        taskType,
+        savedPrompt: 'QA generated image overlay',
+        ...attrs,
+      },
+    });
+  };
+
   const dispatchFrameAutoLayout = async (frameId, detail = {}) => {
     const canvasArea = page.locator('[data-testid="canvas-area"]').first();
     await canvasArea.evaluate((node, payload) => {
@@ -118,6 +135,7 @@ export function createCanvasQaHelpers(page, layersPanel) {
     dispatchLayerMoveToParent,
     dispatchLayerReorder,
     dispatchCanvasMoveToFrame,
+    dispatchMarkElementGenerated,
     dispatchFrameAutoLayout,
     previewLayerDropTargets,
   };

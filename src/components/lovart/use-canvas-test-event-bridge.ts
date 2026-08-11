@@ -34,6 +34,32 @@ export function useCanvasTestEventBridge({
             moveElementToFrame(elementId, targetFrameId || undefined);
         };
 
+        const handleTestMarkElementGenerated = (event: Event) => {
+            const customEvent = event as CustomEvent<{
+                elementId?: string;
+                taskType?: 'image' | 'video';
+                savedPrompt?: string;
+                deltaX?: number;
+                deltaY?: number;
+            }>;
+            const elementId = customEvent.detail?.elementId?.trim();
+            const taskType = customEvent.detail?.taskType || 'image';
+            const element = elements.find((item) => item.id === elementId);
+            if (!elementId || !element || (element.type !== 'image' && element.type !== 'video')) return;
+
+            onElementChange(elementId, {
+                savedPrompt: customEvent.detail?.savedPrompt || 'QA generated media',
+                sourceGenerationTaskId: 'qa-context-overlay-task',
+                sourceGenerationTaskType: taskType,
+                ...(Number.isFinite(customEvent.detail?.deltaX)
+                    ? { x: element.x + (customEvent.detail?.deltaX || 0) }
+                    : {}),
+                ...(Number.isFinite(customEvent.detail?.deltaY)
+                    ? { y: element.y + (customEvent.detail?.deltaY || 0) }
+                    : {}),
+            });
+        };
+
         const handleTestSetFrameAutoLayout = (event: Event) => {
             const customEvent = event as CustomEvent<{
                 frameId?: string;
@@ -73,10 +99,12 @@ export function useCanvasTestEventBridge({
         };
 
         root.addEventListener(canvasTestEvents.moveElementToFrameEvent, handleTestMoveElementToFrame as EventListener);
+        root.addEventListener(canvasTestEvents.markElementGeneratedEvent, handleTestMarkElementGenerated as EventListener);
         root.addEventListener(canvasTestEvents.setFrameAutoLayoutEvent, handleTestSetFrameAutoLayout as EventListener);
         root.addEventListener(canvasTestEvents.addFrameEvent, handleTestAddFrame as EventListener);
         return () => {
             root.removeEventListener(canvasTestEvents.moveElementToFrameEvent, handleTestMoveElementToFrame as EventListener);
+            root.removeEventListener(canvasTestEvents.markElementGeneratedEvent, handleTestMarkElementGenerated as EventListener);
             root.removeEventListener(canvasTestEvents.setFrameAutoLayoutEvent, handleTestSetFrameAutoLayout as EventListener);
             root.removeEventListener(canvasTestEvents.addFrameEvent, handleTestAddFrame as EventListener);
         };

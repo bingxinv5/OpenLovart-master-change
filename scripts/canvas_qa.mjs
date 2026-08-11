@@ -97,6 +97,7 @@ const allPhases = [
   'layer-reorder',
   'canvas-frame-adoption',
   'benchmark-panel',
+  'context-overlay',
 ];
 const phasesArg = process.argv.find(arg => arg.startsWith('--phases='));
 const enabledPhases = new Set(
@@ -132,10 +133,14 @@ const layerRowHasChildCount = async (layerRow, expectedCount) => {
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
 let lastFastRefreshAt = 0;
+const reactKeyWarnings = [];
 
 try {
   page.on('console', msg => {
     const text = msg.text();
+    if (/encountered two children with the same key|unique ["']key["'] prop/i.test(text)) {
+      reactKeyWarnings.push(text);
+    }
     if (text.includes('[Fast Refresh]')) {
       lastFastRefreshAt = Date.now();
     }
@@ -194,6 +199,7 @@ try {
     dispatchLayerMoveToParent,
     dispatchLayerReorder,
     dispatchCanvasMoveToFrame,
+    dispatchMarkElementGenerated,
     dispatchFrameAutoLayout,
     previewLayerDropTargets,
   } = createCanvasQaHelpers(page, layersPanel);
@@ -519,7 +525,7 @@ try {
     record('可解除编组', activeGroupRowId ? !(await page.locator(`[data-testid="layer-row-${activeGroupRowId}"]`).isVisible().catch(() => false)) : false);
   }
 
-  const needMediaSetup = shouldRunPhase('media-chat') || shouldRunPhase('image-tools') || shouldRunPhase('storyboard-export') || shouldRunPhase('worker-ux') || shouldRunPhase('layer-reorder') || shouldRunPhase('canvas-frame-adoption') || shouldRunPhase('frame-auto-layout');
+  const needMediaSetup = shouldRunPhase('media-chat') || shouldRunPhase('media-library') || shouldRunPhase('image-tools') || shouldRunPhase('storyboard-export') || shouldRunPhase('worker-ux') || shouldRunPhase('layer-reorder') || shouldRunPhase('canvas-frame-adoption') || shouldRunPhase('frame-auto-layout') || shouldRunPhase('context-overlay');
   const getLayerTitles = async () => {
     const titles = await page.locator('[data-testid^="layer-row-"] [title="双击重命名"]').allTextContents();
     return titles.map((text) => text.trim()).filter(Boolean);
@@ -552,6 +558,9 @@ try {
 
   if (needMediaSetup) {
     setPhase('media-chat');
+    await page.waitForFunction(() => (
+      (document.querySelector('[data-testid="canvas-page"]')?.getAttribute('data-project-id') || '').length > 0
+    ), undefined, { timeout: 10000 });
     const elementCards = page.locator('[data-element-id]');
     const countBeforeUpload = await elementCards.count();
     const fileInputs = page.locator('input[type="file"][accept="image/*"]');
@@ -728,8 +737,19 @@ try {
       }).catch(() => {});
 
       const cropStartCount = await elementCards.count();
-      await page.mouse.click(importedCenterX, importedCenterY);
+      const importedFixedLayerRow = page.locator(`[data-testid="layer-row-${importedLayerId}"]`);
+      const importedFixedSelectButton = page.locator(`[data-testid="layer-select-${importedLayerId}"]`).first();
+      await importedFixedSelectButton.click({ force: true });
       await page.waitForTimeout(250);
+      const importedFixedLocateButton = importedFixedLayerRow.getByRole('button', { name: '定位到画布' });
+      if (await importedFixedLocateButton.isVisible().catch(() => false)) {
+        await importedFixedLocateButton.click({ force: true });
+        await page.waitForTimeout(500);
+      }
+      const currentImportedElementBox = await importedCanvasElement.boundingBox();
+      if (!currentImportedElementBox) {
+        throw new Error('worker UX 测试无法重新定位已导入图片');
+      }
       await openImageToolsMenu();
       await page.getByText('裁剪图片', { exact: true }).last().click();
       await page.getByRole('button', { name: '开始裁剪' }).click();
@@ -752,16 +772,18 @@ try {
       ).catch(() => {});
       await page.waitForTimeout(500);
 
-      const cancelCanvasElements = page.locator('[data-element-id]');
-      const cancelCanvasCount = await cancelCanvasElements.count();
-      const cancelFirstBox = await cancelCanvasElements.nth(Math.max(0, cancelCanvasCount - 2)).boundingBox().catch(() => null);
-      const cancelSecondBox = await cancelCanvasElements.nth(Math.max(0, cancelCanvasCount - 1)).boundingBox().catch(() => null);
-      if (cancelFirstBox && cancelSecondBox) {
-        await page.mouse.click(cancelFirstBox.x + cancelFirstBox.width / 2, cancelFirstBox.y + cancelFirstBox.height / 2);
-        await page.keyboard.down('Shift');
-        await page.mouse.click(cancelSecondBox.x + cancelSecondBox.width / 2, cancelSecondBox.y + cancelSecondBox.height / 2);
-        await page.keyboard.up('Shift');
-        await page.waitForTimeout(300);
+      const cancelImageRows = page.locator('[data-testid^="layer-row-"]', { hasText: '图片' });
+      const cancelImageRowCount = await cancelImageRows.count();
+      if (cancelImageRowCount >= 2) {
+        const firstCancelImageId = (await cancelImageRows.nth(cancelImageRowCount - 2).getAttribute('data-testid'))?.replace('layer-row-', '') || '';
+        const secondCancelImageId = (await cancelImageRows.nth(cancelImageRowCount - 1).getAttribute('data-testid'))?.replace('layer-row-', '') || '';
+        if (firstCancelImageId && secondCancelImageId) {
+          await page.locator(`[data-testid="layer-select-${firstCancelImageId}"]`).click({ force: true });
+          await page.keyboard.down('Control');
+          await page.locator(`[data-testid="layer-select-${secondCancelImageId}"]`).click({ force: true });
+          await page.keyboard.up('Control');
+          await page.waitForTimeout(300);
+        }
       }
 
       const exportButton = page.locator('[title="导出分镜表"]').first();
@@ -835,7 +857,7 @@ try {
         if (currentProjectId) {
           const seededSvgDataUrl = await page.evaluate(async ({ projectId, elementId, dataUrl }) => {
             const openDb = () => new Promise((resolve, reject) => {
-              const request = window.indexedDB.open('lovart_local_db', 2);
+              const request = window.indexedDB.open('lovart_local_db');
               request.onsuccess = () => resolve(request.result);
               request.onerror = () => reject(request.error || new Error('open db failed'));
             });
@@ -1334,6 +1356,332 @@ try {
         }
         const referenceCountAfterBatchDelete = await readProjectReferenceCount(currentProjectId);
         record('项目参考图支持批量移出参考库', referenceCountAfterBatchDelete < referenceCountBeforeBatchDelete, `${referenceCountBeforeBatchDelete} -> ${referenceCountAfterBatchDelete}`);
+      }
+    }
+
+    if (shouldRunPhase('context-overlay')) {
+      setPhase('context-overlay');
+      const reactKeyWarningStart = reactKeyWarnings.length;
+      const currentProjectId = await page.locator('[data-testid="canvas-page"]').getAttribute('data-project-id');
+      const generatedMetadataSeeded = !!(currentProjectId && importedLayerId);
+      if (generatedMetadataSeeded) {
+        await dispatchMarkElementGenerated(importedLayerId, 'image');
+        await page.waitForTimeout(300);
+      }
+
+      record('可准备生成图片双浮层场景', !!generatedMetadataSeeded);
+      if (generatedMetadataSeeded) {
+        await page.evaluate(({ projectId, imageDataUrl }) => {
+          const now = Date.now();
+          window.localStorage.setItem(`lovart_project_reference_library:${projectId}`, JSON.stringify([{
+            id: 'qa-overlay-reference',
+            projectId,
+            image: imageDataUrl,
+            label: 'QA 浮层参考图',
+            prompt: 'QA overlay reference',
+            createdAt: now,
+            lastUsedAt: now,
+          }]));
+          window.dispatchEvent(new CustomEvent(`lovart:project-reference-library:${projectId}`));
+        }, { projectId: currentProjectId, imageDataUrl: fixtureImageDataUrl });
+        await ensureLayersPanelVisible();
+
+        const generatedImageRow = page.locator(`[data-testid="layer-row-${importedLayerId}"]`).first();
+        const locateGeneratedImage = generatedImageRow.getByRole('button', { name: '定位到画布' });
+        if (await locateGeneratedImage.isVisible().catch(() => false)) {
+          await locateGeneratedImage.click({ force: true });
+          await page.waitForTimeout(500);
+        }
+
+        const generatedImageElement = page.locator(`[data-element-id="${importedLayerId}"]`).first();
+        const locateAndSelectGeneratedImage = async () => {
+          if (await locateGeneratedImage.isVisible().catch(() => false)) {
+            await locateGeneratedImage.click();
+            await page.waitForTimeout(350);
+          }
+          const generatedImageBox = await generatedImageElement.boundingBox();
+          if (!generatedImageBox) throw new Error('无法定位生成图片双浮层测试元素');
+          await page.mouse.click(
+            generatedImageBox.x + generatedImageBox.width / 2,
+            generatedImageBox.y + generatedImageBox.height / 2,
+          );
+          await page.waitForTimeout(400);
+          const viewport = page.viewportSize();
+          const selectedBox = await generatedImageElement.boundingBox();
+          if (viewport && selectedBox) {
+            const sourceX = selectedBox.x + selectedBox.width / 2;
+            const sourceY = selectedBox.y + selectedBox.height / 2;
+            const targetX = viewport.width / 2;
+            const targetY = Math.min(viewport.height * 0.32, 260);
+            if (Math.abs(sourceX - targetX) > 20 || Math.abs(sourceY - targetY) > 20) {
+              await dispatchMarkElementGenerated(importedLayerId, 'image', {
+                deltaX: targetX - sourceX,
+                deltaY: targetY - sourceY,
+              });
+              await page.waitForTimeout(400);
+              const centeredBox = await generatedImageElement.boundingBox();
+              if (!centeredBox) throw new Error('移动后无法定位生成图片双浮层测试元素');
+              await page.mouse.click(
+                centeredBox.x + centeredBox.width / 2,
+                centeredBox.y + centeredBox.height / 2,
+              );
+              await page.waitForTimeout(300);
+            }
+          }
+        };
+        await locateAndSelectGeneratedImage();
+
+        const generatorPanels = page.locator('[data-testid="image-generator-panel"]');
+        const auditGeneratorSingleton = async (label) => {
+          const audit = await page.evaluate(() => {
+            const panels = [...document.querySelectorAll('[data-testid="image-generator-panel"]')];
+            const positionClasses = panels
+              .map((panel) => [...panel.classList].find((name) => name.startsWith('image-generator-panel-position-')) || '')
+              .filter(Boolean);
+            const positionStyles = positionClasses.length > 0
+              ? [...document.querySelectorAll('style')].filter((style) => (
+                positionClasses.some((className) => style.textContent?.includes(`.${className}`))
+              ))
+              : [];
+            return {
+              panelCount: panels.length,
+              styleCount: positionStyles.length,
+              uniquePositionClasses: new Set(positionClasses).size,
+              transforms: [...new Set(panels.map((panel) => panel.style.transform || getComputedStyle(panel).transform))],
+            };
+          });
+          record(
+            `${label}生成面板保持单实例`,
+            audit.panelCount === 1 && audit.styleCount === 1 && audit.uniquePositionClasses === 1,
+            JSON.stringify(audit),
+          );
+          return audit;
+        };
+        await auditGeneratorSingleton('初始');
+        const generatorPanel = generatorPanels.first();
+        const contextToolbar = page.locator('[data-testid="canvas-context-toolbar"]:visible').last();
+        const contextToolbarButton = (selector) => contextToolbar.locator(selector).last();
+        await generatorPanel.waitFor({ state: 'visible', timeout: 10000 });
+        await contextToolbar.waitFor({ state: 'visible', timeout: 10000 });
+        record('生成图片同时显示生成面板和上下文工具栏', true);
+
+        const readCenterHit = async (locator) => locator.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return { hit: false, reason: 'empty rect' };
+          const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          return {
+            hit: !!target && (target === node || node.contains(target)),
+            fullyVisible: rect.left >= 0
+              && rect.top >= 0
+              && rect.right <= window.innerWidth
+              && rect.bottom <= window.innerHeight,
+            rect: {
+              left: Math.round(rect.left),
+              top: Math.round(rect.top),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            target: target instanceof HTMLElement
+              ? target.getAttribute('data-testid') || target.getAttribute('title') || target.tagName
+              : null,
+          };
+        }).catch((error) => ({ hit: false, reason: error instanceof Error ? error.message : String(error) }));
+        const readLayer = async (locator) => Number.parseInt(await locator.evaluate((node) => getComputedStyle(node).zIndex).catch(() => '0'), 10) || 0;
+        const waitForToolbarLayer = async (expectedOpen) => {
+          await page.waitForFunction((open) => {
+            const toolbar = document.querySelector('[data-testid="canvas-context-toolbar"]');
+            return toolbar?.getAttribute('data-overlay-open') === String(open);
+          }, expectedOpen, { timeout: 3000 });
+        };
+        const canvasAreaForOverlay = page.locator('[data-testid="canvas-area"]').first();
+        const readCanvasScale = async () => Number(await canvasAreaForOverlay.getAttribute('data-visual-scale')) || 1;
+        const getCanvasPanPoint = async () => canvasAreaForOverlay.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const candidates = [
+            [0.12, 0.78], [0.88, 0.78], [0.12, 0.28], [0.88, 0.28], [0.5, 0.9],
+          ];
+          for (const [xRatio, yRatio] of candidates) {
+            const x = rect.left + rect.width * xRatio;
+            const y = rect.top + rect.height * yRatio;
+            const target = document.elementFromPoint(x, y);
+            if (target && node.contains(target) && !target.closest('button, input, textarea, [contenteditable="true"]')) {
+              return { x, y };
+            }
+          }
+          return null;
+        });
+        const setCanvasScale = async (targetScale, preserveSelectedElement = false) => {
+          const canvasBox = await canvasAreaForOverlay.boundingBox();
+          const selectedElementBox = preserveSelectedElement ? await generatedImageElement.boundingBox() : null;
+          const anchor = selectedElementBox ? {
+            x: selectedElementBox.x + selectedElementBox.width / 2,
+            y: selectedElementBox.y + selectedElementBox.height / 2,
+          } : await getCanvasPanPoint() || {
+            x: (canvasBox?.x || 0) + (canvasBox?.width || 940) / 2,
+            y: (canvasBox?.y || 0) + (canvasBox?.height || 665) / 2,
+          };
+          await page.mouse.move(anchor.x, anchor.y);
+          for (let attempt = 0; attempt < 16; attempt += 1) {
+            const currentScale = await readCanvasScale();
+            if (Math.abs(currentScale - targetScale) <= 0.006) return currentScale;
+            const rawDelta = Math.log(targetScale / currentScale) / Math.log(0.9) * 120;
+            const delta = Math.max(-240, Math.min(240, rawDelta));
+            await page.keyboard.down('Control');
+            await page.mouse.wheel(0, delta);
+            await page.keyboard.up('Control');
+            await page.waitForTimeout(160);
+          }
+          return readCanvasScale();
+        };
+        const panCanvas = async (deltaX, deltaY) => {
+          const point = await getCanvasPanPoint();
+          if (point) {
+            await page.mouse.move(point.x, point.y);
+            await page.mouse.down({ button: 'middle' });
+            await page.mouse.move(point.x + deltaX, point.y + deltaY, { steps: 8 });
+            await page.mouse.up({ button: 'middle' });
+          } else {
+            await canvasAreaForOverlay.dispatchEvent('wheel', {
+              deltaX: -deltaX,
+              deltaY: -deltaY,
+              bubbles: true,
+              cancelable: true,
+            });
+          }
+          await page.waitForTimeout(220);
+        };
+        const exerciseViewportWithPanel = async (label, panelTestId) => {
+          const activePanels = page.locator(`[data-testid="${panelTestId}"]`);
+          const motions = [[56, 0], [-56, 0], [40, 32], [-40, -32]];
+          for (let index = 0; index < motions.length; index += 1) {
+            await panCanvas(motions[index][0], motions[index][1]);
+            await auditGeneratorSingleton(`${label}平移${index + 1}后`);
+            record(`${label}平移${index + 1}后活动面板保持单实例`, await activePanels.count() === 1, String(await activePanels.count()));
+          }
+          const expandedScale = await setCanvasScale(0.38);
+          record(`${label}已缩放至38%`, Math.abs(expandedScale - 0.38) <= 0.01, String(expandedScale));
+          await auditGeneratorSingleton(`${label}缩放至${Math.round(expandedScale * 100)}%后`);
+          record(`${label}缩放后活动面板保持单实例`, await activePanels.count() === 1, String(await activePanels.count()));
+          const restoredScale = await setCanvasScale(0.33);
+          record(`${label}已恢复至33%`, Math.abs(restoredScale - 0.33) <= 0.01, String(restoredScale));
+          await auditGeneratorSingleton(`${label}恢复${Math.round(restoredScale * 100)}%后`);
+          record(`${label}恢复缩放后活动面板保持单实例`, await activePanels.count() === 1, String(await activePanels.count()));
+        };
+        const verifyContextOverlay = async ({ button, panelTestId, label, getHitTarget }) => {
+          await button.click();
+          const overlay = page.locator(`[data-testid="${panelTestId}"]:visible`).last();
+          await overlay.waitFor({ state: 'visible', timeout: 5000 });
+          await waitForToolbarLayer(true);
+          const toolbarLayer = await readLayer(contextToolbar);
+          const generatorLayer = await readLayer(generatorPanel);
+          record(`${label}高于生成输入面板`, toolbarLayer > generatorLayer, `${toolbarLayer} > ${generatorLayer}`);
+          const hitResult = await readCenterHit(getHitTarget(overlay));
+          record(`${label}底部控件完整可见且可命中`, hitResult.hit && hitResult.fullyVisible, JSON.stringify(hitResult));
+          await button.click();
+          await overlay.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+          await waitForToolbarLayer(false);
+          record(`${label}关闭后工具栏恢复普通层级`, await readLayer(contextToolbar) === 100);
+        };
+
+        for (const viewport of [{ width: 940, height: 665 }, { width: 1440, height: 960 }]) {
+          await page.setViewportSize(viewport);
+          await page.waitForTimeout(250);
+          await locateAndSelectGeneratedImage();
+          await generatorPanel.waitFor({ state: 'visible', timeout: 5000 });
+          await contextToolbar.waitFor({ state: 'visible', timeout: 5000 });
+          const viewportLabel = `${viewport.width}x${viewport.height}`;
+          await verifyContextOverlay({
+            button: contextToolbarButton('button[title="图片工具"]'),
+            panelTestId: 'context-image-tools-menu',
+            label: `${viewportLabel} 图片工具菜单`,
+            getHitTarget: (overlay) => overlay.getByText('分镜切割', { exact: true }),
+          });
+          await verifyContextOverlay({
+            button: contextToolbarButton('button[title="分镜字段"]'),
+            panelTestId: 'context-storyboard-menu',
+            label: `${viewportLabel} 分镜字段菜单`,
+            getHitTarget: (overlay) => overlay.locator('input[placeholder="如：角色转身看向镜头"]'),
+          });
+          await verifyContextOverlay({
+            button: contextToolbarButton('[data-testid="context-project-reference-button"]'),
+            panelTestId: 'context-reference-menu',
+            label: `${viewportLabel} 项目参考菜单`,
+            getHitTarget: (overlay) => overlay.locator('button[title="QA 浮层参考图"]'),
+          });
+          await verifyContextOverlay({
+            button: contextToolbarButton('button[title="AI 智能编辑"]'),
+            panelTestId: 'context-ai-edit-panel',
+            label: `${viewportLabel} AI 编辑面板`,
+            getHitTarget: (overlay) => overlay.locator('textarea'),
+          });
+          await verifyContextOverlay({
+            button: contextToolbarButton('button[title="导出媒体"]'),
+            panelTestId: 'context-download-menu',
+            label: `${viewportLabel} 下载菜单`,
+            getHitTarget: (overlay) => overlay.getByRole('button').last(),
+          });
+          await page.screenshot({ path: path.join(outDir, `context-overlay-${viewportLabel}.png`), fullPage: true });
+        }
+
+        const verifyActivePanel = async ({ menuLabel, panelTestId, label }) => {
+          await locateAndSelectGeneratedImage();
+          await setCanvasScale(0.33, true);
+          await contextToolbarButton('button[title="图片工具"]').click();
+          const toolsMenu = page.locator('[data-testid="context-image-tools-menu"]:visible').last();
+          await toolsMenu.getByText(menuLabel, { exact: true }).click();
+          const activePanels = page.locator(`[data-testid="${panelTestId}"]`);
+          const activePanel = activePanels.first();
+          await activePanel.waitFor({ state: 'visible', timeout: 5000 });
+          await auditGeneratorSingleton(`${label}打开后`);
+          record(`${label}打开后活动面板为单实例`, await activePanels.count() === 1, String(await activePanels.count()));
+          const activeLayer = await readLayer(activePanel);
+          const generatorLayer = await readLayer(generatorPanel);
+          record(`${label}高于生成输入面板`, activeLayer > generatorLayer, `${activeLayer} > ${generatorLayer}`);
+          const closeButton = activePanel.locator('button[title="关闭"]').first();
+          const hitResult = await readCenterHit(closeButton);
+          record(`${label}可见控件可命中`, hitResult.hit && hitResult.fullyVisible, JSON.stringify(hitResult));
+          await exerciseViewportWithPanel(label, panelTestId);
+          await closeButton.click();
+          await activePanel.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+          record(`${label}关闭后活动面板已卸载`, await activePanels.count() === 0, String(await activePanels.count()));
+          await auditGeneratorSingleton(`${label}关闭后`);
+        };
+
+        for (const viewport of [{ width: 940, height: 665 }, { width: 1440, height: 960 }]) {
+          await page.setViewportSize(viewport);
+          await page.waitForTimeout(250);
+          await locateAndSelectGeneratedImage();
+          const actualScale = await setCanvasScale(0.33, true);
+          record(`${viewport.width}x${viewport.height} 双浮层场景缩放约为33%`, Math.abs(actualScale - 0.33) <= 0.01, String(actualScale));
+          await auditGeneratorSingleton(`${viewport.width}x${viewport.height} 进入场景后`);
+
+          await verifyActivePanel({ menuLabel: '裁剪图片', panelTestId: 'crop-image-panel', label: `${viewport.width}x${viewport.height} 裁剪面板` });
+          await verifyActivePanel({ menuLabel: '标注图片', panelTestId: 'annotate-image-panel', label: `${viewport.width}x${viewport.height} 标注面板` });
+          await verifyActivePanel({ menuLabel: '分镜切割', panelTestId: 'split-storyboard-panel', label: `${viewport.width}x${viewport.height} 分镜切割面板` });
+
+          await locateAndSelectGeneratedImage();
+          await setCanvasScale(0.33, true);
+          await contextToolbarButton('button[title="基于当前图片生成分镜宫格"]').click();
+          const plannerPanels = page.locator('[data-testid="storyboard-planner-panel"]');
+          const plannerPanel = plannerPanels.first();
+          await plannerPanel.waitFor({ state: 'visible', timeout: 5000 });
+          await auditGeneratorSingleton(`${viewport.width}x${viewport.height} 分镜规划面板打开后`);
+          record(`${viewport.width}x${viewport.height} 分镜规划面板为单实例`, await plannerPanels.count() === 1, String(await plannerPanels.count()));
+          const plannerLayer = await readLayer(plannerPanel);
+          const generatorLayer = await readLayer(generatorPanel);
+          record(`${viewport.width}x${viewport.height} 分镜规划面板高于生成输入面板`, plannerLayer > generatorLayer, `${plannerLayer} > ${generatorLayer}`);
+          const plannerCloseButton = plannerPanel.locator('button[title="关闭"]').first();
+          const plannerHitResult = await readCenterHit(plannerCloseButton);
+          record(`${viewport.width}x${viewport.height} 分镜规划面板可见控件可命中`, plannerHitResult.hit && plannerHitResult.fullyVisible, JSON.stringify(plannerHitResult));
+          await exerciseViewportWithPanel(`${viewport.width}x${viewport.height} 分镜规划面板`, 'storyboard-planner-panel');
+          await plannerCloseButton.click();
+          await plannerPanel.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+          record(`${viewport.width}x${viewport.height} 分镜规划面板关闭后已卸载`, await plannerPanels.count() === 0, String(await plannerPanels.count()));
+          await auditGeneratorSingleton(`${viewport.width}x${viewport.height} 分镜规划面板关闭后`);
+        }
+        const contextKeyWarnings = reactKeyWarnings.slice(reactKeyWarningStart);
+        record('双浮层场景不存在 React 重复 key 警告', contextKeyWarnings.length === 0, contextKeyWarnings.join(' | '));
+        await page.setViewportSize({ width: 1440, height: 960 });
       }
     }
   }

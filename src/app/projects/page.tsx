@@ -21,19 +21,6 @@ interface Project {
     thumbnail_scan_completed_at?: string;
 }
 
-function pickProjectToKeep(projects: Array<Project & { elementCount: number }>) {
-    return [...projects].sort((a, b) => {
-        if (b.elementCount !== a.elementCount) return b.elementCount - a.elementCount;
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-    })[0];
-}
-
-function stripElementCount(project: Project & { elementCount: number }): Project {
-    const nextProject = { ...project };
-    delete (nextProject as Project & { elementCount?: number }).elementCount;
-    return nextProject;
-}
-
 function waitForIdle(): Promise<void> {
     if (typeof window === 'undefined') return Promise.resolve();
 
@@ -49,6 +36,15 @@ function waitForIdle(): Promise<void> {
 
         window.setTimeout(resolve, 32);
     });
+}
+
+function getErrorDetail(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+        const message = (error as { message?: unknown }).message;
+        if (typeof message === 'string') return message;
+    }
+    return String(error);
 }
 
 function CreateProjectTile({ onClick }: { onClick: () => void }) {
@@ -75,6 +71,7 @@ function ProjectsContent() {
     const searchParams = useSearchParams();
     const [projects, setProjects] = useState<Project[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [metadataRefreshingIds, setMetadataRefreshingIds] = useState<string[]>([]);
     const metadataHydratingIdsRef = useRef<Set<string>>(new Set());
 
@@ -87,6 +84,15 @@ function ProjectsContent() {
 
     const coverInputRef = useRef<HTMLInputElement>(null);
     const [coverTargetId, setCoverTargetId] = useState<string | null>(null);
+    const mutationsBlocked = isLoading || !!loadError;
+
+    const handleProjectMutationError = useCallback((action: string, error: unknown) => {
+        const detail = getErrorDetail(error);
+        console.error(`Failed to ${action}:`, error);
+        setLoadError(`本地项目数据库操作失败（${detail || '未知错误'}）。为防止覆盖原数据，已暂停所有项目写操作，请重试读取。`);
+        setShowNewDialog(false);
+        setDeleteTarget(null);
+    }, []);
 
     useEffect(() => {
         if (searchParams.get('new') === '1') {
@@ -101,6 +107,8 @@ function ProjectsContent() {
             return;
         }
 
+        setIsLoading(true);
+        setLoadError(null);
         try {
             const { data, error } = await database
                 .from('projects')
@@ -108,47 +116,18 @@ function ProjectsContent() {
                 .order('updated_at', { ascending: false });
             if (error) throw error;
 
-            const projectsData = (data || []) as Project[];
-
-            const projectsWithCounts = projectsData.map((project) => ({
+            const projectsData = ((data || []) as Project[]).map((project) => ({
                 ...project,
                 thumbnail: project.thumbnail || null,
-                elementCount: typeof project.element_count === 'number' ? project.element_count : -1,
             }));
-
-            const groupedByTitle = new Map<string, Array<Project & { elementCount: number }>>();
-            for (const project of projectsWithCounts) {
-                const key = (project.title || '未命名').trim();
-                const group = groupedByTitle.get(key) || [];
-                group.push(project);
-                groupedByTitle.set(key, group);
-            }
-
-            const duplicateIdsToDelete: string[] = [];
-            const filteredProjects: Project[] = [];
-
-            for (const group of groupedByTitle.values()) {
-                if (group.length === 1) {
-                    filteredProjects.push(stripElementCount(group[0]));
-                    continue;
-                }
-
-                const keepProject = pickProjectToKeep(group);
-                const cleanupCandidates = group.filter((project) => project.id !== keepProject.id && project.elementCount === 0);
-                if (cleanupCandidates.length === group.length - 1) {
-                    duplicateIdsToDelete.push(...cleanupCandidates.map((project) => project.id));
-                }
-                filteredProjects.push(stripElementCount(keepProject));
-            }
-
-            if (duplicateIdsToDelete.length > 0) {
-                await deleteCanvasProjects({ database, projectIds: duplicateIdsToDelete });
-            }
-
-            filteredProjects.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-            setProjects(filteredProjects);
+            projectsData.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+            setProjects(projectsData);
         } catch (error) {
             console.error('Failed to load projects:', error);
+            const detail = getErrorDetail(error);
+            setLoadError(`无法读取本地项目数据（${detail || '未知错误'}）。为防止覆盖原数据，已暂停新建、修改和删除。`);
+            setShowNewDialog(false);
+            setDeleteTarget(null);
         } finally {
             setIsLoading(false);
         }
@@ -229,7 +208,7 @@ function ProjectsContent() {
     };
 
     const handleCreateProject = async () => {
-        if (!database || isCreating) return;
+        if (!database || isCreating || mutationsBlocked) return;
 
         const name = newProjectName.trim() || '未命名';
         setIsCreating(true);
@@ -263,14 +242,14 @@ function ProjectsContent() {
             setNewProjectName('');
             router.push(`/canvas?id=${newId}`);
         } catch (error) {
-            console.error('Failed to create project:', error);
+            handleProjectMutationError('create project', error);
         } finally {
             setIsCreating(false);
         }
     };
 
     const handleRenameProject = async (id: string, newTitle: string) => {
-        if (!database) return;
+        if (!database || mutationsBlocked) return;
 
         try {
             const { error } = await database.from('projects').update({ title: newTitle }).eq('id', id);
@@ -282,26 +261,26 @@ function ProjectsContent() {
                 updated_at: new Date().toISOString(),
             } : project));
         } catch (error) {
-            console.error('Failed to rename project:', error);
+            handleProjectMutationError('rename project', error);
         }
     };
 
     const handleDeleteProject = async () => {
-        if (!database || !deleteTarget) return;
+        if (!database || !deleteTarget || mutationsBlocked) return;
 
         const id = deleteTarget.id;
         try {
             await deleteCanvasProjects({ database, projectIds: [id] });
             setProjects((prev) => prev.filter((project) => project.id !== id));
         } catch (error) {
-            console.error('Failed to delete project:', error);
+            handleProjectMutationError('delete project', error);
         } finally {
             setDeleteTarget(null);
         }
     };
 
     const handleDuplicateProject = async (id: string) => {
-        if (!database) return;
+        if (!database || mutationsBlocked) return;
 
         const source = projects.find((project) => project.id === id);
         if (!source) return;
@@ -330,17 +309,18 @@ function ProjectsContent() {
                 thumbnail_scan_completed_at: source.thumbnail ? now : undefined,
             }, ...prev]);
         } catch (error) {
-            console.error('Failed to duplicate project:', error);
+            handleProjectMutationError('duplicate project', error);
         }
     };
 
     const handleSetCover = (id: string) => {
+        if (mutationsBlocked) return;
         setCoverTargetId(id);
         coverInputRef.current?.click();
     };
 
     const handleClearCover = async (id: string) => {
-        if (!database) return;
+        if (!database || mutationsBlocked) return;
 
         try {
             const { error } = await database.from('projects').update({ thumbnail: null }).eq('id', id);
@@ -352,13 +332,13 @@ function ProjectsContent() {
                 thumbnail_scan_completed_at: undefined,
             } : project));
         } catch (error) {
-            console.error('Failed to clear cover:', error);
+            handleProjectMutationError('clear project cover', error);
         }
     };
 
     const handleCoverFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (!file || !coverTargetId || !database) {
+        if (!file || !coverTargetId || !database || mutationsBlocked) {
             setCoverTargetId(null);
             return;
         }
@@ -385,7 +365,7 @@ function ProjectsContent() {
                 thumbnail_scan_completed_at: now,
             } : project));
         } catch (error) {
-            console.error('Failed to set cover:', error);
+            handleProjectMutationError('set project cover', error);
         } finally {
             setCoverTargetId(null);
             if (event.target) event.target.value = '';
@@ -393,6 +373,7 @@ function ProjectsContent() {
     };
 
     const openNewDialog = () => {
+        if (mutationsBlocked) return;
         setNewProjectName('');
         setShowNewDialog(true);
     };
@@ -439,6 +420,24 @@ function ProjectsContent() {
                                     <div className="mt-2 h-2.5 w-14 rounded-full bg-black/[0.04]" />
                                 </div>
                             ))}
+                        </div>
+                    ) : loadError ? (
+                        <div
+                            data-testid="projects-load-error"
+                            className="flex min-h-[42vh] flex-col items-center justify-center rounded-[14px] border border-red-100 bg-white px-8 py-14 text-center"
+                        >
+                            <FolderOpen size={28} strokeWidth={1.5} className="text-red-400" />
+                            <h2 className="mt-5 text-[18px] font-semibold text-[#1A1A1A]">项目数据读取失败</h2>
+                            <p className="mt-2 max-w-xl text-[13px] leading-6 text-[#777777]">{loadError}</p>
+                            <p className="mt-2 text-[12px] text-[#A0A0A0]">请勿清理浏览器数据；读取恢复前不会执行任何项目写操作。</p>
+                            <button
+                                type="button"
+                                data-testid="projects-retry-load"
+                                onClick={() => void loadProjects()}
+                                className="mt-6 rounded-[8px] bg-[#1A1A1A] px-5 py-2.5 text-[13px] font-medium text-white transition hover:bg-black"
+                            >
+                                重试读取
+                            </button>
                         </div>
                     ) : (
                         <>

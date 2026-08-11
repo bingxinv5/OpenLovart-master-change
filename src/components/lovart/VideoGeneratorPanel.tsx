@@ -92,7 +92,13 @@ import { VideoGeneratorSettingsPanel } from './VideoGeneratorPanelSettings';
 import { VideoGeneratorResourceLibrary } from './VideoGeneratorResourceLibrary';
 import { VideoGeneratorPromptComposer } from './VideoGeneratorPromptComposer';
 import { VideoGeneratorFileInputs } from './VideoGeneratorFileInputs';
-import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
+import {
+    buildFloatingPanelPositionClassName,
+    buildFloatingPanelPositionCss,
+    resolveFloatingPanelScale,
+    type CanvasVisualViewport,
+} from './floating-panel-position';
+import { useCanvasFloatingPanelFollower } from './use-canvas-floating-panel-follower';
 import { buildGeneratorAspectRatioPatch } from './generator-aspect-ratio-layout';
 import type { PromptMentionEditorContext, PromptMentionEditorHandle } from './GeneratorPromptMentionEditor';
 
@@ -108,6 +114,8 @@ function isExpectedVideoGenerationRejection(message: string): boolean {
 
 interface VideoGeneratorPanelProps {
     elementId: string;
+    anchorElement?: Pick<CanvasElement, 'type' | 'x' | 'y' | 'width' | 'height'>;
+    visualViewportRef?: React.RefObject<CanvasVisualViewport>;
     onGenerate: (result: { videoUrl: string; taskId?: string | null }) => Promise<void>;
     onRecoverTask?: (elementId: string, taskId: string) => Promise<void>;
     isGenerating: boolean;
@@ -127,6 +135,8 @@ interface VideoGeneratorPanelProps {
 export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
     const {
         elementId,
+        anchorElement,
+        visualViewportRef,
         onGenerate,
         onRecoverTask,
         isGenerating: isGeneratingFromParent,
@@ -1135,6 +1145,15 @@ export function VideoGeneratorPanel(props: VideoGeneratorPanelProps) {
         referenceVideos,
         referenceAudios,
     }), [frameImages, referenceAudios, referenceVideos]);
+    const panelScale = resolveFloatingPanelScale(style?.transform);
+    useCanvasFloatingPanelFollower({
+        panelRef,
+        anchorElement,
+        visualViewportRef,
+        enabled: !showExpandedPromptEditor,
+        panelScale,
+        fallbackPanelWidth: 620,
+    });
     const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('video-generator-panel-position', elementId), [elementId]);
     const panelPositionCss = useMemo(() => showExpandedPromptEditor
         ? `

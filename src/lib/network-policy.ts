@@ -1,4 +1,4 @@
-export const DEFAULT_AI_BASE_URL = 'https://api.bltcy.ai';
+export const DEFAULT_AI_BASE_URL = 'https://api.apilio.ai';
 
 const INTERNAL_HOST_SUFFIXES = ['.local', '.lan', '.internal', '.corp', '.home', '.localdomain'];
 

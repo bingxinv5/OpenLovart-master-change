@@ -8,7 +8,9 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+const HOST = process.env.HOST || '127.0.0.1';
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || `http://${HOST}:${PORT}`).replace(/\/+$/, '');
 
 const UPSCAYL_BIN = path.join(__dirname, 'bin', 'upscayl-bin.exe');
 const MODELS_PATH = path.join(__dirname, 'models');
@@ -19,7 +21,12 @@ const OUTPUT_DIR = path.join(__dirname, 'outputs');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || origin === ALLOWED_ORIGIN) return callback(null, true);
+    return callback(new Error('Origin is not allowed'));
+  }
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use('/outputs', express.static(OUTPUT_DIR));
 
@@ -95,4 +102,4 @@ app.get('/api/task/:id', (req, res) => {
   res.json({ status: 'success', data: t });
 });
 
-app.listen(PORT, () => console.log('Upscayl API running on ' + PUBLIC_BASE_URL));
+app.listen(PORT, HOST, () => console.log('Upscayl API running on ' + PUBLIC_BASE_URL));

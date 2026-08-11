@@ -18,6 +18,8 @@ import { createSelectionBox, getSelectionBoxScreenRect, resolveSelectionBoxSelec
 import { getDragDescendantIds, resolveDragFrameAdoptions } from './canvas-drag-adoption';
 import { calculateResizeBounds } from './canvas-resize-state';
 import { useCanvasPanController } from './use-canvas-pan-controller';
+import { resolveCanvasMouseDownIntent } from './canvas-pan-session';
+import { CANVAS_ZOOM_OVERVIEW_ELEMENT_THRESHOLD, type CanvasZoomViewport } from './canvas-zoom-session';
 import { collectDragInitialPositions, createFrameElementFromDrawBox, createMarkElementAtPoint, createPathElementFromPoints, getDragSelectionAnchor } from './canvas-pointer-element-factories';
 import { useCanvasToolbarSelectionProbe } from './use-canvas-toolbar-selection-probe';
 
@@ -55,8 +57,10 @@ export interface UseCanvasPointerInteractionParams {
     scale: number;
     pan: { x: number; y: number };
     onPanChange: (pan: { x: number; y: number }) => void;
+    onScaleChange: (scale: number) => void;
     // Element data
     elements: CanvasElement[];
+    overviewElementCount?: number;
     selectedIds: string[];
     activeTool: string;
     // Callbacks
@@ -71,6 +75,8 @@ export interface UseCanvasPointerInteractionParams {
     onCanvasMouseMove?: (x: number, y: number) => void;
     // DOM refs
     outerRef: RefObject<HTMLDivElement | null>;
+    visualViewportRef?: RefObject<CanvasZoomViewport>;
+    contentLayerRef: RefObject<HTMLDivElement | null>;
     selectionBoxOverlayRef: RefObject<HTMLDivElement | null>;
     // Visible elements for snap calculation
     visibleElementsRef: RefObject<CanvasElement[]>;
@@ -94,6 +100,9 @@ export interface UseCanvasPointerInteractionReturn {
     isResizing: boolean;
     resizingElementId: string | null;
     isPanning: boolean;
+    isPanMotionActive: boolean;
+    isZoomOverviewActive: boolean;
+    zoomCommitCount: number;
     isDrawing: boolean;
     isSelecting: boolean;
     isFrameDrawing: boolean;
@@ -104,6 +113,16 @@ export interface UseCanvasPointerInteractionReturn {
     // Pan utilities (needed by CanvasArea's wheel handler and viewport fit)
     cancelInertia: () => void;
     commitPanChange: (nextPan: { x: number; y: number }) => void;
+    commitScaleChange: (nextScale: number) => void;
+    commitViewportChange: (nextViewport: { scale: number; pan: { x: number; y: number } }) => void;
+    finishZoomSession: (commit?: boolean) => void;
+    getVisualPan: () => { x: number; y: number };
+    queueWheelZoom: (input: {
+        deltaY: number;
+        deltaMode: number;
+        pageSize: number;
+        screen: { x: number; y: number };
+    }) => void;
     // Primary handlers
     handleMouseDown: (
         e: ReactMouseEvent,
@@ -143,7 +162,9 @@ export function useCanvasPointerInteraction(
         scale,
         pan,
         onPanChange,
+        onScaleChange,
         elements,
+        overviewElementCount = elements.length,
         selectedIds,
         activeTool,
         onToolChange,
@@ -156,6 +177,8 @@ export function useCanvasPointerInteraction(
         onDuplicateSelection,
         onCanvasMouseMove,
         outerRef,
+        visualViewportRef,
+        contentLayerRef,
         selectionBoxOverlayRef,
         visibleElementsRef,
         setAlignGuidesIfChanged,
@@ -182,6 +205,9 @@ export function useCanvasPointerInteraction(
     const [isResizing, setIsResizing] = useState(false);
     const [resizingElementId, setResizingElementId] = useState<string | null>(null);
     const [isPanning, _setIsPanning] = useState(false);
+    const [isPanInertiaActive, setIsPanInertiaActive] = useState(false);
+    const [isZoomOverviewActive, setIsZoomOverviewActive] = useState(false);
+    const [zoomCommitCount, setZoomCommitCount] = useState(0);
     const isPanningRef = useRef(false);
     const setIsPanning = useCallback((v: boolean) => {
         isPanningRef.current = v;
@@ -219,11 +245,31 @@ export function useCanvasPointerInteraction(
     const {
         cancelInertia,
         commitPanChange,
+        commitScaleChange,
+        commitViewportChange,
+        finishZoomSession,
         flushPendingPanChange,
+        getVisualPan,
+        getVisualScale,
+        queueWheelZoom,
         recordPanVelocityPoint,
         schedulePanChange,
         startInertiaFromVelocityPoints,
-    } = useCanvasPanController({ pan, onPanChange });
+    } = useCanvasPanController({
+        pan,
+        scale,
+        onPanChange,
+        onScaleChange,
+        contentLayerRef,
+        outerRef,
+        visualViewportRef,
+        interactionActiveRef: isPanningRef,
+        preferZoomOverview: overviewElementCount >= CANVAS_ZOOM_OVERVIEW_ELEMENT_THRESHOLD,
+        zoomOverviewElementCount: overviewElementCount,
+        onInertiaActiveChange: setIsPanInertiaActive,
+        onZoomOverviewActiveChange: setIsZoomOverviewActive,
+        onZoomCommitCountChange: setZoomCommitCount,
+    });
 
     // ── Canvas coordinate conversion ───────────────────────────────────────────
 
@@ -232,10 +278,10 @@ export function useCanvasPointerInteraction(
             clientX,
             clientY,
             rect: outerRef.current?.getBoundingClientRect(),
-            pan,
-            scale,
+            pan: getVisualPan(),
+            scale: getVisualScale(),
         });
-    }, [outerRef, pan, scale]);
+    }, [getVisualPan, getVisualScale, outerRef]);
 
     // ── Selection box utilities ────────────────────────────────────────────────
 
@@ -325,6 +371,7 @@ export function useCanvasPointerInteraction(
     }
 
     function handleResizeStart(e: ReactMouseEvent, elementId: string, handle: string, element: CanvasElement) {
+        if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
         startResizeInteraction(elementId, handle, element, e.clientX, e.clientY);
@@ -335,6 +382,7 @@ export function useCanvasPointerInteraction(
         handle: string,
         element: CanvasElement,
     ) {
+        if (event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
         startResizeInteraction(element.id, handle, element, event.clientX, event.clientY);
@@ -351,11 +399,13 @@ export function useCanvasPointerInteraction(
         height: number = 0,
         options?: { fallbackSelectionId?: string },
     ) {
+        finishZoomSession();
         cancelInertia();
 
-        // Middle mouse button on any element → start panning
-        if (e.button === 1) {
+        const mouseDownIntent = resolveCanvasMouseDownIntent(e.button, activeTool);
+        if (mouseDownIntent === 'pan') {
             e.preventDefault();
+            const visualPan = getVisualPan();
             setIsPanning(true);
             dragStartRef.current = {
                 x: e.clientX,
@@ -364,26 +414,13 @@ export function useCanvasPointerInteraction(
                 elementY: 0,
                 width: 0,
                 height: 0,
-                panX: pan.x,
-                panY: pan.y,
+                panX: visualPan.x,
+                panY: visualPan.y,
             };
             return;
         }
 
-        if (activeTool === 'hand') {
-            setIsPanning(true);
-            dragStartRef.current = {
-                x: e.clientX,
-                y: e.clientY,
-                elementX: 0,
-                elementY: 0,
-                width: 0,
-                height: 0,
-                panX: pan.x,
-                panY: pan.y,
-            };
-            return;
-        }
+        if (mouseDownIntent !== 'primary') return;
 
         if (activeTool === 'frame') {
             const { x: canvasX, y: canvasY } = toCanvasPoint(e.clientX, e.clientY);
@@ -504,7 +541,7 @@ export function useCanvasPointerInteraction(
             handleMouseUp();
             return;
         }
-        if (isPanning && (buttons & 1) === 0 && (buttons & 4) === 0) {
+        if (isPanningRef.current && (buttons & 1) === 0 && (buttons & 4) === 0) {
             handleMouseUp();
             return;
         }
@@ -542,8 +579,9 @@ export function useCanvasPointerInteraction(
 
         if (!draggedElementIdRef.current) return;
 
-        const dx = (clientX - dragStartRef.current.x) / scale;
-        const dy = (clientY - dragStartRef.current.y) / scale;
+        const visualScale = getVisualScale();
+        const dx = (clientX - dragStartRef.current.x) / visualScale;
+        const dy = (clientY - dragStartRef.current.y) / visualScale;
 
         let effectiveIsDragging = isDragging;
         if (!effectiveIsDragging && dragStartRef.current.initialPositions) {
@@ -685,13 +723,14 @@ export function useCanvasPointerInteraction(
     // ── Core mouse up ──────────────────────────────────────────────────────────
 
     function handleMouseUp() {
+        const wasPanning = isPanningRef.current;
         flushPendingPanChange();
 
         const activeSelectionBox = selectionBoxRef.current;
         if (
             !isDragging &&
             !isResizing &&
-            !isPanning &&
+            !wasPanning &&
             !isDrawing &&
             !isSelectingRef.current &&
             !isFrameDrawing &&
@@ -768,7 +807,7 @@ export function useCanvasPointerInteraction(
         }
 
         // Launch inertia momentum if was panning
-        if (isPanning) {
+        if (wasPanning) {
             startInertiaFromVelocityPoints();
         }
 
@@ -846,6 +885,9 @@ export function useCanvasPointerInteraction(
         };
 
         const handleGlobalMouseMove = (e: MouseEvent | PointerEvent) => {
+            if (typeof PointerEvent !== 'undefined' && e instanceof PointerEvent && e.pointerType === 'mouse') {
+                return;
+            }
             if (
                 !dragStartRef.current &&
                 !isPanningRef.current &&
@@ -859,6 +901,7 @@ export function useCanvasPointerInteraction(
         };
 
         const handleWindowBlur = () => {
+            finishZoomSession();
             handleMouseUpRef.current();
         };
 
@@ -876,7 +919,7 @@ export function useCanvasPointerInteraction(
             window.removeEventListener('pointercancel', handleGlobalPointerCancel, true);
             window.removeEventListener('blur', handleWindowBlur);
         };
-    }, [isDrawing, isFrameDrawing]);
+    }, [finishZoomSession, isDrawing, isFrameDrawing]);
 
     // ── Return ─────────────────────────────────────────────────────────────────
 
@@ -885,6 +928,9 @@ export function useCanvasPointerInteraction(
         isResizing,
         resizingElementId,
         isPanning,
+        isPanMotionActive: isPanning || isPanInertiaActive,
+        isZoomOverviewActive,
+        zoomCommitCount,
         isDrawing,
         isSelecting,
         isFrameDrawing,
@@ -894,6 +940,11 @@ export function useCanvasPointerInteraction(
         dropTargetFrameId,
         cancelInertia,
         commitPanChange,
+        commitScaleChange,
+        commitViewportChange,
+        finishZoomSession,
+        getVisualPan,
+        queueWheelZoom,
         handleMouseDown,
         handleMouseDownStable,
         handleResizeStartStable,

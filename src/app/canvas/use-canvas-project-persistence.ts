@@ -36,6 +36,15 @@ type NormalizeLoadedImageElements = (
     },
 ) => Promise<{ elements: CanvasElement[]; normalizedIds: string[] }>;
 
+function getLoadErrorDetail(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+        const message = (error as { message?: unknown }).message;
+        if (typeof message === 'string') return message;
+    }
+    return String(error);
+}
+
 export interface UseCanvasProjectPersistenceParams {
     user: UserLike;
     database: LocalDbClient | null | undefined;
@@ -86,6 +95,7 @@ export function useCanvasProjectPersistence({
     const [title, setTitle] = useState('未命名');
     const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'offline'>('saved');
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isSavingRef = useRef(false);
     const needsSaveRef = useRef(false);
@@ -121,6 +131,12 @@ export function useCanvasProjectPersistence({
     }, [dirtyTrackerRef, isInitializedRef]);
 
     const saveProject = useCallback(async () => {
+        if (loadError) {
+            debugLog('Save skipped: project data did not load safely');
+            setSaveStatus('offline');
+            return;
+        }
+
         if (!user) {
             debugLog('Save skipped: No user logged in');
             setSaveStatus('offline');
@@ -222,7 +238,7 @@ export function useCanvasProjectPersistence({
                 void saveProject();
             }
         }
-    }, [currentProjectIdRef, database, dirtyTrackerRef, elementsMapRef, refreshStorageEstimate, searchParams, setCurrentProjectId, syncImageStoreCleanup, title, user]);
+    }, [currentProjectIdRef, database, dirtyTrackerRef, elementsMapRef, loadError, refreshStorageEstimate, searchParams, setCurrentProjectId, syncImageStoreCleanup, title, user]);
 
     useEffect(() => {
         currentProjectIdRef.current = currentProjectId;
@@ -242,6 +258,9 @@ export function useCanvasProjectPersistence({
 
         try {
             setIsLoading(true);
+            setLoadError(null);
+            isInitializedRef.current = false;
+            clearScheduledSave();
             setChunkPreheat({
                 active: false,
                 phase: 'idle',
@@ -382,6 +401,8 @@ export function useCanvasProjectPersistence({
             }
         } catch (error: unknown) {
             console.error('Failed to load project:', error);
+            const detail = getLoadErrorDetail(error);
+            setLoadError(`无法安全读取项目画布（${detail || '未知错误'}）。为防止空画布覆盖原数据，已停止编辑和自动保存。`);
         } finally {
             setChunkPreheat((prev) => ({
                 ...prev,
@@ -396,7 +417,7 @@ export function useCanvasProjectPersistence({
             }
             setIsLoading(false);
         }
-    }, [database, dirtyTrackerRef, historyInitializedRef, isInitializedRef, migrationPendingRef, normalizeLoadedImageElements, setChunkPreheat, setElements, setPan, setScale, syncImageStoreCleanup, user]);
+    }, [clearScheduledSave, database, dirtyTrackerRef, historyInitializedRef, isInitializedRef, migrationPendingRef, normalizeLoadedImageElements, setChunkPreheat, setElements, setPan, setScale, syncImageStoreCleanup, user]);
 
     useEffect(() => {
         if (projectId && user && database && !hasLoadedRef.current) {
@@ -423,11 +444,11 @@ export function useCanvasProjectPersistence({
     }, [database, isInitializedRef, loadProject, openChat, projectId, searchParams, setInitialPrompt, user]);
 
     useEffect(() => {
-        if (!isLoading && !isInitializedRef.current && hasLoadedRef.current) {
+        if (!isLoading && !loadError && !isInitializedRef.current && hasLoadedRef.current) {
             debugLog('Marking as initialized after load complete');
             isInitializedRef.current = true;
         }
-    }, [isInitializedRef, isLoading]);
+    }, [isInitializedRef, isLoading, loadError]);
 
     return {
         title,
@@ -435,6 +456,7 @@ export function useCanvasProjectPersistence({
         handleTitleChange,
         saveStatus,
         isLoading,
+        loadError,
         titleDirtyRef,
         lastSavedTitleRef,
         existingThumbnailRef,

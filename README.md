@@ -42,7 +42,7 @@ OpenLovart 是一个面向图片、视频和分镜生产链路的 AI 画布工�
 - `upscayl-api/bin` 下的平台二进制
 - QA 截图、分析产物、缓存和本地运行日志
 
-如果你准备从 GitHub 拉取仓库到新机器，请先看 [GITHUB_PUBLISHING.md](./GITHUB_PUBLISHING.md) 和 [DEV_SYNC_RELEASE.md](./DEV_SYNC_RELEASE.md)。
+发布到制作环境时必须使用仓库内的发布脚本；不要直接复制源码目录。
 
 ## 快速开始
 
@@ -60,7 +60,7 @@ npm install
 
 ```env
 AI_API_KEY=your_ai_api_key
-AI_API_BASE_URL=https://api.bltcy.ai
+AI_API_BASE_URL=https://api.apilio.ai
 OPENLOVART_PUBLIC_BASE_URL=https://your-public-openlovart-domain.example
 UPSCAYL_API_BASE_URL=http://127.0.0.1:3001
 ```
@@ -68,7 +68,7 @@ UPSCAYL_API_BASE_URL=http://127.0.0.1:3001
 说明：
 
 - `AI_API_KEY`：主站服务端默认使用的 AI 网关密钥
-- `AI_API_BASE_URL`：可选，默认回落到 `https://api.bltcy.ai`
+- `AI_API_BASE_URL`：可选，默认回落到 `https://api.apilio.ai`
 - `OPENLOVART_PUBLIC_BASE_URL`：可选；当使用 Laomandi 上传本地参考媒体时必须配置为 HTTPS 公网地址，供上游 Assets API 拉取素材
 - `UPSCAYL_API_BASE_URL`：可选，主站会通过 `/api/upscale/*` 服务端代理访问 Upscayl
 - 设置中心的 API 页支持为“当前机器运行实例”保存一份 Upscayl 地址覆盖
@@ -113,9 +113,9 @@ npm run dev
 - 浏览器本地工作数据默认绑定 `http://localhost:3000`
 - 设置中心可保存机器级 CDN 缓存目录与 Upscayl 服务地址
 
-### 同步到服务器目录
+### 构建并发布无源码运行包
 
-团队当前默认同步目标为 `Z:\TD\TimeTable\AI\OpenLovart-master`。
+团队当前默认运行包目标为 `Z:\TD\AI\OpenLovart-master`，制作端入口为 `Z:\TD\AI\AI画布启动服务.bat`。
 
 推荐执行：
 
@@ -123,13 +123,11 @@ npm run dev
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync_to_server.ps1
 ```
 
-或直接运行 [同步到服务器.bat](./同步到服务器.bat)。同步脚本会自动排除依赖、缓存、模型、构建产物和本地环境文件。
+或直接运行 [同步到服务器.bat](./同步到服务器.bat)。发布脚本会在独立的 `D:\test\OpenLovart-build` 工作区完成依赖安装、检查、测试和生产构建，只把 Next.js Standalone、压缩后的 Upscayl 服务、模型、内置 Node 和哈希清单发布到 Z 盘。原始 `src`、测试、开发脚本、`.env*` 和 source map 不会进入运行包。
 
 ### 运行发布版
 
-同步完成后，在目标目录执行 [启动发布版.bat](./启动发布版.bat)。
-
-完整流程文档见 [DEV_SYNC_RELEASE.md](./DEV_SYNC_RELEASE.md)。
+发布完成后，制作人员运行 `Z:\TD\AI\AI画布启动服务.bat`。脚本会校验运行包、同步到 `%LOCALAPPDATA%\OpenLovartRuntime\OpenLovart-runtime`，再使用内置 Node 启动服务；制作机不会执行 `npm install` 或源码构建。
 
 ## 画布 QA 与 CI
 
@@ -176,12 +174,6 @@ upscayl-api/           # 独立 Upscayl API 服务源码
 - `src/lib/local-db.ts`：本地数据存储兼容层
 - `src/lib/history-manager.ts`：撤销 / 重做
 - `src/lib/dirty-tracker.ts`：脏数据跟踪与增量保存
-
-## 文档索引
-
-- [SETUP_GUIDE.md](./SETUP_GUIDE.md)：本地开发环境与依赖准备
-- [DEV_SYNC_RELEASE.md](./DEV_SYNC_RELEASE.md)：开发、同步、发布完整流程
-- [GITHUB_PUBLISHING.md](./GITHUB_PUBLISHING.md)：GitHub 源码仓库发布范围与安全检查
 
 ## 重要说明
 

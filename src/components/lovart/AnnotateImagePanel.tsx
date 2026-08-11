@@ -93,7 +93,8 @@ function AnnotateImagePanelContent({
     <>
     <style>{panelPositionCss}</style>
     <div
-      className={`${panelPositionClassName} absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3`}
+      data-testid="annotate-image-panel"
+      className={`${panelPositionClassName} absolute z-[140] w-[360px] workbench-panel-elevated rounded-xl p-3`}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Header */}

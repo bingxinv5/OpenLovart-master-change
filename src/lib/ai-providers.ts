@@ -37,7 +37,7 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderDefinition> = {
     label: '默认 AI 网关',
     description: '当前 OpenLovart 默认接入，保持原有图片、视频、聊天链路。',
     defaultBaseUrl: DEFAULT_AI_BASE_URL,
-    allowedPublicPatterns: ['api.bltcy.ai'],
+    allowedPublicPatterns: ['api.apilio.ai', 'api.bltcy.ai'],
     apiKeyEnv: 'AI_API_KEY',
     baseUrlEnv: 'AI_API_BASE_URL',
     capabilities: {

@@ -4,6 +4,7 @@ import {
   DEFAULT_AI_FEATURE_PROVIDERS,
   apiSettingsHeaders,
   clearApiSettings,
+  getEffectiveProviderApiBaseUrl,
   getApiSettings,
   saveApiSettings,
 } from './api-settings';
@@ -67,6 +68,66 @@ describe('api-settings feature providers', () => {
     expect(apiSettingsHeaders('chat')['x-ai-provider']).toBe('magicapi');
     expect(apiSettingsHeaders('image')['x-ai-provider']).toBe('magicapi');
     expect(apiSettingsHeaders('video')['x-ai-provider']).toBe('laomandi');
+  });
+
+  it('defaults the default AI gateway to Apilio while still allowing the legacy bltcy base URL', () => {
+    expect(getEffectiveProviderApiBaseUrl('bltcy')).toBe('https://api.apilio.ai');
+    expect(getEffectiveProviderApiBaseUrl('bltcy', {
+      baseUrl: 'https://api.bltcy.ai',
+      apiKey: '',
+    })).toBe('https://api.bltcy.ai');
+    expect(getEffectiveProviderApiBaseUrl('bltcy', {
+      baseUrl: 'https://api.apilio.ai',
+      apiKey: '',
+    })).toBe('https://api.apilio.ai');
+    expect(getEffectiveProviderApiBaseUrl('bltcy', {
+      baseUrl: 'https://api.openai.com',
+      apiKey: '',
+    })).toBe('https://api.apilio.ai');
+  });
+
+  it('migrates previously saved default gateway URLs so they fall back to the new Apilio default', () => {
+    localStorage.setItem('lovart_api_base_url', 'https://api.openai.com');
+    localStorage.setItem('lovart_ai_feature_providers', JSON.stringify({
+      chat: 'magicapi',
+      image: 'bltcy',
+      video: 'laomandi',
+    }));
+    localStorage.setItem('lovart_ai_feature_settings', JSON.stringify({
+      chat: { providerId: 'magicapi', baseUrl: '', apiKey: '' },
+      image: { providerId: 'bltcy', baseUrl: 'https://api.openai.com', apiKey: 'image-key' },
+      video: { providerId: 'laomandi', baseUrl: '', apiKey: '' },
+    }));
+
+    const settings = getApiSettings();
+
+    expect(settings.providers.bltcy.baseUrl).toBe('');
+    expect(settings.featureSettings.image).toMatchObject({
+      providerId: 'bltcy',
+      baseUrl: '',
+      apiKey: 'image-key',
+    });
+    expect(getEffectiveProviderApiBaseUrl('bltcy')).toBe('https://api.apilio.ai');
+  });
+
+  it('keeps bltcy when it is explicitly saved after the Apilio default migration', () => {
+    getApiSettings();
+
+    saveApiSettings({
+      featureSettings: {
+        image: {
+          providerId: 'bltcy',
+          baseUrl: 'https://api.bltcy.ai',
+          apiKey: 'image-key',
+        },
+      },
+    });
+
+    expect(apiSettingsHeaders('image')).toMatchObject({
+      'x-ai-provider': 'bltcy',
+      'x-ai-base-url': 'https://api.bltcy.ai',
+      'x-ai-api-key': 'image-key',
+    });
   });
 
   it('migrates a legacy global provider to all features when feature providers are absent', () => {

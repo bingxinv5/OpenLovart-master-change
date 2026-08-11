@@ -56,12 +56,13 @@ interface ContextToolbarProps {
     onSendToChat?: (element: CanvasElement) => void;
     onToggleHidden?: (element: CanvasElement) => void;
     onToggleLocked?: (element: CanvasElement) => void;
+    onOverlayVisibilityChange?: (visible: boolean) => void;
     scale?: number;
 }
 
 // parseSavedReferenceImages — imported from toolbar-actions
 
-export function ContextToolbar({ element, onUpdate, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onCopy, onDownload, projectReferenceImages, onUseProjectReferenceImage, onSaveAsProjectReference, onAiEdit, onRecoverTask, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onConnectFlow, onSendToChat, onToggleHidden, onToggleLocked, scale = 1 }: ContextToolbarProps) {
+export function ContextToolbar({ element, onUpdate, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onCopy, onDownload, projectReferenceImages, onUseProjectReferenceImage, onSaveAsProjectReference, onAiEdit, onRecoverTask, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onConnectFlow, onSendToChat, onToggleHidden, onToggleLocked, onOverlayVisibilityChange, scale = 1 }: ContextToolbarProps) {
     const stateKey = [
         element.id,
         element.savedPrompt || '',
@@ -99,12 +100,13 @@ export function ContextToolbar({ element, onUpdate, onStoryboardSaved, storyboar
             onSendToChat={onSendToChat}
             onToggleHidden={onToggleHidden}
             onToggleLocked={onToggleLocked}
+            onOverlayVisibilityChange={onOverlayVisibilityChange}
             scale={scale}
         />
     );
 }
 
-function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onCopy, onDownload, projectReferenceImages = [], onUseProjectReferenceImage, onSaveAsProjectReference, onAiEdit, onRecoverTask, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onSendToChat, onToggleHidden, onToggleLocked, scale = 1 }: ContextToolbarProps) {
+function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboardAutoAdvanceEnabled = false, onDelete, onCopy, onDownload, projectReferenceImages = [], onUseProjectReferenceImage, onSaveAsProjectReference, onAiEdit, onRecoverTask, onAnnotateImage, onCropImage, onSplitStoryboard, onStoryboardPlanFromImage, onSendToChat, onToggleHidden, onToggleLocked, onOverlayVisibilityChange, scale = 1 }: ContextToolbarProps) {
     const [showReferenceMenu, setShowReferenceMenu] = useState(false);
     const [showToolsMenu, setShowToolsMenu] = useState(false);
     const [showDownloadMenu, setShowDownloadMenu] = useState(false);
@@ -124,6 +126,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
         note: element.storyboardNote || '',
     }));
     const [storyboardHint, setStoryboardHint] = useState('');
+    const hasOpenOverlay = showReferenceMenu || showToolsMenu || showDownloadMenu || showStoryboardMenu || showEditInput;
 
     const referenceMenuRef = useRef<HTMLDivElement>(null);
     const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -169,6 +172,13 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
             setRecoveryTaskId(element.generatingTaskId || element.sourceGenerationTaskId || '');
         }
     }, [element.generatingTaskId, element.sourceGenerationTaskId, isRecovering]);
+
+    useEffect(() => {
+        onOverlayVisibilityChange?.(hasOpenOverlay);
+        return () => {
+            if (hasOpenOverlay) onOverlayVisibilityChange?.(false);
+        };
+    }, [hasOpenOverlay, onOverlayVisibilityChange]);
 
     // ========== Handlers ==========
     const handleCopy = () => {
@@ -362,6 +372,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                 {/* AI Edit prompt input */}
                 {showEditInput && (
                     <div
+                        data-testid="context-ai-edit-panel"
                         className={`${editInputPositionClassName} pointer-events-auto absolute left-1/2 -translate-x-1/2 w-[22rem] workbench-panel-elevated rounded-xl z-50 p-3`}
                         onMouseDown={(e) => e.stopPropagation()}
                     >
@@ -537,7 +548,8 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             </button>
                             {showReferenceMenu && (
                                 <div
-                                    className="pointer-events-auto popover-enter absolute top-full mt-2 right-0 w-[300px] whitespace-normal workbench-panel-elevated rounded-xl z-50"
+                                    data-testid="context-reference-menu"
+                                    className="pointer-events-auto popover-enter absolute top-full mt-2 left-0 w-[300px] whitespace-normal workbench-panel-elevated rounded-xl z-50"
                                     onMouseDown={(e) => e.stopPropagation()}
                                     onClick={(e) => e.stopPropagation()}
                                 >
@@ -644,6 +656,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             </button>
                             {showToolsMenu && (
                                 <div
+                                    data-testid="context-image-tools-menu"
                                     className="pointer-events-auto popover-enter absolute top-full mt-2 right-0 w-64 whitespace-normal workbench-panel-elevated rounded-[16px] z-50"
                                     onMouseDown={(e) => e.stopPropagation()}
                                     onClick={(e) => e.stopPropagation()}
@@ -685,6 +698,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             </button>
                             {showStoryboardMenu && (
                                 <div
+                                    data-testid="context-storyboard-menu"
                                     className="pointer-events-auto popover-enter absolute top-full right-0 z-50 mt-2 w-[320px] whitespace-normal workbench-panel-elevated rounded-2xl"
                                     onMouseDown={(e) => e.stopPropagation()}
                                     onClick={(e) => e.stopPropagation()}
@@ -787,7 +801,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                                 <Download size={16} />
                             </button>
                             {canOpenExportMenu && showDownloadMenu && (
-                                <div className="absolute top-full left-1/2 z-50 mt-2 -translate-x-1/2">
+                                <div data-testid="context-download-menu" className="absolute top-full left-1/2 z-50 mt-2 -translate-x-1/2">
                                     <ExportMenu kind={exportMenuKind} onSelect={handleDownload} />
                                 </div>
                             )}
@@ -948,7 +962,7 @@ function ContextToolbarContent({ element, onUpdate, onStoryboardSaved, storyboar
                             <Download size={17} />
                         </button>
                         {canOpenExportMenu && showDownloadMenu && (
-                            <div className="absolute top-full left-1/2 z-50 mt-2 -translate-x-1/2">
+                            <div data-testid="context-download-menu" className="absolute top-full left-1/2 z-50 mt-2 -translate-x-1/2">
                                 <ExportMenu kind={exportMenuKind} onSelect={handleDownload} />
                             </div>
                         )}

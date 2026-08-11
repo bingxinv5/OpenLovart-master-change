@@ -11,6 +11,7 @@ import type { CanvasElement } from '@/components/lovart/canvas-types';
 
 export const MAX_CANVAS_IMAGE_SIZE = 600;
 export const IMAGE_IMPORT_CONCURRENCY = 3;
+export const IMAGE_IMPORT_PERSIST_BATCH_SIZE = 5;
 export const BACKGROUND_IMAGE_FIX_CONCURRENCY = 2;
 export const BACKGROUND_IMAGE_FIX_BATCH_SIZE = 6;
 export const STORAGE_INFO_THRESHOLD = 0.6;

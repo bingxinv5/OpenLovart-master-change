@@ -7,6 +7,9 @@ function makeMetrics(overrides: Partial<CanvasRenderMetrics> = {}): CanvasRender
     return {
         visibleCount: 10,
         totalCount: 100,
+        detailedCount: 10,
+        overviewCount: 0,
+        renderMode: 'detailed',
         culledCount: 90,
         virtualizedCount: 0,
         deferredCount: 0,

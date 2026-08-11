@@ -4,6 +4,7 @@ import type { CanvasConnectorPort, CanvasElement } from './canvas-types';
 import { CanvasElementRenderer, type ElementHandlers } from './CanvasElementRenderer';
 import { CanvasAreaWorldOverlays } from './CanvasAreaOverlays';
 import { CanvasConnectorRasterLayer, type CanvasConnectorRasterBatch } from './CanvasConnectorRasterLayer';
+import { CanvasLowZoomOverviewLayer } from './CanvasLowZoomOverviewLayer';
 import {
     buildConnectorPath,
     getConnectorPortPoint,
@@ -303,6 +304,7 @@ interface CanvasAreaContentLayerProps {
     elementMap: Map<string, CanvasElement>;
     renderElements: CanvasElement[];
     elements: CanvasElement[];
+    overviewElements: CanvasElement[];
     viewportSize: { width: number; height: number };
     selectedIds: string[];
     activeTool: string;
@@ -324,6 +326,8 @@ interface CanvasAreaContentLayerProps {
     highlightedElementIdSet: Set<string>;
     isDragging: boolean;
     isPanning: boolean;
+    lowZoomOverviewActive: boolean;
+    canvasTheme?: 'light' | 'dark';
     isResizing: boolean;
     resizingElementId: string | null;
     isDrawing: boolean;
@@ -357,6 +361,7 @@ export function CanvasAreaContentLayer({
     elementMap,
     renderElements,
     elements,
+    overviewElements,
     viewportSize,
     selectedIds,
     activeTool,
@@ -378,6 +383,8 @@ export function CanvasAreaContentLayer({
     highlightedElementIdSet,
     isDragging,
     isPanning,
+    lowZoomOverviewActive,
+    canvasTheme,
     isResizing,
     resizingElementId,
     isDrawing,
@@ -575,6 +582,9 @@ export function CanvasAreaContentLayer({
 
     React.useEffect(() => () => clearHoverFlowTimer(), [clearHoverFlowTimer]);
     React.useEffect(() => {
+        if (isHighFrequencyInteraction) clearHoverFlow();
+    }, [clearHoverFlow, isHighFrequencyInteraction]);
+    React.useEffect(() => {
         connectorPointerDownRef.current = null;
     }, [shouldReduceConnectorHitTesting]);
 
@@ -630,6 +640,10 @@ export function CanvasAreaContentLayer({
         );
     }, [canvasRenderScale, clearHoverFlow, connectorHitModels, containerRef, isHighFrequencyInteraction, referenceConnectionSourceId, scheduleConnectorHover, semanticConnectorIds, shouldReduceConnectorHitTesting]);
     const handleLayerMouseDown = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (event.button !== 0) {
+            connectorPointerDownRef.current = null;
+            return;
+        }
         if (!shouldReduceConnectorHitTesting) {
             return;
         }
@@ -811,51 +825,54 @@ export function CanvasAreaContentLayer({
         shouldReduceConnectorHitTesting,
         shouldUseDenseStaticFlowHighlight,
     ]);
-    const contentLayerCss = `
-.canvas-content-layer-transform {
-    --canvas-scale: ${canvasRenderScale};
-    --canvas-low-zoom-stroke-scale: ${viewportStrokeScale};
-    --canvas-tool-node-edge-width: ${toLayerPx(generatorNodeEdgeWidth)};
-    --canvas-linked-highlight-width: ${toLayerPx(generatorNodeEdgeWidth)};
-    transform: translate(${toLayerPx(renderPan.x)}, ${toLayerPx(renderPan.y)}) scale(${canvasRenderScale});
-    transform-origin: top left;
-    will-change: transform;
-}
-
-.canvas-multi-selection-bounds {
-    left: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.minX - 8 : 0)};
-    top: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.minY - 8 : 0)};
-    width: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.width + 16 : 0)};
-    height: ${toLayerPx(multiSelectionBounds ? multiSelectionBounds.height + 16 : 0)};
-    transform: ${multiSelectionPreviewOffset ? `translate(${toLayerPx(multiSelectionPreviewOffset.dx)}, ${toLayerPx(multiSelectionPreviewOffset.dy)})` : 'none'};
-}
-${hoverDeleteAffordance ? `
-.canvas-reference-connector-delete-position {
-    left: ${toLayerPx(hoverDeleteAffordance.x)};
-    top: ${toLayerPx(hoverDeleteAffordance.y)};
-}` : ''}
-`;
+    const contentLayerStyle = {
+        '--canvas-scale': canvasRenderScale,
+        '--canvas-low-zoom-stroke-scale': viewportStrokeScale,
+        '--canvas-tool-node-edge-width': toLayerPx(generatorNodeEdgeWidth),
+        '--canvas-linked-highlight-width': toLayerPx(generatorNodeEdgeWidth),
+        transformOrigin: 'top left',
+        willChange: 'transform',
+    } as React.CSSProperties;
 
     return (
         <div
             ref={containerRef}
             className={`canvas-content-layer-transform w-full h-full origin-top-left${isPanning ? ' is-panning' : ''}${isHighFrequencyInteraction ? ' is-interacting' : ''}`}
+            style={contentLayerStyle}
             onMouseDown={handleLayerMouseDown}
             onMouseMove={handleLayerMouseMove}
             onClick={handleLayerClick}
             onMouseLeave={() => clearHoverFlow()}
         >
-            <style>{contentLayerCss}</style>
-            <div className="canvas-grid-layer pointer-events-none absolute inset-0 h-[10000px] w-[10000px]" />
+            <div
+                className="canvas-detailed-layer canvas-grid-layer pointer-events-none absolute inset-0 h-[10000px] w-[10000px]"
+                style={{ display: lowZoomOverviewActive ? 'none' : undefined }}
+            />
 
-            <CanvasConnectorRasterLayer
-                batches={connectorPaintPlan.rasterBatches}
+            <CanvasLowZoomOverviewLayer
+                active={lowZoomOverviewActive}
+                elements={overviewElements}
+                selectedIds={selectedIds}
                 renderPan={renderPan}
                 scale={canvasRenderScale}
                 viewportSize={viewportSize}
+                canvasTheme={canvasTheme}
             />
 
-            <svg className="canvas-reference-connector-layer absolute inset-0 w-full h-full overflow-visible">
+            {!lowZoomOverviewActive && (
+                <CanvasConnectorRasterLayer
+                    batches={connectorPaintPlan.rasterBatches}
+                    renderPan={renderPan}
+                    scale={canvasRenderScale}
+                    viewportSize={viewportSize}
+                    isPanning={isPanning}
+                />
+            )}
+
+            <svg
+                className="canvas-detailed-layer canvas-reference-connector-layer absolute inset-0 w-full h-full overflow-visible"
+                visibility={lowZoomOverviewActive ? 'hidden' : 'visible'}
+            >
                 <defs>
                     <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
                         <polygon points="0 0, 10 3, 0 6" fill="#6B7280" />
@@ -966,7 +983,12 @@ ${hoverDeleteAffordance ? `
                 )}
             </svg>
 
-            <div className="pointer-events-none absolute inset-0 z-40" ref={elementsContainerRef}>
+            <div
+                className="canvas-detailed-layer pointer-events-none absolute inset-0 z-40"
+                ref={elementsContainerRef}
+                aria-hidden={lowZoomOverviewActive || undefined}
+                style={{ visibility: lowZoomOverviewActive ? 'hidden' : 'visible' }}
+            >
                 {renderElements.map((el) => {
                     const isSelected = selectedIdSet.has(el.id);
                     const dragPreviewOffset = dragPreviewState?.ids.includes(el.id)
@@ -990,7 +1012,7 @@ ${hoverDeleteAffordance ? `
                             resolvedImageSrc={resolvedImageSrcMap?.[el.id]}
                             isSelected={isSelected}
                             selectedImageCount={multiReferenceCandidateCount}
-                            showToolbar={isSelected && selectedIds.length === 1 && !isDragging && !isResizing}
+                            showToolbar={isSelected && selectedIds.length === 1 && !isHighFrequencyInteraction}
                             isDropTarget={dropTargetFrameId === el.id}
                             isEditingText={editingTextId === el.id}
                             isEditingFrameName={editingFrameName === el.id}
@@ -1028,6 +1050,15 @@ ${hoverDeleteAffordance ? `
                 {multiSelectionBounds && !isSelecting && (
                     <div
                         className="canvas-multi-selection-bounds pointer-events-none absolute z-40 rounded-xl border-2 border-blue-500/85 bg-blue-500/[0.03] shadow-[0_0_0_1px_rgba(59,130,246,0.15)]"
+                        style={{
+                            left: toLayerPx(multiSelectionBounds.minX - 8),
+                            top: toLayerPx(multiSelectionBounds.minY - 8),
+                            width: toLayerPx(multiSelectionBounds.width + 16),
+                            height: toLayerPx(multiSelectionBounds.height + 16),
+                            transform: multiSelectionPreviewOffset
+                                ? `translate(${toLayerPx(multiSelectionPreviewOffset.dx)}, ${toLayerPx(multiSelectionPreviewOffset.dy)})`
+                                : 'none',
+                        }}
                     >
                         <div className="absolute -top-8 left-0 rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm">
                             已选 {selectedIds.length} 个元素
@@ -1041,7 +1072,10 @@ ${hoverDeleteAffordance ? `
                 )}
             </div>
 
-            <svg className="pointer-events-none absolute inset-0 z-30 h-full w-full overflow-visible">
+            <svg
+                className="canvas-detailed-layer pointer-events-none absolute inset-0 z-30 h-full w-full overflow-visible"
+                visibility={lowZoomOverviewActive ? 'hidden' : 'visible'}
+            >
                 {!shouldReduceConnectorHitTesting && connectorElements.map((connector) => {
                     const renderData = connectorRenderDataById.get(connector.id);
                     if (!renderData) return null;
@@ -1060,6 +1094,10 @@ ${hoverDeleteAffordance ? `
                             fill="none"
                             pointerEvents="stroke"
                             onMouseDown={(event) => {
+                                if (event.button !== 0) {
+                                    connectorPointerDownRef.current = null;
+                                    return;
+                                }
                                 const nearestConnectorId = getNearestVisiblePathConnectorId(event);
                                 if (!nearestConnectorId) {
                                     connectorPointerDownRef.current = null;
@@ -1116,12 +1154,14 @@ ${hoverDeleteAffordance ? `
                 })}
             </svg>
 
-            {hoverDeleteAffordance && onDeleteConnector && (
+            {!lowZoomOverviewActive && hoverDeleteAffordance && onDeleteConnector && (
                 <div className="pointer-events-none absolute inset-0 z-50">
                     <button
                         type="button"
                         className="canvas-reference-connector-delete-button canvas-reference-connector-delete-position pointer-events-auto absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
+                        style={{ left: toLayerPx(hoverDeleteAffordance.x), top: toLayerPx(hoverDeleteAffordance.y) }}
                         onMouseDown={(event) => {
+                            if (event.button !== 0) return;
                             event.preventDefault();
                             event.stopPropagation();
                         }}
@@ -1149,12 +1189,16 @@ ${hoverDeleteAffordance ? `
                 </div>
             )}
 
-            <CanvasAreaWorldOverlays
-                currentPath={currentPath}
-                alignGuides={alignGuides}
-                frameDrawBox={frameDrawBox}
-                elementsLength={elements.length}
-            />
+            {!lowZoomOverviewActive && (
+                <div className="canvas-detailed-layer contents">
+                    <CanvasAreaWorldOverlays
+                        currentPath={currentPath}
+                        alignGuides={alignGuides}
+                        frameDrawBox={frameDrawBox}
+                        elementsLength={elements.length}
+                    />
+                </div>
+            )}
         </div>
     );
 }

@@ -26,6 +26,36 @@ const DB_NAME = 'lovart_images';
 const DB_VERSION = 1;
 const STORE_NAME = 'blobs';
 
+export type ImageStorageErrorCode = 'quota-exceeded' | 'write-failed';
+
+export class ImageStorageError extends Error {
+  readonly code: ImageStorageErrorCode;
+  readonly originalError: unknown;
+
+  constructor(code: ImageStorageErrorCode, message: string, originalError: unknown) {
+    super(message);
+    this.name = 'ImageStorageError';
+    this.code = code;
+    this.originalError = originalError;
+  }
+}
+
+function toImageStorageError(error: unknown): ImageStorageError {
+  if (error instanceof ImageStorageError) return error;
+  const errorName = typeof error === 'object' && error !== null && 'name' in error
+    ? String((error as { name?: unknown }).name ?? '')
+    : '';
+  const quotaExceeded = errorName === 'QuotaExceededError'
+    || (error instanceof Error && /quota/i.test(error.message));
+  return new ImageStorageError(
+    quotaExceeded ? 'quota-exceeded' : 'write-failed',
+    quotaExceeded
+      ? '浏览器本地存储空间不足，图片未写入。'
+      : '图片写入浏览器本地存储失败。',
+    error,
+  );
+}
+
 /** 引用前缀 */
 export const IMAGE_REF_PREFIX = 'imgref://';
 
@@ -87,9 +117,24 @@ function openDB(): Promise<IDBDatabase> {
         dbInstance = null;
         dbReady = null;
       };
+      dbInstance.onversionchange = () => {
+        const staleInstance = dbInstance;
+        staleInstance?.close();
+        if (dbInstance === staleInstance) {
+          dbInstance = null;
+          dbReady = null;
+        }
+      };
       resolve(dbInstance);
     };
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      dbReady = null;
+      reject(req.error ?? new Error('Failed to open image storage'));
+    };
+    req.onblocked = () => {
+      dbReady = null;
+      reject(new Error('Image storage is blocked by another browser tab'));
+    };
   });
   return dbReady;
 }
@@ -143,7 +188,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
   }
 }
 
-/** Blob → data URL（仅用于降级兜底） */
+/** Blob → data URL（仅用于显式读取/导出，不作为存储失败降级） */
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -181,8 +226,10 @@ async function putBlob(imageId: string, blob: Blob): Promise<void> {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const req = store.put(blob, imageId);
-    req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? req.error ?? new Error('Image storage transaction failed'));
+    tx.onabort = () => reject(tx.error ?? req.error ?? new Error('Image storage transaction aborted'));
   });
 }
 
@@ -259,8 +306,9 @@ export async function saveImage(dataUrl: string, id?: string): Promise<string> {
 
     return makeRef(imageId);
   } catch (err) {
-    console.warn('[ImageStore] save failed, falling back to inline data URL:', err);
-    return dataUrl; // 降级：直接返回原始 data URL
+    const storageError = toImageStorageError(err);
+    console.error('[ImageStore] save failed:', storageError);
+    throw storageError;
   }
 }
 
@@ -283,12 +331,9 @@ export async function saveImageBlob(blob: Blob, id?: string): Promise<string> {
 
     return makeRef(imageId);
   } catch (err) {
-    console.warn('[ImageStore] blob save failed, falling back to inline data URL:', err);
-    try {
-      return await blobToDataUrl(blob);
-    } catch {
-      return '';
-    }
+    const storageError = toImageStorageError(err);
+    console.error('[ImageStore] blob save failed:', storageError);
+    throw storageError;
   }
 }
 

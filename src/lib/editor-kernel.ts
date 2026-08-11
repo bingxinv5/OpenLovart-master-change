@@ -166,6 +166,8 @@ export { elementStore, localDb, type LocalDbClient } from './local-db';
 
 export {
   IMAGE_REF_PREFIX,
+  ImageStorageError,
+  type ImageStorageErrorCode,
   isImageRef,
   getRefId,
   makeRef,

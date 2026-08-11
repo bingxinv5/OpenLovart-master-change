@@ -9,7 +9,7 @@ import type { AlignmentDirection, DistributionAxis, LayoutSelectionMode } from '
 import { buildCanvasElementIndex } from './canvas-element-index';
 import { buildCanvasRenderPlan } from './canvas-render-plan';
 import { getTopElementAtCanvasPoint } from './canvas-hit-test';
-import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale, clientPointToCanvas, computeFitViewport } from './canvas-viewport-utils';
+import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clientPointToCanvas, computeFitViewport } from './canvas-viewport-utils';
 import { useCanvasAlignGuides } from './CanvasAlignGuides';
 import { canUseScreenSpaceResizeOverlayForElement } from './ScreenSpaceResizeOverlay';
 import { CanvasContextMenu, useCanvasContextMenu } from './CanvasContextMenu';
@@ -21,6 +21,8 @@ import { useCanvasSelectionLayoutActions } from './use-canvas-selection-layout-a
 import { useCanvasFrameActions } from './use-canvas-frame-actions';
 import { CanvasAreaViewportOverlays } from './CanvasAreaOverlays';
 import { CanvasAreaContentLayer } from './CanvasAreaContentLayer';
+import { resolveLowZoomOverviewActive } from './CanvasLowZoomOverviewLayer';
+import { CanvasZoomOverviewLayer } from './CanvasZoomOverviewLayer';
 import { CanvasAreaHud } from './CanvasAreaHud';
 import {
     classifyReferenceConnectionTarget,
@@ -183,9 +185,10 @@ export const CanvasArea = React.memo(function CanvasArea({
     storyboard,
     misc,
 }: CanvasAreaDomains) {
-    const { scale, pan, onPanChange, onScaleChange } = view;
+    const { scale, pan, visualViewportRef: externalVisualViewportRef, onPanChange, onScaleChange } = view;
     const { selectedIds, highlightedElementIds = [], onSelect, activeTool, onToolChange } = selection;
-    const { elements, onElementChange, onBatchElementChange, onDelete, onAddElement } = elementCRUD;
+    const { elements, overviewElements, onElementChange, onBatchElementChange, onDelete, onAddElement } = elementCRUD;
+    const overviewSourceElements = overviewElements ?? elements;
     const { canPaste, onCopyElement, onCopySelection, onCutSelection, onPasteAt, onDuplicateSelection } = clipboard;
     const { onGroupSelection, onUngroupSelection, onMergeSelection, onBringForward, onSendBackward, onBringToFront, onSendToBack, onToggleElementsHidden, onToggleElementsLocked, onDeleteSelection } = layout;
     const { onOpenImageGenerator, onOpenVideoGenerator, onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, onExportStoryboardSelection, generatorSubmittingMap, highlightedResultId, newlyCreatedGeneratorMap } = generator;
@@ -268,6 +271,8 @@ export const CanvasArea = React.memo(function CanvasArea({
     const containerRef = useRef<HTMLDivElement>(null);
     const outerRef = useRef<HTMLDivElement>(null);
     const elementsContainerRef = useRef<HTMLDivElement>(null);
+    const internalVisualViewportRef = useRef({ scale, pan });
+    const visualViewportRef = externalVisualViewportRef ?? internalVisualViewportRef;
 
     const {
         scheduleAutoLayout,
@@ -337,24 +342,43 @@ export const CanvasArea = React.memo(function CanvasArea({
     }, []);
 
     const {
-        isDragging, isResizing, resizingElementId, isPanning, isDrawing, isSelecting,
+        isDragging, isResizing, resizingElementId, isPanning, isPanMotionActive,
+        isZoomOverviewActive, zoomCommitCount, isDrawing, isSelecting,
         frameDrawBox, currentPath, dragPreviewState, dropTargetFrameId,
-        cancelInertia, commitPanChange,
+        cancelInertia, commitPanChange, commitScaleChange, commitViewportChange,
+        finishZoomSession, getVisualPan, queueWheelZoom,
         handleMouseDown, handleMouseDownStable, handleResizeStartStable,
         handleScreenSpaceResizeStart, handleMouseMove,
         handleToolbarSelectionMouseDownCapture,
         handleToolbarSelectionPointerDownCapture,
         handleToolbarSelectionClickCapture,
     } = useCanvasPointerInteraction({
-        scale, pan, onPanChange, elements, selectedIds, activeTool, onToolChange,
+        scale, pan, onPanChange, onScaleChange, elements, overviewElementCount: overviewSourceElements.length,
+        selectedIds, activeTool, onToolChange,
         onSelect, onElementChange, onBatchElementChange, onAddElement,
         onDragStart, onDragEnd, onDuplicateSelection, onCanvasMouseMove,
-        outerRef, selectionBoxOverlayRef, visibleElementsRef,
+        outerRef, visualViewportRef, contentLayerRef: containerRef, selectionBoxOverlayRef, visibleElementsRef,
         setAlignGuidesIfChanged, scheduleAutoLayout, moveElementToFrame,
         requestImageDetailUpgrade, isElementLocked,
         activeVideoId, setActiveVideoId, setEditingTextId,
         setQuickEditMarkId, setQuickEditPrompt,
     });
+
+    const [panLowZoomOverviewActive, setPanLowZoomOverviewActive] = useState(false);
+    useEffect(() => {
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (cancelled) return;
+            setPanLowZoomOverviewActive((wasActive) => resolveLowZoomOverviewActive({
+                motionActive: isPanMotionActive,
+                scale,
+                wasActive,
+            }));
+        });
+        return () => { cancelled = true; };
+    }, [isPanMotionActive, scale]);
+    const lowZoomOverviewActive = panLowZoomOverviewActive || isZoomOverviewActive;
+    const isViewportMotionActive = isPanMotionActive || isZoomOverviewActive;
 
     useEffect(() => {
         if (!isPanning) return;
@@ -798,9 +822,8 @@ export const CanvasArea = React.memo(function CanvasArea({
             maxFitScale: maxScale,
             padding: 80,
         });
-        onScaleChange(nextViewport.scale);
-        commitPanChange(nextViewport.pan);
-    }, [commitPanChange, onScaleChange, viewportSize.height, viewportSize.width]);
+        commitViewportChange(nextViewport);
+    }, [commitViewportChange, viewportSize.height, viewportSize.width]);
 
     const fitToElement = useCallback((el: CanvasElement) => {
         fitViewportToBounds({
@@ -812,7 +835,7 @@ export const CanvasArea = React.memo(function CanvasArea({
     }, [fitViewportToBounds]);
 
     const imageHoverPreviewTimerRef = useRef<number | null>(null);
-    const isImageHoverPreviewSuppressed = !!contextMenu || activeMediaPreviewIds.length > 0;
+    const isImageHoverPreviewSuppressed = isViewportMotionActive || !!contextMenu || activeMediaPreviewIds.length > 0;
     const clearImageHoverPreviewTimer = useCallback(() => {
         if (imageHoverPreviewTimerRef.current !== null) {
             window.clearTimeout(imageHoverPreviewTimerRef.current);
@@ -840,7 +863,13 @@ export const CanvasArea = React.memo(function CanvasArea({
         }
 
         clearImageHoverPreviewTimer();
-        setActiveImagePreviewId((current) => current === null ? current : null);
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (!cancelled) {
+                setActiveImagePreviewId((current) => current === null ? current : null);
+            }
+        });
+        return () => { cancelled = true; };
     }, [clearImageHoverPreviewTimer, isImageHoverPreviewSuppressed]);
 
     useEffect(() => () => clearImageHoverPreviewTimer(), [clearImageHoverPreviewTimer]);
@@ -933,33 +962,30 @@ export const CanvasArea = React.memo(function CanvasArea({
 
     // Wheel zoom (cursor-centered)
     const handleWheelRaw = useCallback((e: WheelEvent) => {
-        cancelInertia();
         if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
+            cancelInertia();
             const rect = outerRef.current?.getBoundingClientRect();
             if (!rect) return;
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
-            // Canvas point under cursor before zoom
-            const canvasX = (mouseX - pan.x) / scale;
-            const canvasY = (mouseY - pan.y) / scale;
-            // Determine zoom factor
-            const normalizedDelta = Math.sign(e.deltaY) * Math.min(120, Math.abs(e.deltaY));
-            const zoomFactor = Math.exp(-normalizedDelta * 0.0025);
-            const newScale = clampCanvasScale(scale * zoomFactor);
-            // Adjust pan so cursor stays on same canvas point
-            const newPanX = mouseX - canvasX * newScale;
-            const newPanY = mouseY - canvasY * newScale;
-            onScaleChange(newScale);
-            commitPanChange({ x: newPanX, y: newPanY });
+            queueWheelZoom({
+                deltaY: e.deltaY,
+                deltaMode: e.deltaMode,
+                pageSize: rect.height,
+                screen: { x: mouseX, y: mouseY },
+            });
         } else {
             // Pan with wheel (no ctrl)
+            finishZoomSession();
+            cancelInertia();
+            const visualPan = getVisualPan();
             commitPanChange({
-                x: pan.x - (e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX),
-                y: pan.y - e.deltaY,
+                x: visualPan.x - (e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX),
+                y: visualPan.y - e.deltaY,
             });
         }
-    }, [scale, pan, onScaleChange, commitPanChange, cancelInertia]);
+    }, [cancelInertia, commitPanChange, finishZoomSession, getVisualPan, queueWheelZoom]);
 
     const handleWindowWheelCapture = useCallback((event: WheelEvent) => {
         if (!event.ctrlKey && !event.metaKey) return;
@@ -1317,15 +1343,22 @@ export const CanvasArea = React.memo(function CanvasArea({
         viewportSize,
         spatialIndex,
         isDragging,
-        isPanning,
+        isPanning: isViewportMotionActive,
         isResizing,
         isSelecting,
-    }), [elements, isDragging, isPanning, isResizing, isSelecting, pan, scale, selectedIds, spatialIndex, viewportSize]);
+    }), [elements, isDragging, isResizing, isSelecting, isViewportMotionActive, pan, scale, selectedIds, spatialIndex, viewportSize]);
 
     const visibleElements = viewportRenderPlan.visibleElements;
+    const overviewElementCount = useMemo(
+        () => lowZoomOverviewActive ? overviewSourceElements.filter((element) => !element.hidden).length : 0,
+        [lowZoomOverviewActive, overviewSourceElements],
+    );
     const renderMetrics = useMemo<CanvasRenderMetrics>(() => ({
         visibleCount: visibleElements.length,
-        totalCount: elements.length,
+        totalCount: overviewSourceElements.length,
+        detailedCount: lowZoomOverviewActive ? 0 : visibleElements.length,
+        overviewCount: overviewElementCount,
+        renderMode: lowZoomOverviewActive ? 'overview' : 'detailed',
         culledCount: viewportRenderPlan.culledCount,
         virtualizedCount: viewportRenderPlan.virtualizedCount,
         deferredCount: viewportRenderPlan.deferredCount,
@@ -1334,7 +1367,9 @@ export const CanvasArea = React.memo(function CanvasArea({
         partitionCount: viewportRenderPlan.partitionCount,
         partitionTileSize: viewportRenderPlan.partitionTileSize,
     }), [
-        elements.length,
+        overviewSourceElements.length,
+        lowZoomOverviewActive,
+        overviewElementCount,
         viewportRenderPlan.culledCount,
         viewportRenderPlan.deferredCount,
         viewportRenderPlan.maxVisibleElements,
@@ -1493,10 +1528,13 @@ export const CanvasArea = React.memo(function CanvasArea({
             ref={outerRef}
             data-testid="canvas-area"
             data-scale={scale.toFixed(4)}
+            data-visual-scale={scale.toFixed(4)}
             data-pan-x={Math.round(pan.x)}
             data-pan-y={Math.round(pan.y)}
+            data-visual-pan-x={Math.round(pan.x)}
+            data-visual-pan-y={Math.round(pan.y)}
             data-visible-elements={visibleElements.length}
-            data-total-elements={elements.length}
+            data-total-elements={overviewSourceElements.length}
             data-cull-count={viewportRenderPlan.culledCount}
             data-virtualized-count={viewportRenderPlan.virtualizedCount}
             data-deferred-count={viewportRenderPlan.deferredCount}
@@ -1505,14 +1543,26 @@ export const CanvasArea = React.memo(function CanvasArea({
             data-partition-count={viewportRenderPlan.partitionCount}
             data-partition-tile-size={viewportRenderPlan.partitionTileSize}
             data-is-panning={isPanning ? 'true' : 'false'}
+            data-is-pan-motion-active={isPanMotionActive ? 'true' : 'false'}
+            data-zoom-commit-count={zoomCommitCount}
+            data-pan-render-mode={lowZoomOverviewActive ? 'overview' : 'detailed'}
+            data-overview-elements={overviewElementCount}
             className={`canvas-area-surface w-full h-full relative overflow-hidden ${isPanning ? 'is-panning' : canvasSelectMode ? 'cursor-crosshair' : activeTool === 'hand' ? 'cursor-grab' : activeTool === 'draw' ? 'cursor-crosshair' : activeTool === 'mark' ? 'cursor-crosshair' : activeTool === 'frame' ? 'cursor-crosshair' : ''}`}
             onMouseMove={handleCanvasMouseMoveWithReferenceDraft}
             onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}
+            onMouseDownCapture={(e) => {
+                if (e.button !== 1) return;
+                setShowFramePresetMenu(null);
+                setShowFrameExportMenu(null);
+                handleMouseDown(e, null);
+                e.stopPropagation();
+            }}
             onDragStart={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
             }}
             onMouseDown={(e) => {
+                if (e.button === 1) return;
                 setShowFramePresetMenu(null);
                 setShowFrameExportMenu(null);
                 if (canvasSelectMode && e.button === 0) {
@@ -1563,7 +1613,7 @@ export const CanvasArea = React.memo(function CanvasArea({
             <CanvasAreaHud
                 {...{
                     canvasSelectMode, onCancelCanvasSelect, hiddenElementIds, onToggleElementsHidden,
-                    selectedIds, selectedElement, scale, pan, isDragging, isResizing, isPanning,
+                    selectedIds, selectedElement, scale, pan, isDragging, isResizing,
                     isDrawing, isSelecting, storyboardAutoAdvanceEnabled, projectReferenceImages,
                     alignmentActions, distributionActions, equalSpacingActions, layoutSelectionActions,
                     canGenerateStoryboardBatch, canGenerateStoryboardVideoBatch, multiStoryboardGenerateIds,
@@ -1576,6 +1626,7 @@ export const CanvasArea = React.memo(function CanvasArea({
                     onGenerateStoryboardSelection, onGenerateStoryboardVideoSelection, onGroupSelection,
                     onUngroupSelection, onMergeSelection, onSaveSelectionAsProjectReference,
                 }}
+                isPanning={isViewportMotionActive}
                 canExportStoryboardSelection={multiReferenceCandidateCount >= 2 && !!onExportStoryboardSelection}
                 canFocusSelection={!!multiSelectionBounds}
                 onPointerDownCapture={handleToolbarSelectionPointerDownCapture}
@@ -1592,11 +1643,12 @@ export const CanvasArea = React.memo(function CanvasArea({
             <CanvasAreaContentLayer
                 {...{
                     containerRef, elementsContainerRef, pan, scale, connectorElements: visibleConnectorElements, elementMap,
-                    renderElements, elements, viewportSize, selectedIds, activeTool, canvasSelectMode, dragPreviewState,
+                    renderElements, elements, overviewElements: overviewSourceElements, viewportSize, selectedIds, activeTool, canvasSelectMode, dragPreviewState,
                     dropTargetFrameId, editingTextId, editingFrameName, editingMarkId, quickEditMarkId,
                     quickEditPrompt, showFramePresetMenu, showFrameExportMenu, canGenerateFromImage,
                     frameChildCounts, generatorSubmittingMap, highlightedResultId, newlyCreatedGeneratorMap, highlightedElementIdSet,
-                    isDragging, isPanning, isResizing, resizingElementId, isDrawing, isSelecting, imageDetailRequestVersions,
+                    isDragging, isPanning: isViewportMotionActive, lowZoomOverviewActive, canvasTheme,
+                    isResizing, resizingElementId, isDrawing, isSelecting, imageDetailRequestVersions,
                     renderZIndexById, resolvedImageSrcMap, multiReferenceCandidateCount, multiSelectionBounds,
                     multiSelectionPreviewOffset, currentPath, alignGuides, frameDrawBox, elementHandlersRef,
                     referenceConnectionSourceId, referenceConnectionPort, referenceConnectionPoint,
@@ -1606,6 +1658,15 @@ export const CanvasArea = React.memo(function CanvasArea({
                     onSelectConnector: (connectorId: string) => onSelect([connectorId]),
                     onDeleteConnector: (connectorId: string) => deleteSelectionByIds([connectorId]),
                 }}
+            />
+
+            <CanvasZoomOverviewLayer
+                elements={overviewSourceElements}
+                selectedIds={selectedIds}
+                viewportSize={viewportSize}
+                visualViewportRef={visualViewportRef}
+                outerRef={outerRef}
+                canvasTheme={canvasTheme}
             />
 
             {referenceNodeMenu && (
@@ -1626,9 +1687,9 @@ export const CanvasArea = React.memo(function CanvasArea({
                 scale={scale}
                 pan={pan}
                 onCloseVideo={() => setActiveVideoId(null)}
-                activeImagePreviewElement={activeMediaPreviewItems.length > 0 ? null : activeImagePreviewElement}
-                activeImagePreviewMetrics={activeMediaPreviewItems.length > 0 ? null : activeImagePreviewMetrics}
-                activeImagePreviewResolvedSrc={activeMediaPreviewItems.length === 0 && activeImagePreviewElement ? resolvedImageSrcMap?.[activeImagePreviewElement.id] : undefined}
+                activeImagePreviewElement={isViewportMotionActive || activeMediaPreviewItems.length > 0 ? null : activeImagePreviewElement}
+                activeImagePreviewMetrics={isViewportMotionActive || activeMediaPreviewItems.length > 0 ? null : activeImagePreviewMetrics}
+                activeImagePreviewResolvedSrc={!isViewportMotionActive && activeMediaPreviewItems.length === 0 && activeImagePreviewElement ? resolvedImageSrcMap?.[activeImagePreviewElement.id] : undefined}
                 activeMediaPreviewItems={activeMediaPreviewItems}
                 activeMediaPreviewIndex={activeMediaPreviewIndex}
                 onActiveMediaPreviewIndexChange={setActiveMediaPreviewIndex}
@@ -1693,11 +1754,11 @@ export const CanvasArea = React.memo(function CanvasArea({
                 pan={pan}
                 viewportSize={viewportSize}
                 selectedIds={selectedIds}
-                onPanChange={onPanChange}
-                onScaleChange={onScaleChange}
+                onPanChange={commitPanChange}
+                onScaleChange={commitScaleChange}
                 rightOffset={minimapRightOffset}
                 canvasTheme={canvasTheme}
-                isPanning={isPanning}
+                isPanning={isViewportMotionActive}
             />
 
             {/* Hidden file inputs for context menu uploads */}

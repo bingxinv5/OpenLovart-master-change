@@ -20,6 +20,9 @@ const STORAGE_KEY_PROVIDER = 'lovart_ai_provider';
 const STORAGE_KEY_PROVIDER_SETTINGS = 'lovart_ai_provider_settings';
 const STORAGE_KEY_FEATURE_PROVIDERS = 'lovart_ai_feature_providers';
 const STORAGE_KEY_FEATURE_SETTINGS = 'lovart_ai_feature_settings';
+const STORAGE_KEY_MIGRATION_VERSION = 'lovart_api_settings_migration_version';
+const CURRENT_MIGRATION_VERSION = 'apilio-default-base-url-v1';
+const LEGACY_DEFAULT_AI_BASE_URLS = ['https://api.bltcy.ai', 'https://api.openai.com'];
 export const API_SETTINGS_CHANGED_EVENT = 'lovart:api-settings-changed';
 
 export const AI_FEATURE_IDS = ['chat', 'image', 'video'] as const;
@@ -71,6 +74,67 @@ function isAiFeatureId(value: unknown): value is AiFeatureId {
 function notifyApiSettingsChanged() {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent(API_SETTINGS_CHANGED_EVENT));
+}
+
+function isLegacyDefaultAiBaseUrl(value: unknown): boolean {
+    return typeof value === 'string'
+        && LEGACY_DEFAULT_AI_BASE_URLS.includes(value.trim().replace(/\/+$/, ''));
+}
+
+function migrateLegacyDefaultGatewayBaseUrl() {
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem(STORAGE_KEY_MIGRATION_VERSION) === CURRENT_MIGRATION_VERSION) return;
+
+    if (isLegacyDefaultAiBaseUrl(localStorage.getItem(STORAGE_KEY_BASE_URL))) {
+        localStorage.removeItem(STORAGE_KEY_BASE_URL);
+    }
+
+    try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY_PROVIDER_SETTINGS) || '{}') as Record<string, unknown>;
+        const defaultProviderSettings = parsed[DEFAULT_AI_PROVIDER_ID];
+        if (defaultProviderSettings && typeof defaultProviderSettings === 'object') {
+            const record = defaultProviderSettings as Record<string, unknown>;
+            if (isLegacyDefaultAiBaseUrl(record.baseUrl)) {
+                parsed[DEFAULT_AI_PROVIDER_ID] = {
+                    ...record,
+                    baseUrl: '',
+                };
+                localStorage.setItem(STORAGE_KEY_PROVIDER_SETTINGS, JSON.stringify(parsed));
+            }
+        }
+    } catch {
+        // Ignore malformed legacy settings; normal readers will fall back safely.
+    }
+
+    try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY_FEATURE_SETTINGS) || '{}') as Record<string, unknown>;
+        let changed = false;
+        for (const [featureId, rawSettings] of Object.entries(parsed)) {
+            if (!isAiFeatureId(featureId) || !rawSettings || typeof rawSettings !== 'object') {
+                continue;
+            }
+
+            const record = rawSettings as Record<string, unknown>;
+            if (
+                normalizeAiProviderId(record.providerId) === DEFAULT_AI_PROVIDER_ID
+                && isLegacyDefaultAiBaseUrl(record.baseUrl)
+            ) {
+                parsed[featureId] = {
+                    ...record,
+                    baseUrl: '',
+                };
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            localStorage.setItem(STORAGE_KEY_FEATURE_SETTINGS, JSON.stringify(parsed));
+        }
+    } catch {
+        // Ignore malformed legacy settings; normal readers will fall back safely.
+    }
+
+    localStorage.setItem(STORAGE_KEY_MIGRATION_VERSION, CURRENT_MIGRATION_VERSION);
 }
 
 function createEmptyProviderSettings(): Record<AiProviderId, ApiProviderSettings> {
@@ -377,6 +441,8 @@ export function getApiSettings(): ApiSettings {
         };
     }
 
+    migrateLegacyDefaultGatewayBaseUrl();
+
     const providers = readProviderSettings();
     const providerId = getSelectedProviderId(providers);
     const activeSettings = providers[providerId] || { baseUrl: '', apiKey: '' };
@@ -441,6 +507,8 @@ export function getProviderApiSettings(providerId: AiProviderId): ApiProviderSet
     if (typeof window === 'undefined') {
         return { baseUrl: '', apiKey: '' };
     }
+
+    migrateLegacyDefaultGatewayBaseUrl();
 
     return readProviderSettings()[providerId] || { baseUrl: '', apiKey: '' };
 }
@@ -512,6 +580,7 @@ export function clearApiSettings() {
     localStorage.removeItem(STORAGE_KEY_PROVIDER_SETTINGS);
     localStorage.removeItem(STORAGE_KEY_FEATURE_PROVIDERS);
     localStorage.removeItem(STORAGE_KEY_FEATURE_SETTINGS);
+    localStorage.setItem(STORAGE_KEY_MIGRATION_VERSION, CURRENT_MIGRATION_VERSION);
     notifyApiSettingsChanged();
 }
 

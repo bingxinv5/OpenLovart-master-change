@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Eye, MousePointerClick } from 'lucide-react';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { ContextToolbar } from './ContextToolbar';
@@ -169,6 +169,12 @@ export function CanvasAreaHud({
     onSaveSelectionAsProjectReference,
     onDeleteSelection,
 }: CanvasAreaHudProps) {
+    const [contextToolbarOverlayOpen, setContextToolbarOverlayOpen] = useState(false);
+
+    useEffect(() => {
+        setContextToolbarOverlayOpen(false);
+    }, [selectedElement?.id]);
+
     const canShowContextToolbar = selectedIds.length === 1
         && selectedElement
         && !selectedElement.hidden
@@ -192,7 +198,7 @@ export function CanvasAreaHud({
     left: ${toHudPx((selectedElement.x + (selectedElement.width || 0) / 2) * scale + pan.x)};
     top: ${toHudPx(Math.max(8, selectedElement.y * scale + pan.y - 48))};
     transform: translateX(-50%);
-    z-index: 100;
+    z-index: ${contextToolbarOverlayOpen ? 150 : 100};
     width: max-content;
 }
 `
@@ -233,6 +239,8 @@ export function CanvasAreaHud({
             {canShowContextToolbar && selectedElement && (
                 <div
                     className={contextToolbarClassName}
+                    data-testid="canvas-context-toolbar"
+                    data-overlay-open={contextToolbarOverlayOpen ? 'true' : 'false'}
                     onPointerDownCapture={onPointerDownCapture}
                     onMouseDownCapture={onMouseDownCapture}
                     onClickCapture={onClickCapture}
@@ -252,6 +260,7 @@ export function CanvasAreaHud({
                         onSendToChat={onSendSelectionToChat ? (element) => onSendSelectionToChat([element.id]) : undefined}
                         onToggleHidden={onToggleHidden ? (element) => onToggleHidden([element.id]) : undefined}
                         onToggleLocked={onToggleElementsLocked ? (element) => onToggleElementsLocked([element.id]) : undefined}
+                        onOverlayVisibilityChange={setContextToolbarOverlayOpen}
                         onAiEdit={onAiEditElement}
                         onRecoverTask={onRecoverImageEditTask}
                         onReplaceBackground={onReplaceBackground}

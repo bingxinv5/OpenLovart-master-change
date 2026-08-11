@@ -15,12 +15,14 @@ type ChainableQuery = QueryBuilder & Promise<QueryResult>;
 const IMAGE_REF_PREFIX = 'imgref://';
 
 const DB_NAME = 'lovart_local_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
+const PROJECTS_STORE = 'projects';
 
 // ── IndexedDB helpers ──────────────────────────────────────────────
 
 let dbInstance: IDBDatabase | null = null;
 let dbReady: Promise<IDBDatabase> | null = null;
+let projectMigrationReady: Promise<void> = Promise.resolve();
 
 function openDB(): Promise<IDBDatabase> {
   if (dbInstance) return Promise.resolve(dbInstance);
@@ -46,32 +48,70 @@ function openDB(): Promise<IDBDatabase> {
           elemStore.createIndex('by_project', 'project_id', { unique: false });
         }
       }
+      // v2 → v3: Store each project independently to prevent whole-table
+      // read/modify/write races from dropping projects across tabs.
+      if (oldVersion < 3) {
+        const projectStore = db.objectStoreNames.contains(PROJECTS_STORE)
+          ? req.transaction!.objectStore(PROJECTS_STORE)
+          : db.createObjectStore(PROJECTS_STORE, { keyPath: 'id' });
+        if (!projectStore.indexNames.contains('by_updated_at')) {
+          projectStore.createIndex('by_updated_at', 'updated_at', { unique: false });
+        }
+
+        if (db.objectStoreNames.contains('tables')) {
+          const tablesStore = req.transaction!.objectStore('tables');
+          const legacyProjectsRequest = tablesStore.get('projects');
+          legacyProjectsRequest.onsuccess = () => {
+            const legacyProjects = Array.isArray(legacyProjectsRequest.result)
+              ? legacyProjectsRequest.result as Row[]
+              : [];
+            for (const project of legacyProjects) {
+              if (typeof project.id === 'string' && project.id.length > 0) {
+                projectStore.put(project);
+              }
+            }
+            tablesStore.delete('projects');
+          };
+        }
+      }
     };
     req.onsuccess = () => {
       dbInstance = req.result;
       // Handle unexpected close (e.g. browser clearing data)
       dbInstance.onclose = () => { dbInstance = null; dbReady = null; };
+      dbInstance.onversionchange = () => {
+        const staleInstance = dbInstance;
+        staleInstance?.close();
+        if (dbInstance === staleInstance) {
+          dbInstance = null;
+          dbReady = null;
+        }
+      };
       resolve(dbInstance);
     };
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      dbReady = null;
+      reject(req.error ?? new Error('Failed to open IndexedDB'));
+    };
+    req.onblocked = () => {
+      dbReady = null;
+      reject(new Error('IndexedDB is blocked by another browser tab'));
+    };
   });
   return dbReady;
 }
 
 async function getStore(table: string): Promise<Row[]> {
   if (typeof window === 'undefined') return [];
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction('tables', 'readonly');
-      const store = tx.objectStore('tables');
-      const req = store.get(table);
-      req.onsuccess = () => resolve(req.result ?? []);
-      req.onerror = () => resolve([]);
-    });
-  } catch {
-    return [];
-  }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('tables', 'readonly');
+    const store = tx.objectStore('tables');
+    const req = store.get(table);
+    req.onsuccess = () => resolve(req.result ?? []);
+    req.onerror = () => reject(req.error ?? new Error(`Failed to read local table: ${table}`));
+    tx.onabort = () => reject(tx.error ?? new Error(`Local table read aborted: ${table}`));
+  });
 }
 
 async function setStore(table: string, rows: Row[]): Promise<void> {
@@ -81,8 +121,191 @@ async function setStore(table: string, rows: Row[]): Promise<void> {
     const tx = db.transaction('tables', 'readwrite');
     const store = tx.objectStore('tables');
     const req = store.put(rows, table);
-    req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? req.error ?? new Error(`Failed to write local table: ${table}`));
+    tx.onabort = () => reject(tx.error ?? req.error ?? new Error(`Local table write aborted: ${table}`));
+  });
+}
+
+// ── Per-project storage helpers ───────────────────────────────────
+
+function getProjectId(row: Row): string | undefined {
+  const id = row.id;
+  return typeof id === 'string' && id.length > 0 ? id : undefined;
+}
+
+function getProjectUpdatedAt(row: Row): number | null {
+  if (typeof row.updated_at !== 'string') return null;
+  const value = Date.parse(row.updated_at);
+  return Number.isFinite(value) ? value : null;
+}
+
+function shouldMigrateProject(existing: Row | undefined, incoming: Row): boolean {
+  if (!existing) return true;
+  const existingUpdatedAt = getProjectUpdatedAt(existing);
+  const incomingUpdatedAt = getProjectUpdatedAt(incoming);
+  if (incomingUpdatedAt === null) return false;
+  return existingUpdatedAt === null || incomingUpdatedAt > existingUpdatedAt;
+}
+
+async function getAllProjects(): Promise<Row[]> {
+  if (typeof window === 'undefined') return [];
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECTS_STORE, 'readonly');
+    const request = tx.objectStore(PROJECTS_STORE).getAll();
+    let rows: Row[] = [];
+    request.onsuccess = () => { rows = (request.result ?? []) as Row[]; };
+    request.onerror = () => reject(request.error ?? new Error('Failed to read projects'));
+    tx.oncomplete = () => resolve(rows);
+    tx.onerror = () => reject(tx.error ?? request.error ?? new Error('Project read transaction failed'));
+    tx.onabort = () => reject(tx.error ?? request.error ?? new Error('Project read transaction aborted'));
+  });
+}
+
+async function getProjectById(projectId: string): Promise<Row | null> {
+  if (typeof window === 'undefined') return null;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECTS_STORE, 'readonly');
+    const request = tx.objectStore(PROJECTS_STORE).get(projectId);
+    let project: Row | null = null;
+    request.onsuccess = () => { project = (request.result as Row | undefined) ?? null; };
+    request.onerror = () => reject(request.error ?? new Error(`Failed to read project: ${projectId}`));
+    tx.oncomplete = () => resolve(project);
+    tx.onerror = () => reject(tx.error ?? request.error ?? new Error(`Project read transaction failed: ${projectId}`));
+    tx.onabort = () => reject(tx.error ?? request.error ?? new Error(`Project read transaction aborted: ${projectId}`));
+  });
+}
+
+async function mergeMigratedProjects(rows: Row[]): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const validRows = rows.filter((row) => !!getProjectId(row));
+  if (validRows.length === 0) return;
+
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECTS_STORE, 'readwrite');
+    const store = tx.objectStore(PROJECTS_STORE);
+    let requestError: DOMException | null = null;
+
+    for (const row of validRows) {
+      const projectId = getProjectId(row)!;
+      const getRequest = store.get(projectId);
+      getRequest.onsuccess = () => {
+        const existing = getRequest.result as Row | undefined;
+        if (!shouldMigrateProject(existing, row)) return;
+        const putRequest = store.put(row);
+        putRequest.onerror = () => { requestError = putRequest.error; };
+      };
+      getRequest.onerror = () => { requestError = getRequest.error; };
+    }
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(requestError ?? tx.error ?? new Error('Project migration transaction failed'));
+    tx.onabort = () => reject(requestError ?? tx.error ?? new Error('Project migration transaction aborted'));
+  });
+}
+
+async function insertProjects(rows: Row[]): Promise<void> {
+  if (typeof window === 'undefined' || rows.length === 0) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECTS_STORE, 'readwrite');
+    const store = tx.objectStore(PROJECTS_STORE);
+    let requestError: DOMException | null = null;
+    for (const row of rows) {
+      const request = store.add(row);
+      request.onerror = () => { requestError = request.error; };
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(requestError ?? tx.error ?? new Error('Project insert transaction failed'));
+    tx.onabort = () => reject(requestError ?? tx.error ?? new Error('Project insert transaction aborted'));
+  });
+}
+
+async function updateProjects(
+  projectId: string | undefined,
+  matches: (row: Row) => boolean,
+  patch: Row,
+): Promise<Row | null> {
+  if (typeof window === 'undefined') return null;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECTS_STORE, 'readwrite');
+    const store = tx.objectStore(PROJECTS_STORE);
+    let updated: Row | null = null;
+    let requestError: DOMException | null = null;
+
+    const applyUpdate = (row: Row, write: (nextRow: Row) => IDBRequest<IDBValidKey>) => {
+      if (!matches(row)) return;
+      updated = { ...row, ...patch };
+      const updateRequest = write(updated);
+      updateRequest.onerror = () => { requestError = updateRequest.error; };
+    };
+
+    if (projectId) {
+      const getRequest = store.get(projectId);
+      getRequest.onsuccess = () => {
+        const row = getRequest.result as Row | undefined;
+        if (row) applyUpdate(row, (nextRow) => store.put(nextRow));
+      };
+      getRequest.onerror = () => { requestError = getRequest.error; };
+    } else {
+      const cursorRequest = store.openCursor();
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+        applyUpdate(cursor.value as Row, (nextRow) => cursor.update(nextRow));
+        cursor.continue();
+      };
+      cursorRequest.onerror = () => { requestError = cursorRequest.error; };
+    }
+
+    tx.oncomplete = () => resolve(updated);
+    tx.onerror = () => reject(requestError ?? tx.error ?? new Error('Project update transaction failed'));
+    tx.onabort = () => reject(requestError ?? tx.error ?? new Error('Project update transaction aborted'));
+  });
+}
+
+async function deleteProjects(
+  projectId: string | undefined,
+  matches: (row: Row) => boolean,
+): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECTS_STORE, 'readwrite');
+    const store = tx.objectStore(PROJECTS_STORE);
+    let requestError: DOMException | null = null;
+
+    if (projectId) {
+      const getRequest = store.get(projectId);
+      getRequest.onsuccess = () => {
+        const row = getRequest.result as Row | undefined;
+        if (!row || !matches(row)) return;
+        const deleteRequest = store.delete(projectId);
+        deleteRequest.onerror = () => { requestError = deleteRequest.error; };
+      };
+      getRequest.onerror = () => { requestError = getRequest.error; };
+    } else {
+      const cursorRequest = store.openCursor();
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+        if (matches(cursor.value as Row)) {
+          const deleteRequest = cursor.delete();
+          deleteRequest.onerror = () => { requestError = deleteRequest.error; };
+        }
+        cursor.continue();
+      };
+      cursorRequest.onerror = () => { requestError = cursorRequest.error; };
+    }
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(requestError ?? tx.error ?? new Error('Project delete transaction failed'));
+    tx.onabort = () => reject(requestError ?? tx.error ?? new Error('Project delete transaction aborted'));
   });
 }
 
@@ -123,23 +346,20 @@ function isComparableValue(value: unknown): value is string | number {
 
 async function getElementsByProject(projectId: string): Promise<Row[]> {
   if (typeof window === 'undefined') return [];
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction('elements', 'readonly');
-      const store = tx.objectStore('elements');
-      const index = store.index('by_project');
-      const req = index.getAll(projectId);
-      req.onsuccess = () => {
-        // Strip internal _key field before returning
-        const rows = ((req.result ?? []) as StoredRow[]).map(stripStoredRow);
-        resolve(rows);
-      };
-      req.onerror = () => resolve([]);
-    });
-  } catch {
-    return [];
-  }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('elements', 'readonly');
+    const store = tx.objectStore('elements');
+    const index = store.index('by_project');
+    const req = index.getAll(projectId);
+    req.onsuccess = () => {
+      // Strip internal _key field before returning
+      const rows = ((req.result ?? []) as StoredRow[]).map(stripStoredRow);
+      resolve(rows);
+    };
+    req.onerror = () => reject(req.error ?? new Error(`Failed to read elements for project: ${projectId}`));
+    tx.onabort = () => reject(tx.error ?? new Error(`Element read aborted for project: ${projectId}`));
+  });
 }
 
 function collectImageRefsFromRow(row: Row, refs: Set<string>): void {
@@ -152,62 +372,53 @@ function collectImageRefsFromRow(row: Row, refs: Set<string>): void {
 async function collectAllImageRefs(): Promise<string[]> {
   if (typeof window === 'undefined') return [];
 
+  await projectMigrationReady;
   const refs = new Set<string>();
+  const db = await openDB();
 
-  try {
-    const db = await openDB();
+  // Collect refs from per-element storage (canvas_elements v2)
+  if (db.objectStoreNames.contains('elements')) {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('elements', 'readonly');
+      const store = tx.objectStore('elements');
+      const req = store.openCursor();
 
-    // Collect refs from per-element storage (canvas_elements v2)
-    if (db.objectStoreNames.contains('elements')) {
-      await new Promise<void>((resolve) => {
-        const tx = db.transaction('elements', 'readonly');
-        const store = tx.objectStore('elements');
-        const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve();
+          return;
+        }
+        collectImageRefsFromRow(cursor.value as Row, refs);
+        cursor.continue();
+      };
 
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (!cursor) {
-            resolve();
-            return;
-          }
-          collectImageRefsFromRow(cursor.value as Row, refs);
-          cursor.continue();
-        };
-
-        req.onerror = () => resolve();
-        tx.onerror = () => resolve();
-      });
-    }
-
-    // Collect refs from legacy canvas_elements storage
-    const legacyRows = await new Promise<Row[]>((resolve) => {
-      const tx = db.transaction('tables', 'readonly');
-      const store = tx.objectStore('tables');
-      const req = store.get('canvas_elements');
-      req.onsuccess = () => resolve((req.result as Row[]) ?? []);
-      req.onerror = () => resolve([]);
+      req.onerror = () => reject(req.error ?? new Error('Failed to scan stored image references'));
+      tx.onabort = () => reject(tx.error ?? new Error('Stored image reference scan aborted'));
     });
+  }
 
-    for (const row of legacyRows) {
-      collectImageRefsFromRow(row, refs);
+  // Collect refs from legacy canvas_elements storage
+  const legacyRows = await new Promise<Row[]>((resolve, reject) => {
+    const tx = db.transaction('tables', 'readonly');
+    const store = tx.objectStore('tables');
+    const req = store.get('canvas_elements');
+    req.onsuccess = () => resolve((req.result as Row[]) ?? []);
+    req.onerror = () => reject(req.error ?? new Error('Failed to read legacy canvas elements'));
+    tx.onabort = () => reject(tx.error ?? new Error('Legacy canvas element read aborted'));
+  });
+
+  for (const row of legacyRows) {
+    collectImageRefsFromRow(row, refs);
+  }
+
+  // Collect refs from project thumbnails (custom covers)
+  const projectRows = await getAllProjects();
+
+  for (const row of projectRows) {
+    if (typeof row.thumbnail === 'string' && row.thumbnail.startsWith(IMAGE_REF_PREFIX)) {
+      refs.add(row.thumbnail);
     }
-
-    // Collect refs from project thumbnails (custom covers)
-    const projectRows = await new Promise<Row[]>((resolve) => {
-      const tx = db.transaction('tables', 'readonly');
-      const store = tx.objectStore('tables');
-      const req = store.get('projects');
-      req.onsuccess = () => resolve((req.result as Row[]) ?? []);
-      req.onerror = () => resolve([]);
-    });
-
-    for (const row of projectRows) {
-      if (typeof row.thumbnail === 'string' && row.thumbnail.startsWith(IMAGE_REF_PREFIX)) {
-        refs.add(row.thumbnail);
-      }
-    }
-  } catch {
-    return [];
   }
 
   return Array.from(refs);
@@ -218,22 +429,19 @@ async function collectAllImageRefs(): Promise<string[]> {
  */
 async function getElementByKey(projectId: string, elementDataId: string): Promise<Row | null> {
   if (typeof window === 'undefined') return null;
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction('elements', 'readonly');
-      const store = tx.objectStore('elements');
-      const req = store.get(makeElementKey(projectId, elementDataId));
-      req.onsuccess = () => {
-        const row = req.result;
-        if (!row) { resolve(null); return; }
-        resolve(stripStoredRow(row as StoredRow));
-      };
-      req.onerror = () => resolve(null);
-    });
-  } catch {
-    return null;
-  }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('elements', 'readonly');
+    const store = tx.objectStore('elements');
+    const req = store.get(makeElementKey(projectId, elementDataId));
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) { resolve(null); return; }
+      resolve(stripStoredRow(row as StoredRow));
+    };
+    req.onerror = () => reject(req.error ?? new Error(`Failed to read element: ${elementDataId}`));
+    tx.onabort = () => reject(tx.error ?? new Error(`Element read aborted: ${elementDataId}`));
+  });
 }
 
 /**
@@ -273,18 +481,18 @@ async function getElementsByProjectCursor(
   onBatch: (rows: Row[]) => boolean | void | Promise<boolean | void>,
 ): Promise<void> {
   if (typeof window === 'undefined') return;
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction('elements', 'readonly');
-      const store = tx.objectStore('elements');
-      const index = store.index('by_project');
-      const cursorReq = index.openCursor(IDBKeyRange.only(projectId));
-      let batch: Row[] = [];
-      let stopped = false;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('elements', 'readonly');
+    const store = tx.objectStore('elements');
+    const index = store.index('by_project');
+    const cursorReq = index.openCursor(IDBKeyRange.only(projectId));
+    let batch: Row[] = [];
+    let stopped = false;
 
-      cursorReq.onsuccess = async () => {
-        if (stopped) return;
+    cursorReq.onsuccess = async () => {
+      if (stopped) return;
+      try {
         const cursor = cursorReq.result;
         if (cursor) {
           batch.push(stripStoredRow(cursor.value as StoredRow));
@@ -305,11 +513,14 @@ async function getElementsByProjectCursor(
           }
           resolve();
         }
-      };
-      cursorReq.onerror = () => resolve();
-      tx.onerror = () => resolve();
-    });
-  } catch { /* ignore */ }
+      } catch (error) {
+        stopped = true;
+        reject(error);
+      }
+    };
+    cursorReq.onerror = () => reject(cursorReq.error ?? new Error(`Failed to scan elements for project: ${projectId}`));
+    tx.onabort = () => reject(tx.error ?? new Error(`Element scan aborted for project: ${projectId}`));
+  });
 }
 
 /**
@@ -379,19 +590,16 @@ async function* elementCursorIterator(projectId: string): AsyncGenerator<Row, vo
  */
 async function countElementsByProject(projectId: string): Promise<number> {
   if (typeof window === 'undefined') return 0;
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction('elements', 'readonly');
-      const store = tx.objectStore('elements');
-      const index = store.index('by_project');
-      const req = index.count(IDBKeyRange.only(projectId));
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(0);
-    });
-  } catch {
-    return 0;
-  }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('elements', 'readonly');
+    const store = tx.objectStore('elements');
+    const index = store.index('by_project');
+    const req = index.count(IDBKeyRange.only(projectId));
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error(`Failed to count elements for project: ${projectId}`));
+    tx.onabort = () => reject(tx.error ?? new Error(`Element count aborted for project: ${projectId}`));
+  });
 }
 
 /**
@@ -402,30 +610,35 @@ async function getElementsByKeys(
   elementIds: string[],
 ): Promise<Row[]> {
   if (typeof window === 'undefined' || elementIds.length === 0) return [];
-  try {
-    const db = await openDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction('elements', 'readonly');
-      const store = tx.objectStore('elements');
-      const results: Row[] = [];
-      let pending = elementIds.length;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('elements', 'readonly');
+    const store = tx.objectStore('elements');
+    const results: Row[] = [];
+    let pending = elementIds.length;
+    let failed = false;
 
-      for (const eid of elementIds) {
-        const req = store.get(makeElementKey(projectId, eid));
-        req.onsuccess = () => {
-          if (req.result) {
-            results.push(stripStoredRow(req.result as StoredRow));
-          }
-          if (--pending === 0) resolve(results);
-        };
-        req.onerror = () => {
-          if (--pending === 0) resolve(results);
-        };
-      }
-    });
-  } catch {
-    return [];
-  }
+    for (const eid of elementIds) {
+      const req = store.get(makeElementKey(projectId, eid));
+      req.onsuccess = () => {
+        if (failed) return;
+        if (req.result) {
+          results.push(stripStoredRow(req.result as StoredRow));
+        }
+        if (--pending === 0) resolve(results);
+      };
+      req.onerror = () => {
+        if (failed) return;
+        failed = true;
+        reject(req.error ?? new Error(`Failed to read element: ${eid}`));
+      };
+    }
+    tx.onabort = () => {
+      if (failed) return;
+      failed = true;
+      reject(tx.error ?? new Error(`Batch element read aborted for project: ${projectId}`));
+    };
+  });
 }
 
 async function putElements(rows: Row[]): Promise<void> {
@@ -508,6 +721,7 @@ async function migrateFromLocalStorage() {
   const migrated = localStorage.getItem('lovart_db_migrated');
   if (migrated) return;
 
+  let migrationFailed = false;
   const tables = ['projects', 'canvas_elements', 'user_profiles'];
   for (const t of tables) {
     const key = `lovart_db_${t}`;
@@ -516,13 +730,62 @@ async function migrateFromLocalStorage() {
       try {
         const rows: Row[] = JSON.parse(raw);
         if (Array.isArray(rows) && rows.length > 0) {
-          await setStore(t, rows);
+          if (t === 'projects') {
+            await mergeMigratedProjects(rows);
+          } else {
+            await setStore(t, rows);
+          }
         }
         localStorage.removeItem(key);
-      } catch { /* ignore corrupt data */ }
+      } catch (error) {
+        migrationFailed = true;
+        console.warn(`[local-db] Failed to migrate localStorage table "${t}":`, error);
+      }
     }
   }
-  localStorage.setItem('lovart_db_migrated', '1');
+  if (!migrationFailed) {
+    localStorage.setItem('lovart_db_migrated', '1');
+  }
+}
+
+// Handles databases that received a late legacy table write after the v3
+// upgrade. Moving rows and deleting the legacy array happen in one transaction.
+async function migrateProjectsToPerProject(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const db = await openDB();
+  if (!db.objectStoreNames.contains(PROJECTS_STORE)) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(['tables', PROJECTS_STORE], 'readwrite');
+    const tablesStore = tx.objectStore('tables');
+    const projectStore = tx.objectStore(PROJECTS_STORE);
+    const legacyRequest = tablesStore.get('projects');
+    let requestError: DOMException | null = null;
+
+    legacyRequest.onsuccess = () => {
+      const legacyRows = Array.isArray(legacyRequest.result)
+        ? legacyRequest.result as Row[]
+        : [];
+      for (const row of legacyRows) {
+        const projectId = getProjectId(row);
+        if (!projectId) continue;
+        const existingRequest = projectStore.get(projectId);
+        existingRequest.onsuccess = () => {
+          const existing = existingRequest.result as Row | undefined;
+          if (!shouldMigrateProject(existing, row)) return;
+          const putRequest = projectStore.put(row);
+          putRequest.onerror = () => { requestError = putRequest.error; };
+        };
+        existingRequest.onerror = () => { requestError = existingRequest.error; };
+      }
+      const deleteRequest = tablesStore.delete('projects');
+      deleteRequest.onerror = () => { requestError = deleteRequest.error; };
+    };
+    legacyRequest.onerror = () => { requestError = legacyRequest.error; };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(requestError ?? tx.error ?? new Error('Legacy project migration failed'));
+    tx.onabort = () => reject(requestError ?? tx.error ?? new Error('Legacy project migration aborted'));
+  });
 }
 
 // ── Migrate canvas_elements from tables store to per-element store ──
@@ -567,7 +830,10 @@ async function migrateCanvasElementsToPerElement() {
 
 // Kick off migrations as soon as module loads (client-side)
 if (typeof window !== 'undefined') {
-  migrateFromLocalStorage().catch(() => {});
+  projectMigrationReady = migrateFromLocalStorage().then(() => migrateProjectsToPerProject());
+  projectMigrationReady.catch((error) => {
+    console.warn('[local-db] Project migration failed:', error);
+  });
   openDB().then(() => migrateCanvasElementsToPerElement()).catch(() => {});
 }
 
@@ -700,6 +966,12 @@ class QueryBuilder {
 
   async execute(): Promise<{ data: unknown; error: unknown }> {
     try {
+      // projects: use one IndexedDB record per project so concurrent writes to
+      // unrelated projects cannot overwrite one another.
+      if (this.table === 'projects') {
+        return await this.executeProjects();
+      }
+
       // canvas_elements: use per-element storage for O(1) operations
       if (this.table === 'canvas_elements') {
         return await this.executeCanvasElements();
@@ -782,6 +1054,84 @@ class QueryBuilder {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn(`[local-db] ${this.operation} on "${this.table}" failed:`, msg);
       return { data: null, error: { message: msg, code: 'LOCAL_DB_ERROR' } };
+    }
+  }
+
+  private matchesRow(row: Row): boolean {
+    return this.applyFilters([row]).length === 1
+      && this.applyExtraFilters([row]).length === 1;
+  }
+
+  /**
+   * Specialized execute() for projects — each project is an independent row.
+   * Updates and deletes run as single readwrite transactions, avoiding stale
+   * whole-array snapshots and cross-tab lost updates.
+   */
+  private async executeProjects(): Promise<{ data: unknown; error: unknown }> {
+    await projectMigrationReady;
+    const idFilter = this.filters.find((filter) => filter.column === 'id');
+    const projectId = typeof idFilter?.value === 'string' ? idFilter.value : undefined;
+
+    switch (this.operation) {
+      case 'select': {
+        let rows: Row[];
+        if (projectId) {
+          const project = await getProjectById(projectId);
+          rows = project ? [project] : [];
+        } else {
+          rows = await getAllProjects();
+        }
+        rows = this.applyFilters(rows);
+        rows = this.applyExtraFilters(rows);
+        if (this.orderBy) {
+          const { column, ascending } = this.orderBy;
+          rows.sort((a, b) => {
+            const aVal = a[column] ?? '';
+            const bVal = b[column] ?? '';
+            if (aVal < bVal) return ascending ? -1 : 1;
+            if (aVal > bVal) return ascending ? 1 : -1;
+            return 0;
+          });
+        }
+        rows = this.projectRows(rows);
+        if (this.isSingle) {
+          return rows.length === 0
+            ? { data: null, error: { code: 'PGRST116', message: 'No rows found' } }
+            : { data: rows[0], error: null };
+        }
+        return { data: rows, error: null };
+      }
+
+      case 'insert': {
+        const now = new Date().toISOString();
+        const sourceRows = (Array.isArray(this.insertData) ? this.insertData : [this.insertData])
+          .filter((row): row is Row => !!row);
+        const newRows = sourceRows.map((row) => ({
+          id: getProjectId(row) ?? uuidv4(),
+          created_at: now,
+          updated_at: now,
+          ...row,
+        }));
+        await insertProjects(newRows);
+        return { data: this.isSingle ? (newRows[0] ?? null) : newRows, error: null };
+      }
+
+      case 'update': {
+        const updated = await updateProjects(
+          projectId,
+          (row) => this.matchesRow(row),
+          { ...(this.updateData ?? {}), updated_at: new Date().toISOString() },
+        );
+        return { data: updated, error: null };
+      }
+
+      case 'delete': {
+        await deleteProjects(projectId, (row) => this.matchesRow(row));
+        return { data: null, error: null };
+      }
+
+      default:
+        return { data: null, error: { message: 'Unknown project operation', code: 'LOCAL_DB_ERROR' } };
     }
   }
 

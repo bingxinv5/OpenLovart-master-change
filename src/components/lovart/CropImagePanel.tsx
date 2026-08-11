@@ -496,7 +496,8 @@ function CropImagePanelContent({
     <>
     <style>{`${panelPositionCss}${cropPreviewCss}`}</style>
     <div
-      className={`${panelPositionClassName} absolute z-[120] w-[360px] workbench-panel-elevated rounded-xl p-3`}
+      data-testid="crop-image-panel"
+      className={`${panelPositionClassName} absolute z-[140] w-[360px] workbench-panel-elevated rounded-xl p-3`}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-between">

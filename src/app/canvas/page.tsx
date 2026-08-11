@@ -12,7 +12,7 @@ import { CanvasShortcutHelp } from '@/components/lovart/CanvasShortcutHelp';
 import { GenerationQueuePanel, type GenerationQueueItem } from '@/components/lovart/GenerationQueuePanel';
 import { isCanvasGenerationPanelElement, isCanvasImageGenerationPanelElement, type CanvasElement } from '@/components/lovart/canvas-types';
 import { useLocalDb } from '@/hooks/useLocalDb';
-import { isImageRef, getImageBlob, getImageDataUrl } from '@/lib/editor-kernel';
+import { elementStore, isImageRef, getImageBlob, getImageDataUrl } from '@/lib/editor-kernel';
 import { useCanvasFeedback } from './canvas-feedback';
 import { CanvasBenchmarkPanel } from './CanvasBenchmarkPanel';
 import { CanvasFeedbackOverlays } from './CanvasFeedbackOverlays';
@@ -150,6 +150,7 @@ function LovartCanvasContent() {
 
     const [scale, setScale] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
+    const visualViewportRef = useRef({ scale, pan });
 
     // ── 视口状态持久化：pan/scale 变化时同步到 sessionStorage ──
     const scaleRef = useRef(scale);
@@ -872,6 +873,7 @@ function LovartCanvasContent() {
         handleClearBenchmarkResults,
         isBenchmarkRunning,
         runCanvasBenchmark,
+        runCanvasMixedBenchmark,
     } = useCanvasBenchmarkActions({
         benchmarkMode,
         workbenchSettings,
@@ -1014,9 +1016,11 @@ function LovartCanvasContent() {
         handleTitleChange,
         saveStatus,
         isLoading,
+        loadError,
         titleDirtyRef,
         clearScheduledSave,
         saveProject,
+        loadProject,
     } = useCanvasProjectPersistence({
         user,
         database,
@@ -1384,6 +1388,17 @@ function LovartCanvasContent() {
         return _resolveCanvasContentBlob(content, remoteFilename, { getImageBlob, dataUrlToBlob, fetchRemoteBlob });
     }, []);
 
+    const persistImportedElements = useCallback(async (importedElements: CanvasElement[]) => {
+        const projectId = currentProjectIdRef.current;
+        if (!projectId) {
+            throw new Error('项目尚未完成初始化，无法安全写入导入图片。');
+        }
+        await elementStore.put(importedElements.map((element) => ({
+            project_id: projectId,
+            element_data: element,
+        })));
+    }, [currentProjectIdRef]);
+
     const {
         handleAddImage,
         handleAddVideo,
@@ -1396,6 +1411,7 @@ function LovartCanvasContent() {
         clipboardRef,
         getPlacementPosition,
         handlePasteAt,
+        persistImportedElements,
         refreshStorageEstimate,
         removeElementsByIds,
         setActiveTool,
@@ -2073,11 +2089,13 @@ function LovartCanvasContent() {
         view: {
             scale,
             pan,
+            visualViewportRef,
             onPanChange: setPan,
             onScaleChange: setScale,
         },
         elementCRUD: {
             elements: canvasRuntimeElements,
+            overviewElements: elements,
             onElementChange: handleElementChange,
             onBatchElementChange: handleBatchElementChange,
             onDelete: handleDelete,
@@ -2171,6 +2189,40 @@ function LovartCanvasContent() {
                     <div className="canvas-loading-spinner mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4"></div>
                     <p className="canvas-loading-title font-medium">加载画布中...</p>
                     <p className="canvas-loading-caption mt-2 text-sm">正在从云端获取数据</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (loadError) {
+        return (
+            <div
+                className="canvas-loading-shell flex h-screen w-full items-center justify-center px-6"
+                data-testid="canvas-load-error"
+            >
+                <div className="max-w-xl rounded-2xl border border-red-200 bg-white px-8 py-10 text-center shadow-sm">
+                    <h1 className="text-lg font-semibold text-slate-900">项目画布读取失败</h1>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{loadError}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">请勿清理浏览器数据。读取恢复之前，本页面不会写入项目。</p>
+                    <div className="mt-6 flex justify-center gap-3">
+                        <button
+                            type="button"
+                            data-testid="canvas-retry-load"
+                            onClick={() => {
+                                if (projectId) void loadProject(projectId);
+                            }}
+                            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                        >
+                            重试读取
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => window.location.assign('/projects')}
+                            className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                        >
+                            返回项目列表
+                        </button>
+                    </div>
                 </div>
             </div>
         );
@@ -2334,6 +2386,7 @@ function LovartCanvasContent() {
                     benchmarkResults={benchmarkResults}
                     onClearResults={handleClearBenchmarkResults}
                     onRunBenchmark={(count, mode) => void runCanvasBenchmark(count, mode)}
+                    onRunMixedBenchmark={() => void runCanvasMixedBenchmark()}
                 />
             )}
 
@@ -2349,6 +2402,7 @@ function LovartCanvasContent() {
             <div className="absolute inset-0">
                 <CanvasArea {...canvasAreaDomains} />
                 <CanvasFloatingToolPanels
+                    visualViewportRef={visualViewportRef}
                     toolbarProps={{
                         activeTool,
                         onToolChange: setActiveTool,

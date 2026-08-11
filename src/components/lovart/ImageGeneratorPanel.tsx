@@ -79,7 +79,13 @@ import { buildImageReferencePreviewItems } from './generator-reference-view-mode
 import type { ImageResourceLibraryTab } from './ImageGeneratorResourceLibrary';
 import { ImageGeneratorPromptComposer } from './ImageGeneratorPromptComposer';
 import { ImageGeneratorFooterControls } from './ImageGeneratorFooterControls';
-import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
+import {
+    buildFloatingPanelPositionClassName,
+    buildFloatingPanelPositionCss,
+    resolveFloatingPanelScale,
+    type CanvasVisualViewport,
+} from './floating-panel-position';
+import { useCanvasFloatingPanelFollower } from './use-canvas-floating-panel-follower';
 import { buildGeneratorAspectRatioPatch, resolveGeneratorAspectRatioBounds } from './generator-aspect-ratio-layout';
 import type { PromptMentionEditorContext, PromptMentionEditorHandle } from './GeneratorPromptMentionEditor';
 
@@ -106,6 +112,8 @@ function extractPromptReferenceTokens(value: string) {
 
 interface ImageGeneratorPanelProps {
     elementId: string;
+    anchorElement?: Pick<CanvasElement, 'type' | 'x' | 'y' | 'width' | 'height'>;
+    visualViewportRef?: React.RefObject<CanvasVisualViewport>;
     onGenerate: (result: { imageUrl: string; taskId?: string | null }) => void;
     onRecoverTask?: (elementId: string, taskId: string) => Promise<void>;
     isGenerating: boolean;
@@ -122,7 +130,7 @@ interface ImageGeneratorPanelProps {
 }
 
 export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
-    const { elementId, onGenerate, onRecoverTask, isGenerating: isGeneratingFromParent, style, canvasElements, onElementChange, onSubmittingChange, onAddElement, onRequestCanvasSelect, projectReferenceImages = [], onUseProjectReferenceImage, onDeleteReferenceConnector, onCreateReferenceConnectorFromCanvasSelection } = props;
+    const { elementId, anchorElement, visualViewportRef, onGenerate, onRecoverTask, isGenerating: isGeneratingFromParent, style, canvasElements, onElementChange, onSubmittingChange, onAddElement, onRequestCanvasSelect, projectReferenceImages = [], onUseProjectReferenceImage, onDeleteReferenceConnector, onCreateReferenceConnectorFromCanvasSelection } = props;
     const imageDefaults = useImageGenerationDefaults();
     const [apiProviderId, setApiProviderId] = useState(() => getApiSettings().featureProviders.image);
     const canvasElementList = useMemo(() => (canvasElements || []) as unknown as CanvasElement[], [canvasElements]);
@@ -1141,6 +1149,15 @@ export function ImageGeneratorPanel(props: ImageGeneratorPanelProps) {
     const resourceLibraryCount = projectReferenceImages.length + favoriteReferences.length + recentHistory.length + referenceLibrary.length;
     const canAddMoreImages = referenceImages.length < maxReferenceImages;
     const referencePreviewItems = useMemo(() => buildImageReferencePreviewItems(referenceImages), [referenceImages]);
+    const panelScale = resolveFloatingPanelScale(style?.transform);
+    useCanvasFloatingPanelFollower({
+        panelRef,
+        anchorElement,
+        visualViewportRef,
+        enabled: !showExpandedPromptEditor,
+        panelScale,
+        fallbackPanelWidth: 620,
+    });
     const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('image-generator-panel-position', elementId), [elementId]);
     const panelPositionCss = useMemo(() => showExpandedPromptEditor
         ? `

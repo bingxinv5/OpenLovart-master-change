@@ -787,14 +787,70 @@ body::before {
   shape-rendering: geometricPrecision;
 }
 
-.canvas-content-layer-transform.is-interacting .canvas-reference-connector-layer path {
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .canvas-reference-connector-layer path {
   shape-rendering: optimizeSpeed;
 }
 
-.canvas-content-layer-transform.is-interacting .canvas-reference-flow-path,
-.canvas-content-layer-transform.is-interacting .canvas-reference-draft-path {
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .canvas-reference-flow-path,
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .canvas-reference-draft-path {
   animation: none !important;
   filter: none !important;
+}
+
+.canvas-content-layer-transform[data-is-zooming='true'] {
+  pointer-events: none;
+}
+
+.canvas-low-zoom-overview {
+  display: none;
+}
+
+.canvas-low-zoom-overview[data-active='true'],
+.canvas-content-layer-transform[data-zoom-overview-active='true'] .canvas-low-zoom-overview {
+  display: block;
+}
+
+.canvas-content-layer-transform[data-zoom-overview-active='true'] .canvas-detailed-layer {
+  display: none !important;
+}
+
+.canvas-zoom-overview-overlay {
+  display: none;
+}
+
+.canvas-area-surface[data-zoom-render-mode='overview'] > .canvas-content-layer-transform {
+  visibility: hidden;
+}
+
+.canvas-area-surface[data-zoom-render-mode='overview'] > .canvas-zoom-overview-overlay {
+  display: block;
+}
+
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) [data-reference-port],
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .canvas-reference-connector-delete-button {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .canvas-element-position-node,
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .canvas-element-position-node * {
+  transition: none !important;
+}
+
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .animate-pulse,
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .animate-spin {
+  animation-play-state: paused !important;
+}
+
+.canvas-content-layer-transform:is(.is-interacting, [data-is-zooming='true']) .canvas-tool-node {
+  box-shadow: none !important;
+}
+
+.canvas-area-surface[data-is-zooming='true'] :is(
+  [class*='active-image-preview-position'],
+  [class*='canvas-context-toolbar-position']
+) {
+  visibility: hidden !important;
 }
 
 .canvas-tool-node-image {

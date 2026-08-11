@@ -31,7 +31,13 @@ import {
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import { compressReferenceImageDataUrl } from '@/lib/reference-image-processing';
 import type { CanvasElement } from './canvas-types';
-import { buildFloatingPanelPositionClassName, buildFloatingPanelPositionCss } from './floating-panel-position';
+import {
+  buildFloatingPanelPositionClassName,
+  buildFloatingPanelPositionCss,
+  resolveFloatingPanelScale,
+  type CanvasVisualViewport,
+} from './floating-panel-position';
+import { useCanvasFloatingPanelFollower } from './use-canvas-floating-panel-follower';
 import {
   STORYBOARD_PLANNER_SAVE_DEBOUNCE_MS,
   getStoryboardPlannerStorageKey,
@@ -79,6 +85,8 @@ type AspectRatioOption = 'auto' | ImageGenerationDefaults['aspectRatio'];
 
 interface StoryboardPlannerPanelProps {
   elementId: string;
+  anchorElement?: Pick<CanvasElement, 'type' | 'x' | 'y' | 'width' | 'height'>;
+  visualViewportRef?: React.RefObject<CanvasVisualViewport>;
   style?: CSSProperties;
   selectedModel: string;
   canvasImages: PlannerCanvasImage[];
@@ -237,6 +245,8 @@ function SectionLabel({ children, step }: { children: React.ReactNode; step?: nu
 
 export function StoryboardPlannerPanel({
   elementId,
+  anchorElement,
+  visualViewportRef,
   style,
   selectedModel,
   canvasImages,
@@ -359,6 +369,7 @@ export function StoryboardPlannerPanel({
   const [showCanvasPicker, setShowCanvasPicker] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const activeRunRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storyboardAspectRatio = useMemo(() => getStoryboardCollageAspectRatio(shotCount), [shotCount]);
@@ -984,12 +995,21 @@ export function StoryboardPlannerPanel({
   }, [combinedPrompt, generationState.imageUrl, onCreateDraft, result, sourceImages]);
   const panelPositionClassName = useMemo(() => buildFloatingPanelPositionClassName('storyboard-planner-panel-position', elementId), [elementId]);
   const panelPositionCss = useMemo(() => buildFloatingPanelPositionCss(panelPositionClassName, style), [panelPositionClassName, style]);
+  useCanvasFloatingPanelFollower({
+    panelRef,
+    anchorElement,
+    visualViewportRef,
+    panelScale: resolveFloatingPanelScale(style?.transform),
+    fallbackPanelWidth: 560,
+  });
 
   return (
     <>
     <style>{panelPositionCss}</style>
     <div
-      className={`${panelPositionClassName} canvas-theme-panel-elevated absolute z-[120] flex w-[min(560px,calc(100vw-40px))] max-h-[min(92vh,960px)] flex-col overflow-hidden rounded-xl`}
+      ref={panelRef}
+      data-testid="storyboard-planner-panel"
+      className={`${panelPositionClassName} canvas-theme-panel-elevated absolute z-[140] flex w-[min(560px,calc(100vw-40px))] max-h-[min(92vh,960px)] flex-col overflow-hidden rounded-xl`}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" aria-label="上传分镜参考图" onChange={handleFileChange} />

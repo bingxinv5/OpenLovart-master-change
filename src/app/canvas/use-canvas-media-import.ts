@@ -3,12 +3,12 @@ import type { MutableRefObject } from 'react';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
 import { patchMediaElement } from '@/components/lovart/canvas-element-patch';
 import { debugLog } from '@/lib/debug-log';
-import { saveImageBlob } from '@/lib/editor-kernel';
+import { ImageStorageError, saveImageBlob } from '@/lib/editor-kernel';
 import { v4 as uuidv4 } from 'uuid';
 import { isEditableShortcutTarget } from './canvas-keyboard-shortcuts';
 import { buildCenteredElementBounds } from './canvas-element-ops';
 import type { CanvasToastType } from './canvas-feedback';
-import { IMAGE_IMPORT_CONCURRENCY } from './canvas-runtime-types';
+import { IMAGE_IMPORT_CONCURRENCY, IMAGE_IMPORT_PERSIST_BATCH_SIZE } from './canvas-runtime-types';
 import {
     getCanvasDisplaySize,
     getDefaultImagePresentation,
@@ -22,6 +22,15 @@ function isLikelyClipboardImageFile(file: File) {
     return /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.name || '');
 }
 
+export function buildImageImportBatches<T>(items: T[], batchSize = IMAGE_IMPORT_PERSIST_BATCH_SIZE) {
+    const safeBatchSize = Math.max(1, Math.floor(batchSize));
+    const batches: Array<{ start: number; items: T[] }> = [];
+    for (let start = 0; start < items.length; start += safeBatchSize) {
+        batches.push({ start, items: items.slice(start, start + safeBatchSize) });
+    }
+    return batches;
+}
+
 export interface UseCanvasMediaImportParams {
     addElements: (newElements: CanvasElement[]) => void;
     addAndFocusElement: (element: CanvasElement) => void;
@@ -30,6 +39,7 @@ export interface UseCanvasMediaImportParams {
     clipboardRef: MutableRefObject<CanvasElement[]>;
     getPlacementPosition: () => { x: number; y: number };
     handlePasteAt: (position: { x: number; y: number }) => void;
+    persistImportedElements: (elements: CanvasElement[]) => Promise<void>;
     refreshStorageEstimate: () => Promise<unknown> | unknown;
     removeElementsByIds: (ids: string[]) => void;
     setActiveTool: (tool: string) => void;
@@ -47,6 +57,7 @@ export function useCanvasMediaImport({
     clipboardRef,
     getPlacementPosition,
     handlePasteAt,
+    persistImportedElements,
     refreshStorageEstimate,
     removeElementsByIds,
     setActiveTool,
@@ -64,40 +75,69 @@ export function useCanvasMediaImport({
         const center = dropPosition || getPlacementPosition();
         setActiveTool('select');
 
-        const importedElements: Array<CanvasElement | null> = await mapWithConcurrency(fileArray, IMAGE_IMPORT_CONCURRENCY, async (file, index) => {
-            try {
-                const { width: naturalWidth, height: naturalHeight } = await readImageDimensions(file);
-                const { width, height } = getCanvasDisplaySize(naturalWidth, naturalHeight);
-                const content = await saveImageBlob(file);
-                if (!content) return null;
+        const importedElements: CanvasElement[] = [];
+        let failedCount = 0;
+        let storageFailure: unknown = null;
 
-                return {
-                    id: uuidv4(),
-                    type: 'image',
-                    x: center.x - width / 2 + index * 40,
-                    y: center.y - height / 2 + index * 40,
-                    width,
-                    height,
-                    content,
-                    ...getDefaultImagePresentation(workbenchSettings),
-                } satisfies CanvasElement;
-            } catch (error) {
-                console.warn('[Canvas] Failed to import image:', file.name, error);
-                return null;
+        for (const { start: batchStart, items: batch } of buildImageImportBatches(fileArray)) {
+            const batchResults = await mapWithConcurrency(batch, IMAGE_IMPORT_CONCURRENCY, async (file, batchIndex): Promise<CanvasElement | null> => {
+                const index = batchStart + batchIndex;
+                try {
+                    const { width: naturalWidth, height: naturalHeight } = await readImageDimensions(file);
+                    const { width, height } = getCanvasDisplaySize(naturalWidth, naturalHeight);
+                    const content = await saveImageBlob(file);
+
+                    return {
+                        id: uuidv4(),
+                        type: 'image',
+                        x: center.x - width / 2 + index * 40,
+                        y: center.y - height / 2 + index * 40,
+                        width,
+                        height,
+                        content,
+                        ...getDefaultImagePresentation(workbenchSettings),
+                    } satisfies CanvasElement;
+                } catch (error) {
+                    failedCount += 1;
+                    if (error instanceof ImageStorageError && !storageFailure) {
+                        storageFailure = error;
+                    }
+                    console.warn('[Canvas] Failed to import image:', file.name, error);
+                    return null;
+                }
+            });
+
+            const persistedBatch = batchResults.filter((element): element is CanvasElement => element !== null);
+            if (persistedBatch.length > 0) {
+                try {
+                    await persistImportedElements(persistedBatch);
+                } catch (error) {
+                    storageFailure = error;
+                    failedCount += persistedBatch.length;
+                    console.error('[Canvas] Failed to persist imported image elements:', error);
+                    break;
+                }
+
+                importedElements.push(...persistedBatch);
+                addElements(persistedBatch);
+                setSelectedIds(importedElements.map((element) => element.id));
+                await refreshStorageEstimate();
             }
-        });
 
-        const newElements = importedElements.filter((element): element is CanvasElement => element !== null);
-        if (newElements.length > 0) {
-            addElements(newElements);
-            setSelectedIds(newElements.map((element) => element.id));
-            void refreshStorageEstimate();
+            if (storageFailure) break;
         }
 
-        if (newElements.length !== fileArray.length) {
-            showToast(`成功导入 ${newElements.length}/${fileArray.length} 张图片`, newElements.length > 0 ? 'info' : 'error');
+        if (storageFailure) {
+            const message = storageFailure instanceof ImageStorageError
+                ? storageFailure.message
+                : '画布元素写入本地数据库失败。';
+            showToast(`导入已停止：${message} 已安全保存 ${importedElements.length}/${fileArray.length} 张。`, 'error');
+        } else if (failedCount > 0) {
+            showToast(`成功导入并保存 ${importedElements.length}/${fileArray.length} 张图片`, importedElements.length > 0 ? 'info' : 'error');
+        } else if (fileArray.length > IMAGE_IMPORT_PERSIST_BATCH_SIZE) {
+            showToast(`已分批导入并保存 ${importedElements.length} 张图片`, 'success');
         }
-    }, [addElements, getPlacementPosition, refreshStorageEstimate, setActiveTool, setSelectedIds, showToast, workbenchSettings]);
+    }, [addElements, getPlacementPosition, persistImportedElements, refreshStorageEstimate, setActiveTool, setSelectedIds, showToast, workbenchSettings]);
 
     useEffect(() => {
         const handleWindowPaste = (event: ClipboardEvent) => {

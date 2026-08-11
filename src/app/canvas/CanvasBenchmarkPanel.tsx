@@ -32,6 +32,7 @@ interface CanvasBenchmarkPanelProps {
     benchmarkResults: CanvasBenchmarkResult[];
     onClearResults: () => void;
     onRunBenchmark: (count: number, mode: 'replace' | 'append') => void;
+    onRunMixedBenchmark: () => void;
 }
 
 export function CanvasBenchmarkPanel({
@@ -50,6 +51,7 @@ export function CanvasBenchmarkPanel({
     benchmarkResults,
     onClearResults,
     onRunBenchmark,
+    onRunMixedBenchmark,
 }: CanvasBenchmarkPanelProps) {
     const preheatProgressPercent = chunkPreheat.totalElements > 0
         ? (chunkPreheat.loadedElements / chunkPreheat.totalElements) * 100
@@ -112,11 +114,23 @@ export function CanvasBenchmarkPanel({
                 ))}
             </div>
 
+            <button
+                type="button"
+                data-testid="benchmark-run-mixed-300"
+                disabled={isBenchmarkRunning}
+                onClick={onRunMixedBenchmark}
+                className="mt-2 w-full rounded-xl border border-emerald-200 px-3 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+                300 个混合元素拖动基准
+            </button>
+
             {renderMetrics && (
                 <div className="mt-3 rounded-2xl border border-violet-100 bg-violet-50/60 px-3 py-3 text-xs text-slate-600" data-testid="benchmark-live-metrics">
                     <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-violet-700">
                         <span>实时渲染指标</span>
-                        <span>{renderMetrics.visibleCount} / {renderMetrics.totalCount}</span>
+                        <span>
+                            {renderMetrics.renderMode === 'overview' ? '总览' : '详细'} · {renderMetrics.detailedCount + renderMetrics.overviewCount} / {renderMetrics.totalCount}
+                        </span>
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                         <div className="rounded-xl bg-white/80 px-2.5 py-2">

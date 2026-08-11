@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { isImageRef, getRefId, makeRef, IMAGE_REF_PREFIX, getImageLookupCandidateKeys } from './image-store';
+import { describe, it, expect, vi } from 'vitest';
+import { isImageRef, getRefId, makeRef, IMAGE_REF_PREFIX, getImageLookupCandidateKeys, saveImageBlob } from './image-store';
 
 describe('image-store ref utilities', () => {
   it('IMAGE_REF_PREFIX is the expected value', () => {
@@ -66,5 +66,32 @@ describe('image-store ref utilities', () => {
       'abc__lod_256',
       'abc__lod_64',
     ]);
+  });
+
+  it('reports storage failures instead of returning an inline base64 fallback', async () => {
+    const request: {
+      error?: Error;
+      onerror?: () => void;
+    } = {};
+    const indexedDbMock = {
+      open: vi.fn(() => {
+        queueMicrotask(() => {
+          request.error = Object.assign(new Error('Quota exceeded'), { name: 'QuotaExceededError' });
+          request.onerror?.();
+        });
+        return request;
+      }),
+    };
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('window', { indexedDB: indexedDbMock });
+    vi.stubGlobal('indexedDB', indexedDbMock);
+
+    await expect(saveImageBlob(new Blob(['image'], { type: 'image/png' }))).rejects.toMatchObject({
+      name: 'ImageStorageError',
+      code: 'quota-exceeded',
+    });
+
+    consoleError.mockRestore();
+    vi.unstubAllGlobals();
   });
 });

@@ -5,8 +5,10 @@
  * by their functional domain, reducing the overall prop count from 50+ to ~15.
  */
 
+import type { RefObject } from 'react';
 import type { CanvasConnectorPort, CanvasElement, CanvasElementExportFormat } from './canvas-types';
 import type { CanvasElementPatchAttrs } from './canvas-element-patch';
+import type { CanvasVisualViewport } from './floating-panel-position';
 import type { ProjectReferenceImageItem } from '@/lib/project-reference-library';
 import type { SpatialIndex } from '@/lib/editor-kernel';
 
@@ -15,6 +17,9 @@ import type { SpatialIndex } from '@/lib/editor-kernel';
 export interface CanvasRenderMetrics {
     visibleCount: number;
     totalCount: number;
+    detailedCount: number;
+    overviewCount: number;
+    renderMode: 'detailed' | 'overview';
     culledCount: number;
     virtualizedCount: number;
     deferredCount: number;
@@ -41,6 +46,7 @@ export interface SelectionDomainPort {
 export interface ViewDomainPort {
     scale: number;
     pan: { x: number; y: number };
+    visualViewportRef?: RefObject<CanvasVisualViewport>;
     onPanChange: (pan: { x: number; y: number }) => void;
     onScaleChange: (scale: number) => void;
 }
@@ -50,6 +56,7 @@ export interface ViewDomainPort {
  */
 export interface ElementCRUDDomainPort {
     elements: CanvasElement[];
+    overviewElements?: CanvasElement[];
     onElementChange: (id: string, newAttrs: Partial<CanvasElement>) => void;
     onBatchElementChange?: (changes: { id: string; attrs: CanvasElementPatchAttrs }[]) => void;
     onDelete: (id: string) => void;

@@ -1,4 +1,4 @@
-import React, { type CSSProperties } from 'react';
+import React, { type CSSProperties, type RefObject } from 'react';
 import { AnnotateImagePanel } from '@/components/lovart/AnnotateImagePanel';
 import { CropImagePanel } from '@/components/lovart/CropImagePanel';
 import { FloatingToolbar } from '@/components/lovart/FloatingToolbar';
@@ -8,6 +8,7 @@ import { StoryboardPlannerPanel } from '@/components/lovart/StoryboardPlannerPan
 import { VideoGeneratorPanel } from '@/components/lovart/VideoGeneratorPanel';
 import type { CanvasElement } from '@/components/lovart/canvas-types';
 import { isCanvasImageGenerationPanelElement, isCanvasVideoGenerationPanelElement } from '@/components/lovart/canvas-types';
+import type { CanvasVisualViewport } from '@/components/lovart/floating-panel-position';
 import { StoryboardExportSelection } from './StoryboardExportSelection';
 import { ZoomControl } from './ZoomControl';
 
@@ -22,6 +23,7 @@ type SplitStoryboardPanelProps = React.ComponentProps<typeof SplitStoryboardPane
 type ZoomControlProps = React.ComponentProps<typeof ZoomControl>;
 
 interface CanvasFloatingToolPanelsProps {
+    visualViewportRef: RefObject<CanvasVisualViewport>;
     toolbarProps: FloatingToolbarProps;
     selectedGeneratorElement: CanvasElement | null;
     selectedGeneratorPanelStyle: CSSProperties | null | undefined;
@@ -74,6 +76,7 @@ interface CanvasFloatingToolPanelsProps {
 }
 
 export function CanvasFloatingToolPanels({
+    visualViewportRef,
     toolbarProps,
     selectedGeneratorElement,
     selectedGeneratorPanelStyle,
@@ -130,8 +133,10 @@ export function CanvasFloatingToolPanels({
 
             {selectedGeneratorElement?.type === 'storyboard-planner' && selectedGeneratorPanelStyle && (
                 <StoryboardPlannerPanel
-                    key={selectedGeneratorElement.id}
+                    key={`generator-storyboard:${selectedGeneratorElement.id}`}
                     elementId={selectedGeneratorElement.id}
+                    anchorElement={selectedGeneratorElement}
+                    visualViewportRef={visualViewportRef}
                     style={selectedGeneratorPanelStyle}
                     selectedModel={selectedModel}
                     projectReferenceImages={projectReferenceItems}
@@ -148,8 +153,10 @@ export function CanvasFloatingToolPanels({
 
             {storyboardPlannerSourceElement && storyboardPlannerPanelStyle && (
                 <StoryboardPlannerPanel
-                    key={`image-storyboard-${storyboardPlannerSourceElement.id}`}
+                    key={`source-storyboard:${storyboardPlannerSourceElement.id}`}
                     elementId={storyboardPlannerSourceElement.id}
+                    anchorElement={storyboardPlannerSourceElement}
+                    visualViewportRef={visualViewportRef}
                     style={storyboardPlannerPanelStyle}
                     selectedModel={selectedModel}
                     projectReferenceImages={projectReferenceItems}
@@ -164,8 +171,10 @@ export function CanvasFloatingToolPanels({
 
             {isCanvasImageGenerationPanelElement(selectedGeneratorElement) && selectedGeneratorPanelStyle && (
                 <ImageGeneratorPanel
-                    key={selectedGeneratorElement.id}
+                    key={`image-generator:${selectedGeneratorElement.id}`}
                     elementId={selectedGeneratorElement.id}
+                    anchorElement={selectedGeneratorElement}
+                    visualViewportRef={visualViewportRef}
                     onGenerate={onGenerateImage}
                     onRecoverTask={onRecoverImageTask}
                     isGenerating={!!generatorSubmittingMap[selectedGeneratorElement.id]}
@@ -184,8 +193,10 @@ export function CanvasFloatingToolPanels({
 
             {isCanvasVideoGenerationPanelElement(selectedGeneratorElement) && selectedGeneratorPanelStyle && (
                 <VideoGeneratorPanel
-                    key={selectedGeneratorElement.id}
+                    key={`video-generator:${selectedGeneratorElement.id}`}
                     elementId={selectedGeneratorElement.id}
+                    anchorElement={selectedGeneratorElement}
+                    visualViewportRef={visualViewportRef}
                     onGenerate={onGenerateVideo}
                     onRecoverTask={onRecoverVideoTask}
                     isGenerating={!!generatorSubmittingMap[selectedGeneratorElement.id]}
@@ -207,7 +218,7 @@ export function CanvasFloatingToolPanels({
 
             {selectedAnnotateImageElement && selectedAnnotateImagePanelStyle && (
                 <AnnotateImagePanel
-                    key={selectedAnnotateImageElement.id}
+                    key={`annotate:${selectedAnnotateImageElement.id}`}
                     element={selectedAnnotateImageElement}
                     style={selectedAnnotateImagePanelStyle}
                     isSubmitting={isAnnotateImageSubmitting}
@@ -220,7 +231,7 @@ export function CanvasFloatingToolPanels({
 
             {selectedCropImageElement && selectedCropImagePanelStyle && (
                 <CropImagePanel
-                    key={selectedCropImageElement.id}
+                    key={`crop:${selectedCropImageElement.id}`}
                     element={selectedCropImageElement}
                     style={selectedCropImagePanelStyle}
                     isSubmitting={isCropImageSubmitting}
@@ -233,7 +244,7 @@ export function CanvasFloatingToolPanels({
 
             {selectedSplitStoryboardElement && selectedSplitStoryboardPanelStyle && (
                 <SplitStoryboardPanel
-                    key={selectedSplitStoryboardElement.id}
+                    key={`split-storyboard:${selectedSplitStoryboardElement.id}`}
                     element={selectedSplitStoryboardElement}
                     style={selectedSplitStoryboardPanelStyle}
                     isSubmitting={isSplitStoryboardSubmitting}
