@@ -1,6 +1,9 @@
 export type ImageGenerationModelBranch = 'standard' | 'openai-gpt-image' | 'grok' | 'domestic';
 
-const OPENAI_GPT_IMAGE_MODELS = new Set(['gpt-image-2', 'gpt-image-2-pro']);
+// The 2.5 variants provisionally share the existing GeekNow GPT Image 2 profile.
+// Keep their upstream model IDs intact; dedicated capability docs are not yet published.
+const MAGICAPI_GPT_IMAGE_2_MODELS = new Set(['gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']);
+const OPENAI_GPT_IMAGE_MODELS = new Set([...MAGICAPI_GPT_IMAGE_2_MODELS, 'gpt-image-2-pro']);
 const GROK_IMAGE_MODELS = new Set(['grok-4.2-image', 'grok-4.1-image', 'grok-4-2-image']);
 const DOMESTIC_IMAGE_MODELS = new Set(['doubao-seedream-5-0-260128', 'doubao-seedream-4-5-251128']);
 const GEMINI_NATIVE_IMAGE_MODELS = new Set([
@@ -257,7 +260,7 @@ export function isMagicApiGptImageAspectRatio(value: unknown): value is MagicApi
 }
 
 export function getMagicApiGptImageAspectRatioOptions(model: unknown): MagicApiGptImageAspectRatio[] {
-  if (model === 'gpt-image-2' || model === 'gpt-image-2-pro') {
+  if (isMagicApiGptImage2Model(model) || model === 'gpt-image-2-pro') {
     return [...MAGICAPI_GPT_IMAGE_2_FAMILY_ASPECT_RATIO_OPTIONS];
   }
 
@@ -279,7 +282,7 @@ function isMagicApiGptImageSizeForModel(model: unknown, value: unknown): value i
     return MAGICAPI_GPT_IMAGE_2_PRO_SIZE_SET.has(normalized);
   }
 
-  if (model === 'gpt-image-2') {
+  if (isMagicApiGptImage2Model(model)) {
     return MAGICAPI_GPT_IMAGE_2_SIZE_SET.has(normalized);
   }
 
@@ -479,6 +482,7 @@ export function isGeminiNativeImageModel(model: unknown): model is string {
 }
 
 export function getMagicApiGeminiImageSizeOptions(model: unknown): StandardImageSize[] {
+  // GeekNow's live preview-model routes support 1K/2K/4K even though the current docs understate these tiers.
   if (model === 'gemini-3-pro-image-preview' || model === 'gemini-3.1-flash-image-preview' || model === 'nano-banana-pro') {
     return ['1K', '2K', '4K'];
   }
@@ -536,12 +540,16 @@ export function resolveJieKouGptImageQuality(quality: unknown): 'low' | 'medium'
   return 'medium';
 }
 
+function isMagicApiGptImage2Model(model: unknown): boolean {
+  return typeof model === 'string' && MAGICAPI_GPT_IMAGE_2_MODELS.has(model);
+}
+
 export function getMagicApiGptImageSizeOptions(model: unknown): MagicApiGptImageSize[] {
   if (model === 'gpt-image-2-pro') {
     return [...MAGICAPI_GPT_IMAGE_2_PRO_SIZE_OPTIONS];
   }
 
-  if (model === 'gpt-image-2') {
+  if (isMagicApiGptImage2Model(model)) {
     return [...MAGICAPI_GPT_IMAGE_2_SIZE_OPTIONS];
   }
 
@@ -562,7 +570,7 @@ export function resolveMagicApiOpenAiStyleImageSize(
       return MAGICAPI_GPT_IMAGE_2_PRO_SIZE_BY_ASPECT_RATIO[aspectRatio] || '2880x2880';
     }
 
-    if (model === 'gpt-image-2' && isMagicApiGptImageAspectRatio(aspectRatio)) {
+    if (isMagicApiGptImage2Model(model) && isMagicApiGptImageAspectRatio(aspectRatio)) {
       return MAGICAPI_GPT_IMAGE_2_SIZE_BY_ASPECT_RATIO[aspectRatio] || '2048x2048';
     }
 

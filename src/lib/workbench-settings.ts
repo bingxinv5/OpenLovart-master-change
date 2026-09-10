@@ -66,6 +66,8 @@ export const IMAGE_DEFAULT_MODEL_OPTIONS = [
   'gemini-3-pro-image-preview',
   'grok-4-2-image',
   'gpt-image-2-pro',
+  'gpt-image-2.5-sunburst',
+  'gpt-image-2.5-flare',
 ] as const;
 export type ImageDefaultModel = typeof IMAGE_DEFAULT_MODEL_OPTIONS[number];
 
@@ -264,7 +266,9 @@ function getDefaultImageDefaultsForProvider(providerId: AiProviderId): ImageGene
 
 function getImageDefaultModelsForProvider(providerId: AiProviderId): ImageDefaultModel[] {
   const providerModels = getProviderImageModels(providerId).filter(isImageDefaultModel);
-  return providerModels.length > 0 ? providerModels : [...IMAGE_DEFAULT_MODEL_OPTIONS];
+  return providerModels.length > 0 ? providerModels : IMAGE_DEFAULT_MODEL_OPTIONS.filter(
+    (model) => model !== 'gpt-image-2.5-sunburst' && model !== 'gpt-image-2.5-flare',
+  );
 }
 
 function getFallbackModelForProvider(providerId: AiProviderId, fallback: ImageGenerationDefaults): ImageDefaultModel {

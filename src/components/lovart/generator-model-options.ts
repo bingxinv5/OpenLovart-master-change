@@ -82,6 +82,8 @@ export const IMAGE_MODEL_OPTIONS = [
     'gemini-3-pro-image-preview',
     'grok-4-2-image',
     'gpt-image-2-pro',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare',
 ] as const;
 
 export type ImageModel = (typeof IMAGE_MODEL_OPTIONS)[number];
@@ -103,6 +105,8 @@ export const IMAGE_MODEL_LABELS: Record<ImageModel, string> = {
     'gemini-3-pro-image-preview': 'gemini-3-pro-image-preview',
     'grok-4-2-image': 'grok-4-2-image',
     'gpt-image-2-pro': 'gpt-image-2-pro',
+    'gpt-image-2.5-sunburst': 'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare': 'gpt-image-2.5-flare',
 };
 
 const ALL_IMAGE_MODELS = new Set<string>(IMAGE_MODEL_OPTIONS);
@@ -113,7 +117,9 @@ export function isImageModel(value: unknown): value is ImageModel {
 
 export function getImageModelOptionsForProvider(providerId: AiProviderId = DEFAULT_AI_PROVIDER_ID): ImageModel[] {
     const models = getProviderImageModels(providerId).filter(isImageModel);
-    return models.length > 0 ? models : [...IMAGE_MODEL_OPTIONS];
+    return models.length > 0 ? models : IMAGE_MODEL_OPTIONS.filter(
+        (model) => model !== 'gpt-image-2.5-sunburst' && model !== 'gpt-image-2.5-flare',
+    );
 }
 
 export const IMAGE_QUALITY_LABELS: Record<ImageQuality, string> = {

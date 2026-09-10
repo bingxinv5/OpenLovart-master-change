@@ -99,6 +99,8 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderDefinition> = {
         'grok-4-2-image',
         'gpt-image-2',
         'gpt-image-2-pro',
+        'gpt-image-2.5-sunburst',
+        'gpt-image-2.5-flare',
       ],
       video: [
         'sora-2',

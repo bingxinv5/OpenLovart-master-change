@@ -9,6 +9,19 @@ import {
 } from './workbench-settings';
 
 describe('workbench-settings', () => {
+  it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'] as const)(
+    'preserves GeekNow %s and its selected dimensions after settings reload', (model) => {
+      const initial = normalizeWorkbenchSettings({});
+      const updated = setImageDefaultsForProvider(initial, 'magicapi', {
+        model, imageSize: '2240x960', aspectRatio: '21:9', quality: 'high', generateCount: 2,
+      });
+      const reloaded = normalizeWorkbenchSettings(JSON.parse(JSON.stringify(updated)));
+      expect(getImageDefaultsForProvider(reloaded, 'magicapi')).toEqual({
+        model, imageSize: '2240x960', aspectRatio: '21:9', quality: 'high', generateCount: 2,
+      });
+      expect(getImageDefaultsForProvider(reloaded, 'bltcy')).toEqual(getImageDefaultsForProvider(initial, 'bltcy'));
+    },
+  );
   it('defaults the canvas theme to light', () => {
     const normalized = normalizeWorkbenchSettings({});
 
@@ -116,6 +129,30 @@ describe('workbench-settings', () => {
       duration: '5s',
       enhancePrompt: true,
     });
+  });
+
+  it('preserves persisted 4K defaults for GeekNow Gemini preview models', () => {
+    const flashSettings = normalizeWorkbenchSettings({
+      imageProviderDefaults: {
+        magicapi: {
+          ...DEFAULT_WORKBENCH_SETTINGS.imageProviderDefaults.magicapi,
+          model: 'gemini-3.1-flash-image-preview',
+          imageSize: '4K',
+        },
+      },
+    });
+    const proSettings = normalizeWorkbenchSettings({
+      imageProviderDefaults: {
+        magicapi: {
+          ...DEFAULT_WORKBENCH_SETTINGS.imageProviderDefaults.magicapi,
+          model: 'gemini-3-pro-image-preview',
+          imageSize: '4K',
+        },
+      },
+    });
+
+    expect(getImageDefaultsForProvider(flashSettings, 'magicapi').imageSize).toBe('4K');
+    expect(getImageDefaultsForProvider(proSettings, 'magicapi').imageSize).toBe('4K');
   });
 
   it('updates MagicAPI image defaults without changing the default provider defaults', () => {

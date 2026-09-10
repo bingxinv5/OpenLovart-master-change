@@ -64,6 +64,8 @@ describe('image-generation-models', () => {
   it('exposes MagicAPI model-specific image size options', () => {
     expect(getMagicApiGeminiImageSizeOptions('gemini-3-pro-image-preview')).toEqual(['1K', '2K', '4K']);
     expect(getMagicApiGeminiImageSizeOptions('gemini-3.1-flash-image-preview')).toEqual(['1K', '2K', '4K']);
+    expect(resolveMagicApiGeminiImageSize('gemini-3-pro-image-preview', '4K')).toBe('4K');
+    expect(resolveMagicApiGeminiImageSize('gemini-3.1-flash-image-preview', '2K')).toBe('2K');
     expect(resolveMagicApiGeminiImageSize('gemini-3.1-flash-image-preview', '4K')).toBe('4K');
     expect(resolveMagicApiGeminiImageSize('gemini-2.5-flash-image-preview', '4K')).toBe('1K');
 

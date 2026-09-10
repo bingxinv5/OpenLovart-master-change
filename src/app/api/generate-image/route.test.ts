@@ -22,6 +22,29 @@ describe('generate-image route', () => {
         vi.restoreAllMocks();
     });
 
+    it.each([
+        ['gpt-image-2.5-sunburst', []],
+        ['gpt-image-2.5-flare', ['data:image/png;base64,aGVsbG8=']],
+    ])('submits GeekNow %s with its exact model ID and widescreen pixel size', async (model, references) => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+            data: [{ url: 'https://example.com/gpt-25.png' }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } }));
+        const response = await POST(createRequest({
+            model, prompt: 'A wide landscape', aspectRatio: '21:9', imageSize: '2K',
+            referenceImages: references,
+        }, { 'x-ai-provider': 'magicapi' }));
+        expect(response.status).toBe(200);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const [url, init] = fetchSpy.mock.calls[0];
+        expect(url).toBe('http://localhost:3001/v1/images/generations');
+        expect(JSON.parse(String(init?.body))).toEqual({
+            model, prompt: 'A wide landscape', n: 1, size: '2240x960',
+            quality: 'high', response_format: 'url',
+            ...(references.length ? { image: ['aGVsbG8='] } : {}),
+        });
+        expect((await response.json()).taskId).toMatch(/^magicapi-local:/);
+    });
+
     it('returns a local task when upstream returns an immediate image result', async () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         fetchSpy.mockResolvedValue(new Response(JSON.stringify({
@@ -226,7 +249,7 @@ describe('generate-image route', () => {
         expect(payload.taskId).toMatch(/^magicapi-local:/);
     });
 
-    it('passes documented MagicAPI Gemini 4K image size through native payloads', async () => {
+    it('passes platform-supported MagicAPI Gemini Flash 4K through native payloads', async () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         fetchSpy.mockResolvedValue(new Response(JSON.stringify({
             status: 'SUCCESS',

@@ -14,6 +14,24 @@ import {
 } from './generator-model-options';
 
 describe('generator model options', () => {
+    it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'] as const)(
+        'exposes %s only for GeekNow with consistent size selection and fallback', (model) => {
+            expect(getImageModelOptionsForProvider('magicapi')).toContain(model);
+            for (const providerId of ['bltcy', 'jiekou', 'vapi', 'mkeai', 'laomandi'] as const) {
+                expect(getImageModelOptionsForProvider(providerId)).not.toContain(model);
+            }
+            const options = resolveImageGeneratorModelOptions({
+                providerId: 'magicapi', model, aspectRatio: '21:9', imageSize: '2240x960',
+                quality: 'high', generateCount: 1, referenceImageCount: 1,
+            });
+            expect(options.isOpenAiGptImageModel).toBe(true);
+            expect(options.availableImageSizes).toEqual(['2048x2048', '2048x1152', '1152x2048', '2240x960', '960x2240']);
+            expect(options.displayedAspectRatio).toBe('21:9');
+            expect(resolveImageGeneratorFallbackSize({
+                providerId: 'magicapi', model, aspectRatio: '21:9', imageSize: '2K',
+            })).toBe('2240x960');
+        },
+    );
     it('derives OpenAI image options with size, quality, aspect ratio and count summary', () => {
         const options = resolveImageGeneratorModelOptions({
             model: 'gpt-image-2',
@@ -76,6 +94,8 @@ describe('generator model options', () => {
             'grok-4-2-image',
             'gpt-image-2',
             'gpt-image-2-pro',
+            'gpt-image-2.5-sunburst',
+            'gpt-image-2.5-flare',
         ]);
     });
 
