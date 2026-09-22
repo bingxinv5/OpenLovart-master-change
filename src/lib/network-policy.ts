@@ -2,6 +2,19 @@ export const DEFAULT_AI_BASE_URL = 'https://api.apilio.ai';
 
 const INTERNAL_HOST_SUFFIXES = ['.local', '.lan', '.internal', '.corp', '.home', '.localdomain'];
 
+export function migrateGeekNowBaseUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (['geeknow.top', 'api.geeknow.top', 'www.geeknow.top'].includes(url.hostname.toLowerCase())) {
+      url.hostname = 'geeknow.ai';
+      return url.toString().replace(/\/$/, '');
+    }
+  } catch {
+    // Leave malformed values to the existing URL validator.
+  }
+  return value;
+}
+
 type ValidateAiBaseUrlOptions = {
   allowedPublicPatterns?: string[];
   defaultBaseUrl?: string;
@@ -20,7 +33,7 @@ export function validateAiGatewayBaseUrl(
   let parsedUrl: URL;
 
   try {
-    parsedUrl = new URL(trimmedValue);
+    parsedUrl = new URL(migrateGeekNowBaseUrl(trimmedValue));
   } catch {
     throw new Error('AI 服务地址格式无效');
   }

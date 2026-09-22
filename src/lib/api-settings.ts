@@ -12,7 +12,7 @@ import {
     normalizeAiProviderId,
     type AiProviderId,
 } from './ai-providers';
-import { validateAiGatewayBaseUrl } from './network-policy';
+import { migrateGeekNowBaseUrl, validateAiGatewayBaseUrl } from './network-policy';
 
 const STORAGE_KEY_BASE_URL = 'lovart_api_base_url';
 const STORAGE_KEY_API_KEY = 'lovart_api_key';
@@ -155,7 +155,7 @@ function createFeatureSetting(providerId: AiProviderId, settings: ApiProviderSet
 function readProviderSettings(): Record<AiProviderId, ApiProviderSettings> {
     const providers = createEmptyProviderSettings();
     providers[DEFAULT_AI_PROVIDER_ID] = {
-        baseUrl: localStorage.getItem(STORAGE_KEY_BASE_URL) || '',
+        baseUrl: migrateGeekNowBaseUrl(localStorage.getItem(STORAGE_KEY_BASE_URL) || ''),
         apiKey: localStorage.getItem(STORAGE_KEY_API_KEY) || '',
     };
 
@@ -173,7 +173,7 @@ function readProviderSettings(): Record<AiProviderId, ApiProviderSettings> {
 
             const record = rawSettings as Record<string, unknown>;
             providers[providerId] = {
-                baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : providers[providerId].baseUrl,
+                baseUrl: typeof record.baseUrl === 'string' ? migrateGeekNowBaseUrl(record.baseUrl) : providers[providerId].baseUrl,
                 apiKey: typeof record.apiKey === 'string' ? record.apiKey : providers[providerId].apiKey,
             };
         }
@@ -196,7 +196,7 @@ function mergeProviderSettings(
     for (const [rawProviderId, rawSettings] of Object.entries(patch)) {
         const providerId = normalizeAiProviderId(rawProviderId);
         next[providerId] = {
-            baseUrl: typeof rawSettings?.baseUrl === 'string' ? rawSettings.baseUrl : next[providerId].baseUrl,
+            baseUrl: typeof rawSettings?.baseUrl === 'string' ? migrateGeekNowBaseUrl(rawSettings.baseUrl) : next[providerId].baseUrl,
             apiKey: typeof rawSettings?.apiKey === 'string' ? rawSettings.apiKey : next[providerId].apiKey,
         };
     }
@@ -288,7 +288,7 @@ function mergeFeatureSettings(
         next[rawFeatureId] = {
             providerId,
             baseUrl: typeof record.baseUrl === 'string'
-                ? record.baseUrl
+                ? migrateGeekNowBaseUrl(record.baseUrl)
                 : providerId === currentSetting.providerId
                     ? currentSetting.baseUrl
                     : providerFallback.baseUrl,
@@ -389,7 +389,7 @@ function readFeatureSettings(
             acc[featureId] = {
                 providerId,
                 baseUrl: typeof record.baseUrl === 'string'
-                    ? record.baseUrl
+                    ? migrateGeekNowBaseUrl(record.baseUrl)
                     : providerId === currentSetting.providerId
                         ? currentSetting.baseUrl
                         : providerFallback.baseUrl,

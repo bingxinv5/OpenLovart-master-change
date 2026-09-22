@@ -81,7 +81,7 @@ function Test-ReleaseManifest {
         throw "Release manifest was not found: $manifestPath"
     }
 
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($entry in $manifest.files) {
         $relativePath = ([string]$entry.path).Replace('/', '\')
         $filePath = Join-Path $Root $relativePath
@@ -360,8 +360,12 @@ $manifest = [ordered]@{
     nextVersion = $nextVersion
     files = $manifestFiles
 }
-$manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $publishRoot 'release-manifest.json') -Encoding UTF8
+$manifestJson = $manifest | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText((Join-Path $publishRoot 'release-manifest.json'), $manifestJson, [System.Text.UTF8Encoding]::new($true))
 Test-ReleaseManifest -Root $publishRoot
+Invoke-NativeCommand -Description 'Verifying launcher compatibility with Windows PowerShell 5.1' -Command {
+    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-runtime-manifest.ps1') -ReleaseRoot $publishRoot
+}
 
 $targetParent = Split-Path -Parent $targetFullPath
 New-Item -ItemType Directory -Path $targetParent -Force | Out-Null

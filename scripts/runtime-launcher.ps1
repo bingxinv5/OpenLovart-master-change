@@ -37,7 +37,7 @@ function Test-ReleaseManifest {
         throw "Release manifest was not found: $manifestPath"
     }
 
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($entry in $manifest.files) {
         $relativePath = ([string]$entry.path).Replace('/', '\')
         $filePath = Join-Path $Root $relativePath

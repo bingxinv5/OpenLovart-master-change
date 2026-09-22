@@ -198,12 +198,12 @@ describe('api-settings feature providers', () => {
 
     expect(apiSettingsHeaders('chat')).toMatchObject({
       'x-ai-provider': 'magicapi',
-      'x-ai-base-url': 'https://www.geeknow.top',
+      'x-ai-base-url': 'https://geeknow.ai',
       'x-ai-api-key': 'chat-key',
     });
     expect(apiSettingsHeaders('image')).toMatchObject({
       'x-ai-provider': 'magicapi',
-      'x-ai-base-url': 'https://api.geeknow.top',
+      'x-ai-base-url': 'https://geeknow.ai',
       'x-ai-api-key': 'image-key',
     });
     expect(apiSettingsHeaders('video')).toMatchObject({

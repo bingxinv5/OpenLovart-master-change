@@ -68,13 +68,12 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderDefinition> = {
     id: 'magicapi',
     label: 'MagicAPI / GeekNow',
     description: '独立第三方平台，按 MagicAPI 文档和 GeekNow 插件样本适配 OpenAI/Gemini/视频接口。',
-    defaultBaseUrl: 'https://api.geeknow.top',
-    allowedPublicPatterns: ['api.geeknow.top', 'www.geeknow.top', 'geek.closeai.icu'],
+    defaultBaseUrl: 'https://geeknow.ai',
+    allowedPublicPatterns: ['geeknow.ai', 'geek.closeai.icu'],
     apiKeyEnv: 'MAGICAPI_API_KEY',
     baseUrlEnv: 'MAGICAPI_API_BASE_URL',
     baseUrlOptions: [
-      { label: 'CDN 服务', value: 'https://api.geeknow.top' },
-      { label: '海外 CN2 服务', value: 'https://www.geeknow.top' },
+      { label: 'GeekNow', value: 'https://geeknow.ai' },
       { label: '国内服务器', value: 'https://geek.closeai.icu' },
     ],
     capabilities: {
